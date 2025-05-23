@@ -138,15 +138,17 @@ except ImportError:
 # Import necessary functions from other modules
 try:
     # First try to import from the ai package
-    from ai.webChat import get_dashboard_metric, anomaly_explainer_agent, swarm_client, context_variables, client, AGENT_MODEL, load_and_combine_notes
-    logger.warning("Successfully imported from ai.webChat")
+    from ai.webChat import get_dashboard_metric, swarm_client, context_variables, client, AGENT_MODEL, load_and_combine_notes
+    from ai.agents.explainer_agent import create_explainer_agent
+    logger.warning("Successfully imported from ai.webChat and ai.agents.explainer_agent")
 except ImportError:
     try:
         # If that fails, try to import from the local directory
-        from webChat import get_dashboard_metric, anomaly_explainer_agent, swarm_client, context_variables, client, AGENT_MODEL, load_and_combine_notes
-        logger.warning("Successfully imported from webChat")
+        from webChat import get_dashboard_metric, swarm_client, context_variables, client, AGENT_MODEL, load_and_combine_notes
+        from agents.explainer_agent import create_explainer_agent
+        logger.warning("Successfully imported from webChat and agents.explainer_agent")
     except ImportError:
-        logger.error("Failed to import from webChat", exc_info=True)
+        logger.error("Failed to import from webChat or explainer_agent", exc_info=True)
         raise
 
 # Restore original basicConfig if needed
@@ -1014,17 +1016,12 @@ def generate_explanations(report_ids):
             logger.info(f"  Values: recent={recent_mean}, comparison={comparison_mean}, diff={difference}, percent_change={percent_change}")
             logger.info(f"  Period: {period_type}, District: {district}")
             
-            # Create a simple session for the anomaly explainer agent
+            # Create a simple session for the explainer agent
             session_id = f"report_{report_id}"
             session_context = context_variables.copy()
             
-            # Create a session for the agent
-            sessions = {}
-            sessions[session_id] = {
-                "messages": [],
-                "agent": anomaly_explainer_agent,
-                "context_variables": session_context
-            }
+            # Create the explainer agent instance
+            explainer_agent = create_explainer_agent(session_context)
             
             # Create a simple, direct prompt for the agent
             direction = "increased" if delta > 0 else "decreased"
@@ -1045,171 +1042,118 @@ DO NOT include any additional content, headers, or formatting outside of this JS
             
             logger.info(f"Prompt for explainer agent: {prompt[:200]}...")
             
-            # Add prompt to the session
-            session_data = sessions[session_id]
-            session_data["messages"].append({"role": "user", "content": prompt})
-            
             # Process with the agent
             try:
                 logger.info(f"Running explainer agent for metric: {metric_id}")
-                # Run the agent in a non-streaming mode to get the complete response
-                response = swarm_client.run(
-                    agent=anomaly_explainer_agent,
-                    messages=session_data["messages"],
-                    context_variables=session_data["context_variables"],
-                    stream=False
-                )
-                
-                # Log information about the response type and attributes
-                logger.info(f"Explainer agent response type: {type(response)}")
-                if hasattr(response, '__dict__'):
-                    logger.info(f"Response attributes: {list(response.__dict__.keys())}")
-                elif isinstance(response, dict):
-                    logger.info(f"Response keys: {list(response.keys())}")
-                
-                # Log the raw response for debugging
-                try:
-                    if hasattr(response, 'model_dump'):
-                        logger.info(f"Response model_dump: {safe_json_serialize(response.model_dump())[:500]}...")
-                    elif isinstance(response, dict):
-                        logger.info(f"Response dict: {safe_json_serialize(response)[:500]}...")
-                    elif hasattr(response, '__dict__'):
-                        logger.info(f"Response __dict__: {safe_json_serialize(response.__dict__)[:500]}...")
-                    else:
-                        logger.info(f"Response string: {str(response)[:500]}...")
-                except Exception as dump_error:
-                    logger.error(f"Error dumping response for logging: {str(dump_error)}")
-                    logger.error(f"Response type: {type(response)}")
-                    if callable(response):
-                        logger.error("Response is a callable function, cannot serialize")
-                    else:
-                        logger.error(f"Response repr: {repr(response)[:200]}...")
+                # Use the new explainer agent's synchronous method with JSON return
+                response = explainer_agent.explain_change_sync(prompt, return_json=True)
                 
                 explanation = ""
                 chart_data = None
                 explainer_metadata = {}
                 
                 # Check if response contains content
-                if response:
-                    # Try to extract JSON data from the response messages
-                    try:
-                        # Extract the response content
-                        response_content = None
-                        
-                        # Check if response has a 'messages' attribute
-                        if hasattr(response, 'messages') and response.messages:
-                            logger.info(f"Response has messages attribute with {len(response.messages)} messages")
-                            # Get the last message
-                            last_message = response.messages[-1]
-                            logger.info(f"Last message type: {type(last_message)}")
-                            
-                            # Check if the message has content
-                            if hasattr(last_message, 'content') and last_message.content:
-                                response_content = str(last_message.content)
-                                logger.info(f"Found response content in last message content: {response_content[:100]}...")
-                            # Check if the message has text
-                            elif hasattr(last_message, 'text') and last_message.text:
-                                response_content = str(last_message.text)
-                                logger.info(f"Found response content in last message text: {response_content[:100]}...")
-                            # Check if the message is a dict with content
-                            elif isinstance(last_message, dict) and 'content' in last_message:
-                                response_content = str(last_message['content'])
-                                logger.info(f"Found response content in last message dict content: {response_content[:100]}...")
-                            # Check if the message is a dict with text
-                            elif isinstance(last_message, dict) and 'text' in last_message:
-                                response_content = str(last_message['text'])
-                                logger.info(f"Found response content in last message dict text: {response_content[:100]}...")
-                        
-                        # If no response_content found in messages, try to extract from the response itself
-                        if not response_content:
-                            # Handle other response types as previously implemented
-                            # ... existing code for parsing response ...
-                            if isinstance(response, str):
-                                response_content = response
-                            # Add other extraction methods as needed
-                        
-                        # Now try to parse the JSON from the response_content
-                        if response_content:
-                            try:
-                                # Extract JSON content from the response_content
-                                # First look for JSON content between ```json and ``` markers
-                                json_pattern = r'```json\s*([\s\S]*?)\s*```'
-                                json_match = re.search(json_pattern, response_content)
-                                
-                                if json_match:
-                                    json_str = json_match.group(1)
-                                    logger.info(f"Found JSON content in code block: {json_str[:200]}...")
-                                    explainer_data = json.loads(json_str)
-                                else:
-                                    # Try to parse the entire response as JSON
-                                    logger.info("Attempting to parse entire response as JSON")
-                                    explainer_data = json.loads(response_content)
-                                
-                                logger.info(f"Successfully parsed JSON data: {json.dumps(explainer_data)[:200]}...")
-                                
-                                # Extract the specific fields we're looking for
-                                if "explanation" in explainer_data:
-                                    explanation = explainer_data["explanation"]
-                                    logger.info(f"Extracted explanation from JSON: {explanation[:100]}...")
-                                    
-                                # Store all fields in metadata
-                                explainer_metadata = explainer_data
-                                
-                                # Keep chart data separate
-                                if "chart_data" in explainer_data:
-                                    chart_data = explainer_data["chart_data"]
-                                elif "charts" in explainer_data:
-                                    chart_data = explainer_data["charts"]
-                                    
-                            except json.JSONDecodeError as json_err:
-                                logger.warning(f"Failed to parse JSON from response: {json_err}")
-                                logger.warning(f"Response content: {response_content[:500]}...")
-                                # If JSON parsing fails, attempt to extract explanation using existing methods
-                                explanation_pattern = r'EXPLANATION:\s*([\s\S]*?)(?:\Z|(?:TREND_ANALYSIS:|CHARTS:))'
-                                explanation_match = re.search(explanation_pattern, response_content)
-                                if explanation_match:
-                                    explanation = explanation_match.group(1).strip()
-                                    logger.info(f"Extracted explanation using regex: {explanation[:100]}...")
-                                    
-                                # Also try to extract trend analysis
-                                trend_pattern = r'TREND_ANALYSIS:\s*([\s\S]*?)(?:\Z|CHARTS:)'
-                                trend_match = re.search(trend_pattern, response_content)
-                                if trend_match:
-                                    explainer_metadata["trend_analysis"] = trend_match.group(1).strip()
-                                    logger.info(f"Extracted trend analysis using regex: {explainer_metadata['trend_analysis'][:100]}...")
-                                    
-                        else:
-                            logger.warning("Could not extract response content")
-                            
-                    except Exception as e:
-                        logger.error(f"Error extracting data from response: {e}")
-                        logger.error(traceback.format_exc())
-                
-                # Validate the explanation
-                if explanation:
-                    if len(explanation) < 10:  # If explanation is too short
-                        logger.warning(f"Extracted explanation is too short: {explanation}")
-                        explanation = ""
-                    elif len(explanation) > 5000:  # If explanation is too long
-                        logger.warning(f"Extracted explanation is too long ({len(explanation)} chars), truncating")
-                        explanation = explanation[:5000] + "..."
-                
-                # If explanation is still empty after all attempts, use a fallback
-                if not explanation:
-                    logger.warning(f"No explanation returned from agent for {metric_name}")
+                if response and response.get('success'):
+                    content = response.get('content', '')
+                    logger.info(f"Explainer agent response content: {content[:200]}...")
                     
-                    # First try to use the explanation already in the database
-                    if item.get("explanation"):
-                        explanation = item.get("explanation")
-                        logger.info(f"Using existing explanation from prioritization step: {explanation[:100]}...")
+                    # Try to extract JSON data from the response
+                    if response.get('parsed_json'):
+                        # Use the pre-parsed JSON if available
+                        explainer_data = response['parsed_json']
+                        logger.info(f"Using pre-parsed JSON data: {json.dumps(explainer_data)[:200]}...")
+                        
+                        # Extract the specific fields we're looking for
+                        if "explanation" in explainer_data:
+                            explanation = explainer_data["explanation"]
+                            logger.info(f"Extracted explanation from JSON: {explanation[:100]}...")
+                            
+                        # Store all fields in metadata
+                        explainer_metadata = explainer_data
+                        
+                        # Keep chart data separate
+                        if "chart_data" in explainer_data:
+                            chart_data = explainer_data["chart_data"]
+                        elif "charts" in explainer_data:
+                            chart_data = explainer_data["charts"]
                     else:
-                        # If there's no explanation at all, create a generic one
-                        explanation = f"Unable to generate an automated explanation for the change in {metric_name} ({percent_change_str}) between {previous_month} and {recent_month}."
-                
+                        # Fallback to parsing from content
+                        try:
+                            # Extract JSON content from the response_content
+                            # First look for JSON content between ```json and ``` markers
+                            json_pattern = r'```json\s*([\s\S]*?)\s*```'
+                            json_match = re.search(json_pattern, content)
+                            
+                            if json_match:
+                                json_str = json_match.group(1)
+                                logger.info(f"Found JSON content in code block: {json_str[:200]}...")
+                                explainer_data = json.loads(json_str)
+                            else:
+                                # Try to parse the entire response as JSON
+                                logger.info("Attempting to parse entire response as JSON")
+                                explainer_data = json.loads(content)
+                            
+                            logger.info(f"Successfully parsed JSON data: {json.dumps(explainer_data)[:200]}...")
+                            
+                            # Extract the specific fields we're looking for
+                            if "explanation" in explainer_data:
+                                explanation = explainer_data["explanation"]
+                                logger.info(f"Extracted explanation from JSON: {explanation[:100]}...")
+                                
+                            # Store all fields in metadata
+                            explainer_metadata = explainer_data
+                            
+                            # Keep chart data separate
+                            if "chart_data" in explainer_data:
+                                chart_data = explainer_data["chart_data"]
+                            elif "charts" in explainer_data:
+                                chart_data = explainer_data["charts"]
+                                
+                        except json.JSONDecodeError as json_err:
+                            logger.warning(f"Failed to parse JSON from response: {json_err}")
+                            logger.warning(f"Response content: {content[:500]}...")
+                            # If JSON parsing fails, attempt to extract explanation using existing methods
+                            explanation_pattern = r'EXPLANATION:\s*([\s\S]*?)(?:\Z|(?:TREND_ANALYSIS:|CHARTS:))'
+                            explanation_match = re.search(explanation_pattern, content)
+                            if explanation_match:
+                                explanation = explanation_match.group(1).strip()
+                                logger.info(f"Extracted explanation using regex: {explanation[:100]}...")
+                                
+                            # Also try to extract trend analysis
+                            trend_pattern = r'TREND_ANALYSIS:\s*([\s\S]*?)(?:\Z|CHARTS:)'
+                            trend_match = re.search(trend_pattern, content)
+                            if trend_match:
+                                explainer_metadata["trend_analysis"] = trend_match.group(1).strip()
+                                logger.info(f"Extracted trend analysis using regex: {explainer_metadata['trend_analysis'][:100]}...")
+                else:
+                    logger.error(f"Explainer agent failed: {response.get('error', 'Unknown error')}")
+                    explanation = f"Error generating explanation: {response.get('error', 'Unknown error')}"
+            
             except Exception as e:
                 logger.error(f"Error running explainer agent: {str(e)}", exc_info=True)
                 logger.error(f"Traceback: {traceback.format_exc()}")
                 explanation = f"Error generating explanation for {metric_name}: {str(e)}"
+            
+            # Validate the explanation
+            if explanation:
+                if len(explanation) < 10:  # If explanation is too short
+                    logger.warning(f"Extracted explanation is too short: {explanation}")
+                    explanation = ""
+                elif len(explanation) > 5000:  # If explanation is too long
+                    logger.warning(f"Extracted explanation is too long ({len(explanation)} chars), truncating")
+                    explanation = explanation[:5000] + "..."
+            
+            # If explanation is still empty after all attempts, use a fallback
+            if not explanation:
+                logger.warning(f"No explanation returned from agent for {metric_name}")
+                
+                # First try to use the explanation already in the database
+                if item.get("explanation"):
+                    explanation = item.get("explanation")
+                    logger.info(f"Using existing explanation from prioritization step: {explanation[:100]}...")
+                else:
+                    # If there's no explanation at all, create a generic one
+                    explanation = f"Unable to generate an automated explanation for the change in {metric_name} ({percent_change_str}) between {previous_month} and {recent_month}."
                 
             # Log the final explanation that will be stored
             logger.info(f"Final explanation to be stored for {metric_name} (length: {len(explanation)}): {explanation[:200]}...")
@@ -1652,7 +1596,9 @@ def generate_monthly_report(report_date=None, district="0"):
             try:
                 with open(prompt_log_path, 'a', encoding='utf-8') as f:
                     f.write('\n\n=== GENERATED REPORT RESPONSE ===\n')
-                    f.write(report_text)
+                    # Only try to write report_text if it exists (it doesn't exist yet at this point)
+                    # The report_text variable is defined after the API call further down
+                    f.write("Will be added after generation")
                     f.write('\n=== END GENERATED REPORT RESPONSE ===\n')
             except Exception as log_error:
                 logger.error(f"Error logging generated report response: {log_error}")
@@ -1671,6 +1617,16 @@ def generate_monthly_report(report_date=None, district="0"):
 
         report_text = response.choices[0].message.content
         logger.info(f"Received report content (length: {len(report_text)})")
+        
+        # Log the generated report content to a file
+        try:
+            with open(prompt_log_path, 'a', encoding='utf-8') as f:
+                f.write('\n\n=== GENERATED REPORT RESPONSE ===\n')
+                f.write(report_text)
+                f.write('\n=== END GENERATED REPORT RESPONSE ===\n')
+            logger.info(f"Successfully logged generated report content to {prompt_log_path}")
+        except Exception as log_error:
+            logger.error(f"Error logging generated report content: {log_error}")
         
         # Once we have the report text, insert any charts if they exist
         for i, item in enumerate(report_data, 1):
@@ -1874,6 +1830,12 @@ def proofread_and_revise_report(report_path):
         )
         response_content = response.choices[0].message.content
         
+        # Save the raw response for debugging
+        debug_path = Path(report_path).parent / f"{Path(report_path).stem}_raw_response.txt"
+        with open(debug_path, 'w', encoding='utf-8') as f:
+            f.write(response_content)
+        logger.info(f"Saved raw proofread response to {debug_path}")
+        
         # Parse the JSON response
         try:
             proofread_data = json.loads(response_content)
@@ -1889,21 +1851,60 @@ def proofread_and_revise_report(report_path):
             logger.error(f"Failed to parse proofread response as JSON: {e}")
             logger.error(f"Raw response: {response_content[:500]}...")
             # Attempt to recover newsletter, headlines, and feedback using regex
-            newsletter_match = re.search(r'"newsletter"\s*:\s*"(.*?)"\s*,', response_content, re.DOTALL)
-            feedback_match = re.search(r'"proofread_feedback"\s*:\s*"(.*?)"\s*,', response_content, re.DOTALL)
+            # Improved regex patterns to better handle incomplete JSON
+            newsletter_match = re.search(r'"newsletter"\s*:\s*"(.*?)("|}|\Z)', response_content, re.DOTALL)
+            if newsletter_match:
+                # Get the content but remove any trailing characters if we matched end of string
+                newsletter_content = newsletter_match.group(1)
+                if newsletter_match.group(2) != '"':
+                    # If we didn't match the closing quote, we need to handle a truncated string
+                    logger.warning("Newsletter content appears to be truncated - trying to recover")
+                    # Add closing quote if missing
+                    newsletter_content += '"'
+            else:
+                newsletter_content = None
+                
+            feedback_match = re.search(r'"proofread_feedback"\s*:\s*"(.*?)("|}|\Z)', response_content, re.DOTALL)
+            if feedback_match:
+                # Get the content but remove any trailing characters if we matched end of string
+                feedback_content = feedback_match.group(1)
+                if feedback_match.group(2) != '"':
+                    # If we didn't match the closing quote, we need to handle a truncated string
+                    logger.warning("Feedback content appears to be truncated - trying to recover")
+            else:
+                feedback_content = None
+                
             headlines_match = re.search(r'"headlines"\s*:\s*(\[.*?\])', response_content, re.DOTALL)
-            revised_newsletter_content = newsletter_match.group(1) if newsletter_match else None
-            proofread_feedback = feedback_match.group(1) if feedback_match else None
+            
+            revised_newsletter_content = newsletter_content
+            proofread_feedback = feedback_content
+            
             try:
                 headlines = json.loads(headlines_match.group(1)) if headlines_match else None
-            except Exception:
+            except Exception as headlines_error:
+                logger.error(f"Error parsing headlines: {headlines_error}")
                 headlines = None
-            logger.warning("Recovered fields from malformed JSON: newsletter=%s, feedback=%s, headlines=%s", bool(revised_newsletter_content), bool(proofread_feedback), bool(headlines))
+                
+            logger.warning("Recovered fields from malformed JSON: newsletter=%s, feedback=%s, headlines=%s", 
+                          bool(revised_newsletter_content), bool(proofread_feedback), bool(headlines))
+            
             if revised_newsletter_content:
                 # Save the revised newsletter content
                 report_path_obj = Path(report_path)
                 revised_filename = f"{report_path_obj.stem}_revised{report_path_obj.suffix}"
                 revised_path = report_path_obj.parent / revised_filename
+                
+                # The newsletter content might have escaped quotes we need to unescape
+                try:
+                    # Try to handle common JSON escape sequences
+                    revised_newsletter_content = revised_newsletter_content.replace('\\"', '"')
+                    revised_newsletter_content = revised_newsletter_content.replace('\\n', '\n')
+                    revised_newsletter_content = revised_newsletter_content.replace('\\r', '\r')
+                    revised_newsletter_content = revised_newsletter_content.replace('\\t', '\t')
+                    revised_newsletter_content = revised_newsletter_content.replace('\\\\', '\\')
+                except Exception as unescape_error:
+                    logger.error(f"Error unescaping content: {unescape_error}")
+                
                 with open(revised_path, 'w', encoding='utf-8') as f:
                     f.write(revised_newsletter_content)
                 logger.info(f"Revised newsletter saved to {revised_path} (recovered from malformed JSON)")
@@ -2765,7 +2766,7 @@ def generate_chart_data_url(chart_type, params):
     Generate a chart as a data URL for direct embedding in HTML.
     
     Args:
-        chart_type: Type of chart ('time_series' or 'anomaly')
+        chart_type: Type of chart ('time_series', 'anomaly', or 'map')
         params: Parameters for the chart (metric_id, district, etc.)
         
     Returns:
@@ -2806,12 +2807,32 @@ def generate_chart_data_url(chart_type, params):
             except Exception as e:
                 logger.error(f"Error using Datawrapper for anomaly data URL: {str(e)}", exc_info=True)
                 logger.info("Falling back to traditional chart approach for data URL")
+        
+        # For maps, try to use Datawrapper
+        elif chart_type == 'map':
+            map_id = params.get('id', params.get('map_id'))
+            if map_id:
+                try:
+                    from tools.gen_map_dw import create_datawrapper_map
+                    logger.info(f"Generating Datawrapper map for data URL: {map_id}")
+                    
+                    map_url = create_datawrapper_map(map_id)
+                    
+                    if map_url:
+                        logger.info(f"Successfully generated Datawrapper map for data URL: {map_url}")
+                        # Return the map URL directly
+                        return map_url
+                except Exception as e:
+                    logger.error(f"Error using Datawrapper for map data URL: {str(e)}", exc_info=True)
+                    logger.info("Falling back to traditional map approach for data URL")
                 
-        # Construct the URL for the chart
+        # Construct the URL for the chart/map
         if chart_type == 'time_series':
             url = f"/backend/time-series-chart?metric_id={params.get('metric_id', 1)}&district={params.get('district', 0)}&period_type={params.get('period_type', 'year')}#chart-section"
         elif chart_type == 'anomaly':
             url = f"/anomaly-analyzer/anomaly-chart?id={params.get('id', 27338)}#chart-section"
+        elif chart_type == 'map':
+            url = f"/backend/map-chart?id={params.get('id', params.get('map_id', ''))}"
         else:
             raise ValueError(f"Unsupported chart type: {chart_type}")
         
@@ -2909,6 +2930,30 @@ def generate_inline_report(report_path, output_path=None):
                 # Replace the iframe with the img tag
                 iframe_tag = f'<iframe[^>]*src="{iframe_url}"[^>]*></iframe>'
                 report_html = re.sub(iframe_tag, img_tag, report_html)
+                
+            elif 'map-chart' in iframe_url:
+                chart_type = 'map'
+                # Extract parameters from URL
+                params = {}
+                if '?' in iframe_url:
+                    for param in iframe_url.split('?')[1].split('&'):
+                        if '=' in param:
+                            key, value = param.split('=')
+                            params[key] = value
+                
+                # Generate a data URL for the map
+                data_url = generate_chart_data_url(chart_type, params)
+                if not data_url:
+                    logger.warning(f"Failed to generate data URL for {iframe_url}")
+                    continue
+                
+                # Create an img tag with the data URL
+                img_tag = f'<img src="{data_url}" alt="Map" style="max-width: 100%; height: auto;" />'
+                
+                # Replace the iframe with the img tag
+                iframe_tag = f'<iframe[^>]*src="{iframe_url}"[^>]*></iframe>'
+                report_html = re.sub(iframe_tag, img_tag, report_html)
+                
             else:
                 logger.warning(f"Unsupported iframe URL: {iframe_url}")
                 continue
@@ -3059,7 +3104,9 @@ def expand_chart_references(report_path):
         
         # Define patterns for simplified chart references
         time_series_pattern = r'\[CHART:time_series:(\d+):(\d+):(\w+)\]'
+        time_series_id_pattern = r'\[CHART:time_series_id:(\d+)\]'  # New pattern for time_series_id
         anomaly_pattern = r'\[CHART:anomaly:([a-zA-Z0-9]+)\]'  # Changed to support alphanumeric IDs
+        map_pattern = r'\[CHART:map:([a-zA-Z0-9\-]+)\]'  # Add pattern for map references
         
         # Define pattern for direct image references
         image_pattern_with_alt = r'<img[^>]*src="([^"]+)"[^>]*alt="([^"]+)"[^>]*>'
@@ -3087,7 +3134,7 @@ def expand_chart_references(report_path):
                     f'    <div class="datawrapper-chart-embed">\n'
                     f'        <iframe src="{dw_chart_url}"\n'
                     f'                style="width: 100%; border: none;" \n'
-                    f'                height="400"\n'
+                    f'                height="600"\n'
                     f'                frameborder="0" \n'
                     f'                scrolling="no"\n'
                     f'                allowfullscreen="true">\n'
@@ -3120,7 +3167,7 @@ def expand_chart_references(report_path):
                         f'        <iframe src="{chart_url}"\n'
                         f'                title="Anomaly {anomaly_id}: Trend Analysis"\n'
                         f'                style="width: 100%; border: none;" \n'
-                        f'                height="400"\n'
+                        f'                height="600"\n'
                         f'                frameborder="0" \n'
                         f'                scrolling="no"\n'
                         f'                aria-label="Anomaly {anomaly_id}: Trend Analysis"\n'
@@ -3176,7 +3223,7 @@ def expand_chart_references(report_path):
                                 f'        <iframe src="{chart_url}"\n'
                                 f'                title="Anomaly {anomaly_id}: {img_alt}"\n'
                                 f'                style="width: 100%; border: none;" \n'
-                                f'                height="400"\n'
+                                f'                height="600"\n'
                                 f'                frameborder="0" \n'
                                 f'                scrolling="no"\n'
                                 f'                aria-label="Anomaly {anomaly_id}: {img_alt}"\n'
@@ -3233,7 +3280,7 @@ def expand_chart_references(report_path):
                                 f'        <iframe src="{chart_url}"\n'
                                 f'                title="Anomaly {anomaly_id}: Trend Analysis"\n'
                                 f'                style="width: 100%; border: none;" \n'
-                                f'                height="400"\n'
+                                f'                height="600"\n'
                                 f'                frameborder="0" \n'
                                 f'                scrolling="no"\n'
                                 f'                aria-label="Anomaly {anomaly_id}: Trend Analysis"\n'
@@ -3262,9 +3309,160 @@ def expand_chart_references(report_path):
             # If we can't determine the chart type, keep the original image
             return img_tag
         
+        # Replace map references
+        def replace_map(match):
+            map_id = match.group(1)
+            
+            try:
+                # Try to use Datawrapper for the map
+                from tools.gen_map_dw import create_datawrapper_map
+                logger.info(f"Generating Datawrapper map for map ID: {map_id}")
+                
+                map_url = create_datawrapper_map(map_id)
+                
+                if map_url:
+                    logger.info(f"Successfully generated Datawrapper map for map {map_id}: {map_url}")
+                    # Use Datawrapper's responsive iframe embedding approach
+                    iframe_html = (
+                        f'<div class="chart-container">\n'
+                        f'    <div class="datawrapper-chart-embed">\n'
+                        f'        <iframe src="{map_url}"\n'
+                        f'                title="Map {map_id}"\n'
+                        f'                style="width: 100%; border: none;" \n'
+                        f'                height="600"\n'
+                        f'                frameborder="0" \n'
+                        f'                scrolling="no"\n'
+                        f'                aria-label="Map {map_id}"\n'
+                        f'                allowfullscreen="true">\n'
+                        f'        </iframe>\n'
+                        f'    </div>\n'
+                        f'</div>'
+                    )
+                    return iframe_html
+            except Exception as e:
+                logger.error(f"Error generating Datawrapper map for map {map_id}: {str(e)}")
+            
+            # Fallback to the backend map chart endpoint if Datawrapper fails
+            logger.info(f"Using fallback iframe for map ID: {map_id}")
+            return f"""
+<div class="chart-container">
+    <div style="position: relative; width: 100%; padding-bottom: 75%;">
+        <iframe src="/backend/map-chart?id={map_id}" 
+                style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: none;" 
+                frameborder="0" 
+                scrolling="no"
+                title="Map {map_id}">
+        </iframe>
+    </div>
+</div>"""
+        
+        # Replace time series chart references by chart_id
+        def replace_time_series_id(match):
+            chart_id = match.group(1)
+            
+            logger.info(f"Attempting to generate Datawrapper chart for time_series_id: {chart_id}")
+            
+            try:
+                # Import the tools we need
+                from tools.store_time_series import get_time_series_metadata, get_time_series_data
+                from tools.genChartdw import create_time_series_chart_from_data
+                
+                # Get the metadata for this chart
+                metadata_df = get_time_series_metadata(chart_id=int(chart_id))
+                if metadata_df.empty:
+                    logger.error(f"No metadata found for time_series_id: {chart_id}")
+                    return f"<!-- No metadata found for time_series_id: {chart_id} -->"
+                
+                metadata_row = metadata_df.iloc[0]
+                
+                # Get the time series data
+                data_df = get_time_series_data(chart_id=int(chart_id))
+                if data_df.empty:
+                    logger.error(f"No data found for time_series_id: {chart_id}")
+                    return f"<!-- No data found for time_series_id: {chart_id} -->"
+                
+                # Extract metadata information
+                # First check if there's additional metadata in the metadata JSONB field
+                metadata_json = metadata_row.get('metadata', {})
+                if isinstance(metadata_json, str):
+                    try:
+                        metadata_json = json.loads(metadata_json)
+                    except json.JSONDecodeError:
+                        metadata_json = {}
+                
+                # Try multiple sources for the chart title with proper fallback
+                chart_title = (
+                    metadata_json.get('title') or         # First: title from metadata JSONB
+                    metadata_json.get('chart_title') or   # Second: chart_title from metadata JSONB  
+                    metadata_row.get('object_name') or    # Third: object_name from table
+                    f"Time Series Chart {chart_id}"       # Fallback
+                )
+                
+                object_name = metadata_row.get('object_name', 'Unknown')
+                field_name = metadata_row.get('field_name', 'Value')
+                period_type = metadata_row.get('period_type', 'month')
+                district = metadata_row.get('district', 0)
+                
+                # Prepare chart data in the format expected by create_time_series_chart_from_data
+                chart_data = []
+                for _, row in data_df.iterrows():
+                    chart_data.append({
+                        'time_period': row['time_period'],
+                        'value': row['numeric_value'],
+                        'group_value': row.get('group_value')
+                    })
+                
+                # Create chart metadata
+                chart_metadata = {
+                    'title': chart_title,
+                    'object_name': object_name,
+                    'field_name': field_name,
+                    'period_type': period_type,
+                    'district': district,
+                    'chart_id': chart_id
+                }
+                
+                # Generate the Datawrapper chart
+                dw_chart_url = create_time_series_chart_from_data(
+                    chart_data=chart_data,
+                    metadata=chart_metadata
+                )
+                
+                if dw_chart_url:
+                    logger.info(f"Successfully generated Datawrapper chart for time_series_id {chart_id}: {dw_chart_url}")
+                    # Use Datawrapper's responsive iframe embedding approach
+                    iframe_html = (
+                        f'<div class="chart-container">\n'
+                        f'    <div class="datawrapper-chart-embed">\n'
+                        f'        <iframe src="{dw_chart_url}"\n'
+                        f'                title="{chart_title}"\n'
+                        f'                style="width: 100%; border: none;" \n'
+                        f'                height="600"\n'
+                        f'                frameborder="0" \n'
+                        f'                scrolling="no"\n'
+                        f'                aria-label="{chart_title}"\n'
+                        f'                allowfullscreen="true">\n'
+                        f'        </iframe>\n'
+                        f'    </div>\n'
+                        f'</div>'
+                    )
+                    return iframe_html
+                else:
+                    logger.warning(f"Failed to generate Datawrapper chart for time_series_id: {chart_id}")
+                    return f"<!-- Datawrapper chart generation failed for time_series_id: {chart_id} -->"
+                    
+            except ImportError as e:
+                logger.error(f"Missing required tools for time_series_id processing: {str(e)}")
+                return f"<!-- Missing tools for time_series_id: {chart_id} - {str(e)} -->"
+            except Exception as e:
+                logger.error(f"Error generating Datawrapper chart for time_series_id {chart_id}: {str(e)}")
+                return f"<!-- Error generating chart for time_series_id: {chart_id} - {str(e)} -->"
+        
         # Apply replacements
         report_html = re.sub(time_series_pattern, replace_time_series, report_html)
+        report_html = re.sub(time_series_id_pattern, replace_time_series_id, report_html)  # Add time_series_id support
         report_html = re.sub(anomaly_pattern, replace_anomaly, report_html)
+        report_html = re.sub(map_pattern, replace_map, report_html)
         report_html = re.sub(image_pattern_with_alt, replace_image_with_alt, report_html)
         report_html = re.sub(image_pattern_without_alt, replace_image_without_alt, report_html)
         
@@ -3285,7 +3483,7 @@ def request_chart_image(chart_type, params, output_path=None):
     Request a chart URL instead of rendering an image.
     
     Args:
-        chart_type: Type of chart ('time_series' or 'anomaly')
+        chart_type: Type of chart ('time_series', 'anomaly', or 'map')
         params: Parameters for the chart (metric_id, district, etc.)
         output_path: Ignored parameter (kept for backwards compatibility)
         
@@ -3354,6 +3552,32 @@ def request_chart_image(chart_type, params, output_path=None):
             landing_page_url = f"{API_BASE_URL}/backend/metric/{metric_id}?district={district}"
             logger.info(f"Using metric page URL: {landing_page_url}")
             return landing_page_url
+            
+        elif chart_type == 'map':
+            map_id = params.get('id', params.get('map_id'))
+            
+            if not map_id:
+                logger.error("No map ID provided for map chart request")
+                return None
+            
+            # Try to generate a Datawrapper map first
+            try:
+                from tools.gen_map_dw import create_datawrapper_map
+                logger.info(f"Attempting to create Datawrapper map for map_id: {map_id}")
+                
+                map_url = create_datawrapper_map(map_id)
+                
+                if map_url:
+                    logger.info(f"Successfully generated Datawrapper map: {map_url}")
+                    return map_url
+            except Exception as e:
+                logger.error(f"Error creating Datawrapper map: {str(e)}", exc_info=True)
+            
+            # Fallback to backend map chart endpoint
+            landing_page_url = f"{API_BASE_URL}/backend/map-chart?id={map_id}"
+            logger.info(f"Using map chart page URL: {landing_page_url}")
+            return landing_page_url
+            
         else:
             logger.error(f"Unsupported chart type: {chart_type}")
             return None
@@ -3411,6 +3635,117 @@ def safe_json_serialize(obj, default_msg="<not serializable>"):
         else:
             # For other types, just return string representation
             return f'"{str(obj)[:100] + "..." if len(str(obj)) > 100 else str(obj)}"'
+
+def generate_narrated_report(report_path, output_path=None):
+    """
+    Generate a narrated audio version of the report using ElevenLabs API.
+    
+    Args:
+        report_path: Path to the email-compatible report file
+        output_path: Path to save the audio file (defaults to same name with .mp3 extension)
+        
+    Returns:
+        Path to the generated audio file or None if failed
+    """
+    from webChat import client, AGENT_MODEL
+    
+    logger.info(f"Generating narrated version of report: {report_path}")
+    
+    # Check if ElevenLabs API key is available
+    elevenlabs_api_key = os.getenv("ELEVENLABS_API_KEY")
+    if not elevenlabs_api_key:
+        logger.warning("No ElevenLabs API key found. Cannot generate narration.")
+        return None
+    
+    try:
+        # Set default output path if not provided
+        if not output_path:
+            report_path_obj = Path(report_path)
+            # Create narration directory if it doesn't exist
+            narration_dir = Path(__file__).parent / 'output' / 'narration'
+            narration_dir.mkdir(parents=True, exist_ok=True)
+            output_path = narration_dir / f"{report_path_obj.stem}.mp3"
+        
+        # Read the email-compatible report
+        with open(report_path, 'r', encoding='utf-8') as f:
+            report_html = f.read()
+        
+        # Load prompt from JSON file
+        prompts = load_prompts()
+        prompt_template = prompts['monthly_report']['audio_transformation']['prompt']
+        system_message = prompts['monthly_report']['audio_transformation']['system']
+        
+        # Format the prompt with the newsletter content
+        prompt = prompt_template.format(newsletter_content=report_html)
+        
+        logger.info("Using AI to transform newsletter content for audio narration")
+        
+        # Use AI to transform the content for audio
+        response = client.chat.completions.create(
+            model=AGENT_MODEL,
+            messages=[
+                {"role": "system", "content": system_message},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.1
+        )
+        
+        audio_script = response.choices[0].message.content
+        logger.info(f"Generated audio script: {len(audio_script)} characters")
+        logger.info(f"Sample audio script: {audio_script[:200]}...")
+        
+        # Limit text length for ElevenLabs (API has character limits)
+        max_chars = 2500  # Conservative limit for ElevenLabs
+        if len(audio_script) > max_chars:
+            # Find a good breaking point (end of sentence)
+            truncate_point = audio_script.rfind('.', 0, max_chars)
+            if truncate_point > max_chars // 2:  # Make sure we didn't truncate too much
+                audio_script = audio_script[:truncate_point + 1]
+            else:
+                audio_script = audio_script[:max_chars]
+            
+            logger.info(f"Truncated audio script to {len(audio_script)} characters for ElevenLabs API")
+        
+        # ElevenLabs API configuration
+        # Using a default voice ID - this could be made configurable
+        voice_id = os.getenv("ELEVENLABS_VOICE_ID", "21m00Tcm4TlvDq8ikWAM")  # Default to Rachel voice
+        
+        # ElevenLabs API endpoint
+        url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
+        
+        headers = {
+            "Accept": "audio/mpeg",
+            "Content-Type": "application/json",
+            "xi-api-key": elevenlabs_api_key
+        }
+        
+        data = {
+            "text": audio_script,
+            "model_id": "eleven_monolingual_v1",
+            "voice_settings": {
+                "stability": 0.5,
+                "similarity_boost": 0.5
+            }
+        }
+        
+        # Make the API request
+        logger.info("Sending request to ElevenLabs API")
+        response = requests.post(url, json=data, headers=headers)
+        
+        if response.status_code == 200:
+            # Save the audio file
+            with open(output_path, 'wb') as f:
+                f.write(response.content)
+            
+            logger.info(f"Successfully generated narrated report at {output_path}")
+            return str(output_path)
+        else:
+            logger.error(f"ElevenLabs API error: {response.status_code} - {response.text}")
+            return None
+            
+    except Exception as e:
+        logger.error(f"Error generating narrated report: {str(e)}", exc_info=True)
+        return None
 
 if __name__ == "__main__":
     # Run the monthly report process

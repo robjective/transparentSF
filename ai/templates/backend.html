@@ -5,55 +5,63 @@
     <title>SF Public Data Dashboard</title>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <style>
+        /* Import brand fonts */
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap');
+        
+        :root {
+            /* Brand Colors */
+            --ink-black: #222222;
+            --cloud-gray: #E8E9EB;
+            --warm-coral: #FF6B5A;
+            --bright-purple: #ad35fa;
+            --soft-sand: #F6F1EA;
+            --sky-tint: #B8D8E3;
+        }
+        
         body { 
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; 
+            font-family: 'IBM Plex Sans', Arial, Helvetica, sans-serif; 
             margin: 0;
             padding: 0;
             overflow: hidden;
             font-size: 14px;
-            color: #333;
+            color: var(--ink-black);
             background-color: #ffffff;
         }
         
-        /* Main container for two-column layout */
+        /* Main container for three-column layout */
         .main-container {
             display: flex;
             height: 100vh;
             overflow: hidden;
-        }
-
-        /* Sidebar with white/black design */
-        .sidebar {
-            flex: 0 0 220px;
-            background: #ffffff;
-            overflow-y: auto;
-            padding: 0;
-            color: #000000;
-            z-index: 10;
-            border-right: 1px solid #e0e0e0;
-            display: flex;
-            flex-direction: column;
-        }
-
-        /* Header styles moved to sidebar */
-        .header {
-            background-color: #ffffff;
-            padding: 20px;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            border-bottom: 1px solid #e0e0e0;
+            position: relative;
         }
         
-        /* Text Logo Styles */
-        .logo-container {
+        /* Top header bar with wordmark and explainer button */
+        .top-header {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 60px;
+            background: #ffffff;
+            border-bottom: 1px solid var(--cloud-gray);
+            z-index: 100;
             display: flex;
             align-items: center;
-            margin-bottom: 10px;
+            justify-content: space-between;
+            padding: 0 20px;
+        }
+        
+        /* Wordmark in top left */
+        .top-wordmark {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            cursor: pointer;
         }
         
         #wordmark-logo {
-            height: 36px; /* Adjust as needed for visual balance */
+            height: 32px;
         }
         
         .beta-container {
@@ -64,9 +72,64 @@
         }
         
         .beta-text {
-            font-size: 10px;
+            font-family: 'Inter', sans-serif;
             font-weight: 600;
+            font-size: 10px;
             color: hsl(0, 100%, 35%);
+        }
+        
+        /* Explainer toggle button in top right - brand purple circle */
+        .explainer-toggle {
+            background: #ad35fa66;
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 48px;
+            height: 48px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+            transition: all 0.3s ease;
+            position: relative;
+        }
+        
+        .explainer-toggle:hover {
+            transform: scale(1.05);
+            background: #ad35fa66;
+        }
+        
+        .explainer-toggle.active {
+            background: var(--bright-purple);
+        }
+        
+        .explainer-toggle.active:hover {
+            background: var(--bright-purple);
+        }
+
+        /* Sidebar with brand design - adjust for top header */
+        .sidebar {
+            flex: 0 0 220px;
+            background: #ffffff;
+            overflow-y: auto;
+            padding: 0;
+            color: var(--ink-black);
+            z-index: 10;
+            border-right: 1px solid var(--cloud-gray);
+            display: flex;
+            flex-direction: column;
+            margin-top: 60px; /* Account for top header */
+        }
+
+        /* Sidebar header - simplified without wordmark and toggle */
+        .sidebar-header {
+            background-color: #ffffff;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            border-bottom: 1px solid var(--cloud-gray);
         }
 
         /* Navigation section headers */
@@ -76,12 +139,13 @@
         }
         
         .nav-section h3 {
+            font-family: 'Inter', sans-serif;
+            font-weight: 600;
             font-size: 12px;
             text-transform: uppercase;
             letter-spacing: 1px;
-            color: #000000;
+            color: var(--ink-black);
             margin: 0 0 8px 0;
-            font-weight: 600;
         }
         
         /* Button styles for sidebar */
@@ -90,79 +154,105 @@
             width: 90%;
             margin: 4px auto;
             padding: 10px 15px;
-            background: #f8f8f8;
+            background: #ffffff;
             border: none;
             border-radius: 4px;
-            color: #000000;
+            color: var(--ink-black);
             text-align: left;
             cursor: pointer;
             transition: all 0.2s ease;
             font-size: 13px;
+            font-family: 'IBM Plex Sans', sans-serif;
+            outline: none; /* Remove default browser focus outline */
         }
         
         .sidebar button:hover {
-            background: #f0f0f0;
+            background: var(--cloud-gray);
+        }
+        
+        .sidebar button:focus {
+            outline: none; /* Remove default browser focus styling */
+        }
+        
+        .sidebar button:active {
+            outline: none; /* Remove default browser active styling */
         }
         
         /* Analysis buttons */
         .analysis-btn {
-            background: #f0f0f0 !important;
-            border-left: 3px solid #000000 !important;
+            background: var(--cloud-gray) !important;
+            border-left: 3px solid var(--ink-black) !important;
         }
         
         /* Dashboard buttons */
         .dashboard-btn {
-            background: #f0f0f0 !important;
-            border-left: 3px solid #555555 !important;
+            background: var(--cloud-gray) !important;
+            border-left: 3px solid var(--ink-black) !important;
         }
         
         /* Management buttons */
         .management-btn {
-            background: #f0f0f0 !important;
-            border-left: 3px solid #777777 !important;
+            background: var(--cloud-gray) !important;
+            border-left: 3px solid var(--ink-black) !important;
+        }
+        
+        /* Selected/Active button state - purple left tab only */
+        .sidebar button.selected,
+        .sidebar button.active {
+            background: var(--cloud-gray) !important;
+            color: var(--ink-black) !important;
+            border-left: 3px solid var(--bright-purple) !important;
+        }
+        
+        .sidebar button.selected:hover,
+        .sidebar button.active:hover {
+            background: var(--cloud-gray) !important;
+            color: var(--ink-black) !important;
         }
         
         /* Danger button */
         .danger-btn {
-            background: #f0f0f0 !important;
-            border-left: 3px solid #cc0000 !important;
-            color: #cc0000 !important;
+            background: var(--cloud-gray) !important;
+            border-left: 3px solid var(--warm-coral) !important;
+            color: var(--warm-coral) !important;
         }
         
         /* Divider */
         .sidebar-divider {
             height: 1px;
-            background: #e0e0e0;
+            background: var(--cloud-gray);
             margin: 15px auto;
             width: 80%;
         }
         
         /* Disk space container */
         .disk-space {
-            background: #f8f8f8;
+            background: #ffffff;
             margin: 20px 15px;
             padding: 15px;
             border-radius: 6px;
-            border: 1px solid #e0e0e0;
+            border: 1px solid var(--cloud-gray);
         }
         
         .disk-space h3 {
+            font-family: 'Inter', sans-serif;
+            font-weight: 600;
             margin: 0 0 8px 0;
             font-size: 12px;
-            color: #000000;
+            color: var(--ink-black);
             text-transform: uppercase;
             letter-spacing: 0.5px;
         }
         
         .disk-space-details {
             font-size: 12px;
-            color: #333333;
+            color: var(--ink-black);
         }
         
         .progress-bar {
             width: 100%;
             height: 4px;
-            background: #e0e0e0;
+            background: var(--cloud-gray);
             border-radius: 2px;
             margin-top: 10px;
             overflow: hidden;
@@ -170,17 +260,23 @@
         
         .progress {
             height: 100%;
-            background-color: #000000;
+            background-color: var(--ink-black);
             transition: width 0.3s ease;
         }
 
-        /* Main content area */
+        /* Main content area - adjust for explainer panel and top header */
         .main-content {
             flex: 1;
             overflow-y: auto;
-            padding: 25px;
+            padding: 0;
             background-color: #ffffff;
             position: relative;
+            transition: margin-right 0.3s ease;
+            margin-top: 60px; /* Account for top header */
+        }
+        
+        .main-content.with-explainer {
+            margin-right: 400px;
         }
         
         /* Create iframe in main content */
@@ -191,73 +287,366 @@
             overflow: auto;
         }
         
-        /* Improved select visibility */
+        /* Explainer panel styles - updated with brand colors */
+        .explainer-panel {
+            position: fixed;
+            top: 60px; /* Account for top header */
+            right: -400px;
+            width: 400px;
+            height: calc(100vh - 60px);
+            background: #ffffff;
+            border-left: 1px solid var(--cloud-gray);
+            z-index: 15;
+            display: flex;
+            flex-direction: column;
+            transition: right 0.3s ease;
+        }
+        
+        .explainer-panel.open {
+            right: 0;
+        }
+        
+        .explainer-header {
+            background: #ffffff;
+            padding: 15px 20px;
+            border-bottom: 1px solid var(--cloud-gray);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        
+        .explainer-header-left {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .explainer-new-chat {
+            background: var(--bright-purple);
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+            transition: all 0.2s ease;
+            font-weight: bold;
+        }
+        
+        .explainer-new-chat:hover {
+            background: #8e2bbf;
+            transform: scale(1.05);
+        }
+        
+        .explainer-header h3 {
+            font-family: 'Inter', sans-serif;
+            font-weight: 600;
+            margin: 0;
+            font-size: 16px;
+            color: var(--ink-black);
+        }
+        
+        .explainer-close {
+            background: none;
+            border: none;
+            font-size: 24px;
+            cursor: pointer;
+            color: var(--ink-black);
+            padding: 0;
+            width: 30px;
+            height: 30px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 15px;
+            transition: background 0.2s ease;
+        }
+        
+        .explainer-close:hover {
+            background: var(--cloud-gray);
+        }
+        
+        .explainer-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        
+        .explainer-messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+            background: #ffffff;
+        }
+        
+        .explainer-input-area {
+            border-top: 1px solid var(--cloud-gray);
+            padding: 15px 20px;
+            background: #ffffff;
+        }
+        
+        .explainer-input-container {
+            display: flex;
+            gap: 10px;
+        }
+        
+        .explainer-input {
+            flex: 1;
+            padding: 12px;
+            border: 1px solid var(--cloud-gray);
+            border-radius: 8px;
+            font-size: 14px;
+            font-family: 'IBM Plex Sans', sans-serif;
+            resize: none;
+            min-height: 20px;
+            max-height: 120px;
+            background: #ffffff;
+            color: var(--ink-black);
+            display: flex;
+            align-items: center;
+            line-height: 1.4;
+        }
+        
+        .explainer-input:focus {
+            outline: none;
+            border-color: var(--bright-purple);
+            box-shadow: 0 0 0 2px rgba(173, 53, 250, 0.1);
+        }
+        
+        .explainer-send {
+            background: var(--bright-purple);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            padding: 12px 20px;
+            cursor: pointer;
+            font-size: 14px;
+            font-family: 'IBM Plex Sans', sans-serif;
+            font-weight: 500;
+            transition: background 0.2s ease;
+        }
+        
+        .explainer-send:hover:not(:disabled) {
+            background: #8e2bbf;
+        }
+        
+        .explainer-send:disabled {
+            background: var(--cloud-gray);
+            cursor: not-allowed;
+        }
+        
+        /* Message styles for explainer - updated with brand colors */
+        .explainer-message {
+            margin-bottom: 20px;
+            padding: 12px 16px;
+            border-radius: 12px;
+            max-width: 85%;
+            line-height: 1.4;
+            font-family: 'IBM Plex Sans', sans-serif;
+        }
+        
+        .explainer-message.user {
+            background: #b8a9e8;
+            color: white;
+            margin-left: auto;
+            text-align: right;
+        }
+        
+        .explainer-message.assistant {
+            background: #ffffff;
+            color: var(--ink-black);
+            border: 1px solid var(--cloud-gray);
+        }
+        
+        .explainer-message.system {
+            background: #ffffff;
+            color: var(--ink-black);
+            border: 1px solid var(--cloud-gray);
+            font-style: italic;
+            text-align: center;
+            margin: 10px auto;
+            max-width: 90%;
+        }
+        
+        .explainer-message .sender {
+            font-weight: 500;
+            font-size: 12px;
+            margin-bottom: 4px;
+            opacity: 0.8;
+        }
+        
+        .explainer-message .content {
+            font-size: 14px;
+        }
+        
+        .explainer-message .content h1,
+        .explainer-message .content h2,
+        .explainer-message .content h3 {
+            font-family: 'Inter', sans-serif;
+            font-weight: 600;
+            margin: 12px 0 8px 0;
+            color: var(--ink-black);
+        }
+        
+        .explainer-message .content ul,
+        .explainer-message .content ol {
+            margin: 8px 0;
+            padding-left: 20px;
+        }
+        
+        .explainer-message .content code {
+            background: var(--cloud-gray);
+            padding: 1px 3px;
+            border-radius: 3px;
+            font-family: 'IBM Plex Mono', 'Courier New', monospace;
+            font-size: 12px;
+            font-weight: 400;
+        }
+        
+        .explainer-message .content pre {
+            background: var(--cloud-gray);
+            padding: 8px;
+            border-radius: 6px;
+            overflow-x: auto;
+            font-family: 'IBM Plex Mono', 'Courier New', monospace;
+            font-size: 12px;
+            font-weight: 400;
+        }
+        
+        .explainer-message .content blockquote {
+            border-left: 4px solid var(--bright-purple);
+            padding-left: 12px;
+            margin: 12px 0;
+            font-style: italic;
+        }
+        
+        .explainer-typing {
+            display: none;
+            align-items: center;
+            gap: 8px;
+            padding: 12px 16px;
+            background: #ffffff;
+            border: 1px solid var(--cloud-gray);
+            border-radius: 12px;
+            max-width: 85%;
+            margin-bottom: 20px;
+            font-family: 'IBM Plex Sans', sans-serif;
+        }
+        
+        .explainer-typing.show {
+            display: flex;
+        }
+        
+        .explainer-typing-dots {
+            display: flex;
+            gap: 4px;
+        }
+        
+        .explainer-typing-dot {
+            width: 8px;
+            height: 8px;
+            background: var(--ink-black);
+            border-radius: 50%;
+            animation: typing 1.4s infinite ease-in-out;
+        }
+        
+        .explainer-typing-dot:nth-child(1) {
+            animation-delay: -0.32s;
+        }
+        
+        .explainer-typing-dot:nth-child(2) {
+            animation-delay: -0.16s;
+        }
+        
+        @keyframes typing {
+            0%, 80%, 100% {
+                transform: scale(0.8);
+                opacity: 0.5;
+            }
+            40% {
+                transform: scale(1);
+                opacity: 1;
+            }
+        }
+        
+        /* Improved select visibility with brand colors */
         .sidebar select {
-            background: #f0f0f0;
-            color: #000000;
-            border: 1px solid #e0e0e0;
+            background: #ffffff;
+            color: var(--ink-black);
+            border: 1px solid var(--cloud-gray);
             padding: 8px;
             border-radius: 4px;
             width: 100%;
+            font-family: 'IBM Plex Sans', sans-serif;
         }
         
         .sidebar select option {
             background-color: #ffffff;
-            color: #000000;
+            color: var(--ink-black);
         }
         
-        /* Rest of existing styles */
+        /* Rest of existing styles - updated with brand colors and typography */
         table { 
             width: 100%; 
             border-collapse: collapse; 
             margin-top: 20px; 
+            font-family: 'IBM Plex Sans', sans-serif;
         }
         th, td { 
-            border: 1px solid #e0e0e0; 
+            border: 1px solid var(--cloud-gray); 
             padding: 2px; 
             text-align: left; 
             font-size: 13px;
         }
         th { 
-            background-color: #f4f4f4; 
+            background-color: #ffffff; 
+            font-family: 'Inter', sans-serif;
+            font-weight: 600;
+            border-bottom: 2px solid var(--cloud-gray);
         }
         tr:nth-child(even) { 
-            background-color: #f9f9f9; 
+            background-color: #ffffff; 
         }
         tr:hover { 
-            background-color: #f1f1f1; 
+            background-color: var(--cloud-gray); 
         }
         .actions button { 
             padding: 6px 12px;
             border: 1px solid transparent;
             border-radius: 4px;
             cursor: pointer;
-            font-weight: bold;
+            font-weight: 500;
+            font-family: 'IBM Plex Sans', sans-serif;
             transition: all 0.2s ease;
             min-width: 100px;
             margin: 0 4px;
         }
         .prep-btn {
-            background-color: #ad35fa;
+            background-color: var(--bright-purple);
             color: white;
         }
         .run-btn {
-            background-color: #28A745;
+            background-color: var(--warm-coral);
             color: white;
         }
         .prep-btn:hover {
-            background-color: #0056b3;
+            background-color: #8e2bbf;
         }
         .run-btn:hover {
-            background-color: #1e7e34;
+            background-color: #e55a4a;
         }
         .button-disabled { 
-            background-color: #6c757d !important; 
+            background-color: var(--cloud-gray) !important; 
             cursor: not-allowed; 
             opacity: 0.7;
         }
         .button-error { 
-            background-color: #dc3545 !important; 
+            background-color: var(--warm-coral) !important; 
         }
         .spinner {
             border: 2px solid rgba(255, 255, 255, 0.3);
@@ -279,13 +668,13 @@
         .output-links a {
             margin-right: 10px;
             text-decoration: none;
-            color: #ad35fa;
+            color: var(--bright-purple);
         }
         .output-links a:hover {
             text-decoration: underline;
         }
         
-        /* Loading indicator overlay */
+        /* Loading indicator overlay - updated with brand styling */
         .loading-overlay {
             display: none;
             position: fixed;
@@ -293,7 +682,7 @@
             left: 0;
             width: 100%;
             height: 100%;
-            background: rgba(255, 255, 255, 0.7);
+            background: rgba(255, 255, 255, 0.9);
             z-index: 1000;
             align-items: center;
             justify-content: center;
@@ -303,7 +692,7 @@
             background: #ffffff;
             padding: 25px 40px;
             border-radius: 10px;
-            border: 1px solid #e0e0e0;
+            border: 1px solid var(--cloud-gray);
             text-align: center;
             max-width: 80%;
         }
@@ -312,23 +701,25 @@
             display: inline-block;
             width: 50px;
             height: 50px;
-            border: 4px solid #e0e0e0;
+            border: 4px solid var(--cloud-gray);
             border-radius: 50%;
-            border-top-color: #000000;
+            border-top-color: var(--bright-purple);
             animation: spinner-rotate 1s linear infinite;
             margin-bottom: 15px;
         }
         
         .loading-text {
+            font-family: 'Inter', sans-serif;
+            font-weight: 600;
             font-size: 18px;
-            font-weight: 500;
-            color: #000000;
+            color: var(--ink-black);
             margin-bottom: 8px;
         }
         
         .loading-subtext {
+            font-family: 'IBM Plex Sans', sans-serif;
             font-size: 14px;
-            color: #333333;
+            color: var(--ink-black);
         }
         
         @keyframes spinner-rotate {
@@ -336,7 +727,7 @@
             100% { transform: rotate(360deg); }
         }
         
-        /* Modal Styles */
+        /* Modal Styles - updated with brand colors */
         .modal {
             display: none;
             position: fixed;
@@ -346,14 +737,14 @@
             width: 100%;
             height: 100%;
             overflow: auto;
-            background-color: rgba(0,0,0,0.4);
+            background-color: rgba(34, 34, 34, 0.5);
         }
         
         .modal-content {
             background-color: #ffffff;
             margin: 10% auto;
             padding: 0;
-            border: 1px solid #e0e0e0;
+            border: 1px solid var(--cloud-gray);
             border-radius: 8px;
             width: 500px;
             max-width: 80%;
@@ -362,29 +753,32 @@
         
         .modal-header {
             padding: 15px 20px;
-            background-color: #f8f8f8;
-            border-bottom: 1px solid #e0e0e0;
+            background-color: #ffffff;
+            border-bottom: 1px solid var(--cloud-gray);
             display: flex;
             align-items: center;
             justify-content: space-between;
         }
         
         .modal-header h2 {
+            font-family: 'Inter', sans-serif;
+            font-weight: 600;
             margin: 0;
             font-size: 18px;
-            color: #333;
+            color: var(--ink-black);
         }
         
         .close {
-            color: #666;
+            color: var(--ink-black);
             font-size: 28px;
             font-weight: bold;
             cursor: pointer;
+            transition: color 0.2s ease;
         }
         
         .close:hover,
         .close:focus {
-            color: #000;
+            color: var(--warm-coral);
             text-decoration: none;
         }
         
@@ -392,30 +786,34 @@
             padding: 20px;
             max-height: 60vh;
             overflow-y: auto;
+            font-family: 'IBM Plex Sans', sans-serif;
         }
         
         .modal-footer {
             padding: 15px 20px;
-            background-color: #f8f8f8;
-            border-top: 1px solid #e0e0e0;
+            background-color: #ffffff;
+            border-top: 1px solid var(--cloud-gray);
             text-align: right;
         }
         
-        /* Delete Data Modal Specific Styles */
+        /* Delete Data Modal Specific Styles - updated with brand colors */
         .delete-options {
             margin-bottom: 20px;
         }
         
         .delete-options h3 {
+            font-family: 'Inter', sans-serif;
+            font-weight: 600;
             margin: 20px 0 10px 0;
             font-size: 16px;
-            color: #333;
+            color: var(--ink-black);
         }
         
         .delete-option {
             margin: 10px 0;
             display: flex;
             align-items: center;
+            font-family: 'IBM Plex Sans', sans-serif;
         }
         
         .delete-option input[type="checkbox"] {
@@ -428,8 +826,8 @@
         
         .delete-warning {
             background-color: #fff8f8;
-            border: 1px solid #ffdddd;
-            border-left: 4px solid #cc0000;
+            border: 1px solid var(--warm-coral);
+            border-left: 4px solid var(--warm-coral);
             padding: 10px 15px;
             border-radius: 4px;
             margin-top: 20px;
@@ -437,42 +835,57 @@
         
         .delete-warning p {
             margin: 0;
-            color: #333;
+            color: var(--ink-black);
+            font-family: 'IBM Plex Sans', sans-serif;
         }
         
         .cancel-btn, .confirm-btn {
             padding: 8px 16px;
             font-size: 14px;
+            font-family: 'IBM Plex Sans', sans-serif;
+            font-weight: 500;
             border-radius: 4px;
             cursor: pointer;
             margin-left: 10px;
+            transition: all 0.2s ease;
         }
         
         .cancel-btn {
-            background-color: #f0f0f0;
-            border: 1px solid #e0e0e0;
-            color: #333;
+            background-color: var(--cloud-gray);
+            border: 1px solid var(--cloud-gray);
+            color: var(--ink-black);
+        }
+        
+        .cancel-btn:hover {
+            background-color: #d5d6d8;
         }
         
         .confirm-btn {
-            background-color: #cc0000;
-            border: 1px solid #aa0000;
+            background-color: var(--warm-coral);
+            border: 1px solid var(--warm-coral);
             color: white;
+        }
+        
+        .confirm-btn:hover {
+            background-color: #e55a4a;
         }
     </style>
 </head>
 <body>
     <div class="main-container">
-        <div class="sidebar">
-            <div class="header">
-                <div class="logo-container" style="cursor: pointer;" id="dashboard-logo">
-                    <img src="/static/wordmark.png" alt="TransparentSF Logo" id="wordmark-logo">
-                </div>
+        <!-- Top Header with Wordmark and Explainer Button -->
+        <div class="top-header">
+            <div class="top-wordmark" id="dashboard-logo">
+                <img src="/static/wordmark.png" alt="TransparentSF Logo" id="wordmark-logo">
                 <div class="beta-container">
                     <div class="beta-text">BETA</div>
                 </div>
             </div>
-            
+            <button class="explainer-toggle" id="explainer-toggle" title="Open Explainer Agent">
+            </button>
+        </div>
+        
+        <div class="sidebar">
             <div class="nav-section">
                 <h3>Tools</h3>
             </div>
@@ -481,12 +894,6 @@
             <button data-href="/backend/metric-control" class="dashboard-btn">Metric Control</button>
             <button data-href="/backend/query" class="dashboard-btn">Query Tool</button>
             <button data-href="/backend/evals-interface" class="dashboard-btn">Agent Evals</button>
-
-            <div class="nav-section">
-                <h3>Agents</h3>
-            </div>
-            <!-- Agent Buttons - Create a new class for agents -->
-            <button data-href="/" class="dashboard-btn">Agent Chat</button>
 
             <div class="nav-section">
                 <h3>Actions</h3>
@@ -518,9 +925,48 @@
             <button id="delete-data-btn" class="danger-btn">Delete Data</button>
         </div>
 
-        <div class="main-content">
+        <div class="main-content" id="main-content">
             <!-- Load the main page initially -->
             <iframe id="content-frame" name="content-frame" src="/webchat"></iframe>
+        </div>
+        
+        <!-- Explainer Agent Panel -->
+        <div class="explainer-panel" id="explainer-panel">
+            <div class="explainer-header">
+                <div class="explainer-header-left">
+                    <button class="explainer-new-chat" id="explainer-new-chat" title="Start New Chat">+</button>
+                    <h3>Seymour</h3>
+                </div>
+                <button class="explainer-close" id="explainer-close">&times;</button>
+            </div>
+            <div class="explainer-content">
+                <div class="explainer-messages" id="explainer-messages">
+                    <div class="explainer-message system">
+                        <div class="content">
+                            I'm Seymour, the AI behind Transparent SF.<br><br>I turn San Francisco's public data into clear, no-spin insights you can actually use. Crime trends, housing shifts, budget breakdowns — I surface the signals that matter and show who's responsible.<br><br>No jargon. No panic. Just clean, calm, civic intelligence.
+                        </div>
+                    </div>
+                </div>
+                <div class="explainer-typing" id="explainer-typing">
+                    <div class="explainer-typing-dots">
+                        <div class="explainer-typing-dot"></div>
+                        <div class="explainer-typing-dot"></div>
+                        <div class="explainer-typing-dot"></div>
+                    </div>
+                    <span>Seymour is thinking...</span>
+                </div>
+                <div class="explainer-input-area">
+                    <div class="explainer-input-container">
+                        <textarea 
+                            class="explainer-input" 
+                            id="explainer-input" 
+                            placeholder="Ask me to explain a metric change, anomaly, or data pattern..."
+                            rows="1"
+                        ></textarea>
+                        <button class="explainer-send" id="explainer-send">Send</button>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
     
@@ -611,6 +1057,11 @@
     </div>
 
     <script>
+        // Explainer Agent functionality
+        let explainerOpen = false;
+        let isExplainerProcessing = false;
+        let explainerSessionId = null; // Track current session ID
+        
         // Add utility functions to show/hide loading indicator
         function showLoading(operationText) {
             const overlay = document.getElementById('loading-overlay');
@@ -628,23 +1079,355 @@
             overlay.style.display = 'none';
         }
         
+        // Explainer panel toggle functions
+        function openExplainerPanel() {
+            const panel = document.getElementById('explainer-panel');
+            const mainContent = document.getElementById('main-content');
+            const toggleBtn = document.getElementById('explainer-toggle');
+            
+            panel.classList.add('open');
+            mainContent.classList.add('with-explainer');
+            toggleBtn.classList.add('active');
+            toggleBtn.title = 'Close Explainer Agent';
+            explainerOpen = true;
+            
+            // Focus on input
+            setTimeout(() => {
+                document.getElementById('explainer-input').focus();
+            }, 300);
+        }
+        
+        function closeExplainerPanel() {
+            const panel = document.getElementById('explainer-panel');
+            const mainContent = document.getElementById('main-content');
+            const toggleBtn = document.getElementById('explainer-toggle');
+            
+            panel.classList.remove('open');
+            mainContent.classList.remove('with-explainer');
+            toggleBtn.classList.remove('active');
+            toggleBtn.title = 'Open Explainer Agent';
+            explainerOpen = false;
+        }
+        
+        function toggleExplainerPanel() {
+            if (explainerOpen) {
+                closeExplainerPanel();
+            } else {
+                openExplainerPanel();
+            }
+        }
+        
+        // Clear explainer chat history
+        function clearExplainerChat() {
+            const messagesContainer = document.getElementById('explainer-messages');
+            messagesContainer.innerHTML = '';
+            
+            // Clear session on backend if we have one
+            if (explainerSessionId) {
+                clearExplainerSessionBackend(explainerSessionId);
+                explainerSessionId = null;
+            }
+            
+            // Add welcome message back
+            addExplainerMessage('I\'m Seymour, the AI behind Transparent SF.\n\nI turn San Francisco\'s public data into clear, no-spin insights you can actually use. Crime trends, housing shifts, budget breakdowns — I surface the signals that matter and show who\'s responsible.\n\nNo jargon. No panic. Just clean, calm, civic intelligence.', 'system', false);
+        }
+        
+        // Clear session on backend
+        async function clearExplainerSessionBackend(sessionId) {
+            try {
+                await fetch('/backend/api/explainer-clear-session', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        session_id: sessionId
+                    })
+                });
+            } catch (error) {
+                console.error('Error clearing session on backend:', error);
+            }
+        }
+        
+        // Chart placeholder processing function
+        function processChartPlaceholders(content) {
+            if (!content) return content;
+            
+            // Regular expression to match chart placeholders: [CHART:type:param1:param2:param3]
+            const chartRegex = /\[CHART:([^:]+):([^\]]+)\]/g;
+            
+            return content.replace(chartRegex, (match, chartType, params) => {
+                const paramParts = params.split(':');
+                
+                if (chartType === 'anomaly') {
+                    // For anomaly charts: [CHART:anomaly:anomaly_id]
+                    const anomalyId = paramParts[0];
+                    return `<div class="chart-container" style="margin: 4px 0;">
+                        <iframe src="/anomaly-analyzer/anomaly-chart?id=${anomalyId}" 
+                                style="width: 100%; height: 400px; border: none;" 
+                                frameborder="0" scrolling="no">
+                        </iframe>
+                    </div>`;
+                    
+                } else if (chartType === 'time_series' || chartType === 'time_series_id') {
+                    // For time series charts: [CHART:time_series:metric_id:district:period] or [CHART:time_series_id:chart_id]
+                    if (paramParts.length === 1) {
+                        // Chart ID format: [CHART:time_series_id:chart_id]
+                        const chartId = paramParts[0];
+                        return `<div class="chart-container" style="margin: 4px 0;">
+                            <iframe src="/backend/time-series-chart?chart_id=${chartId}" 
+                                    style="width: 100%; height: 400px; border: none;" 
+                                    frameborder="0" scrolling="no">
+                            </iframe>
+                        </div>`;
+                    } else {
+                        // Metric format: [CHART:time_series:metric_id:district:period]
+                        const metricId = paramParts[0];
+                        const district = paramParts[1] || '0';
+                        const period = paramParts[2] || 'month';
+                        return `<div class="chart-container" style="margin: 4px 0;">
+                            <iframe src="/backend/time-series-chart?metric_id=${metricId}&district=${district}&period_type=${period}" 
+                                    style="width: 100%; height: 400px; border: none;" 
+                                    frameborder="0" scrolling="no">
+                            </iframe>
+                        </div>`;
+                    }
+                    
+                } else if (chartType === 'map') {
+                    // For map charts: [CHART:map:map_id]
+                    const mapId = paramParts[0];
+                    // This would need to be implemented based on your map visualization system
+                    return `<div class="chart-container" style="margin: 4px 0;">
+                        <iframe src="/backend/map-chart?id=${mapId}" 
+                                style="width: 100%; height: 400px; border: none;" 
+                                frameborder="0" scrolling="no">
+                        </iframe>
+                    </div>`;
+                }
+                
+                // If unknown chart type, return the original placeholder
+                return match;
+            });
+        }
+
+        // Add message to explainer chat
+        function addExplainerMessage(content, sender = 'assistant', isMarkdown = true) {
+            const messagesContainer = document.getElementById('explainer-messages');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `explainer-message ${sender}`;
+            
+            const contentDiv = document.createElement('div');
+            contentDiv.className = 'content';
+            
+            // Process chart placeholders first
+            let processedContent = content;
+            if (sender === 'assistant') {
+                processedContent = processChartPlaceholders(content);
+            }
+            
+            if (isMarkdown && typeof marked !== 'undefined') {
+                contentDiv.innerHTML = marked.parse(processedContent);
+            } else {
+                contentDiv.innerHTML = processedContent;
+            }
+            
+            messageDiv.appendChild(contentDiv);
+            messagesContainer.appendChild(messageDiv);
+            
+            // Scroll to bottom
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+            
+            return messageDiv;
+        }
+        
+        // Show/hide typing indicator
+        function showExplainerTyping() {
+            document.getElementById('explainer-typing').classList.add('show');
+            const messagesContainer = document.getElementById('explainer-messages');
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }
+        
+        function hideExplainerTyping() {
+            document.getElementById('explainer-typing').classList.remove('show');
+        }
+        
+        // Send message to explainer agent
+        async function sendExplainerMessage(message) {
+            if (isExplainerProcessing || !message.trim()) return;
+            
+            isExplainerProcessing = true;
+            const sendBtn = document.getElementById('explainer-send');
+            const input = document.getElementById('explainer-input');
+            
+            // Disable input and button
+            sendBtn.disabled = true;
+            input.disabled = true;
+            
+            // Add user message
+            addExplainerMessage(message, 'user', false);
+            
+            // Clear input
+            input.value = '';
+            input.style.height = 'auto';
+            
+            // Show typing indicator
+            showExplainerTyping();
+            
+            try {
+                // Send request to streaming endpoint with session ID
+                const response = await fetch('/backend/api/explain-change-streaming', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        prompt: message,
+                        session_data: {
+                            session_id: explainerSessionId
+                        }
+                    })
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let assistantMessage = null;
+                let currentContent = '';
+                
+                // Hide typing indicator
+                hideExplainerTyping();
+                
+                while (true) {
+                    const { done, value } = await reader.read();
+                    
+                    if (done) break;
+                    
+                    const chunk = decoder.decode(value);
+                    const lines = chunk.split('\n');
+                    
+                    
+                    for (const line of lines) {
+                        if (line.startsWith('data: ')) {
+                            try {
+                                const data = JSON.parse(line.slice(6));
+                                
+                                // Handle session ID from backend
+                                if (data.session_id && !explainerSessionId) {
+                                    explainerSessionId = data.session_id;
+                                    console.log('Received session ID:', explainerSessionId);
+                                }
+                                
+                                if (data.content) {
+                                    currentContent += data.content;
+                                    
+                                    if (!assistantMessage) {
+                                        assistantMessage = addExplainerMessage('', 'assistant');
+                                    }
+                                    
+                                    // Process chart placeholders and update content with markdown parsing
+                                    const processedContent = processChartPlaceholders(currentContent);
+                                    const contentDiv = assistantMessage.querySelector('.content');
+                                    if (typeof marked !== 'undefined') {
+                                        contentDiv.innerHTML = marked.parse(processedContent);
+                                    } else {
+                                        contentDiv.innerHTML = processedContent;
+                                    }
+                                    
+                                    // Scroll to bottom
+                                    const messagesContainer = document.getElementById('explainer-messages');
+                                    messagesContainer.scrollTop = messagesContainer.scrollHeight;
+                                }
+                                
+                                if (data.completed) {
+                                    break;
+                                }
+                                
+                                if (data.error) {
+                                    throw new Error(data.error);
+                                }
+                            } catch (e) {
+                                console.error('Error parsing SSE data:', e);
+                            }
+                        }
+                    }
+                }
+                
+            } catch (error) {
+                hideExplainerTyping();
+                console.error('Error sending message to explainer:', error);
+                addExplainerMessage(`Sorry, I encountered an error: ${error.message}`, 'system', false);
+            } finally {
+                // Re-enable input and button
+                isExplainerProcessing = false;
+                sendBtn.disabled = false;
+                input.disabled = false;
+                input.focus();
+            }
+        }
+        
+        // Auto-resize textarea
+        function autoResizeTextarea(textarea) {
+            textarea.style.height = 'auto';
+            textarea.style.height = Math.min(textarea.scrollHeight, 120) + 'px';
+        }
+        
         document.addEventListener('DOMContentLoaded', () => {
             // Load dashboard by default
             document.getElementById('content-frame').src = '/backend/dashboard';
             
-            // Add logo click handler
+            // Add logo click handler for the new top wordmark
             document.getElementById('dashboard-logo').addEventListener('click', function() {
+                // Clear all selected states when going to dashboard
+                document.querySelectorAll('.sidebar button[data-href]').forEach(btn => {
+                    btn.classList.remove('selected');
+                });
+                
                 document.getElementById('content-frame').src = '/backend/dashboard';
             });
             
             // Initialize frame navigation
             document.querySelectorAll('.sidebar button[data-href]').forEach(button => {
                 button.addEventListener('click', function() {
+                    // Remove selected class from all sidebar buttons
+                    document.querySelectorAll('.sidebar button[data-href]').forEach(btn => {
+                        btn.classList.remove('selected');
+                    });
+                    
+                    // Add selected class to clicked button
+                    this.classList.add('selected');
+                    
                     const href = this.getAttribute('data-href');
                     if (href) {
                         document.getElementById('content-frame').src = href;
                     }
                 });
+            });
+            
+            // Explainer panel event listeners
+            document.getElementById('explainer-toggle').addEventListener('click', toggleExplainerPanel);
+            document.getElementById('explainer-close').addEventListener('click', closeExplainerPanel);
+            document.getElementById('explainer-new-chat').addEventListener('click', clearExplainerChat);
+            
+            // Explainer input event listeners
+            const explainerInput = document.getElementById('explainer-input');
+            const explainerSend = document.getElementById('explainer-send');
+            
+            explainerInput.addEventListener('input', function() {
+                autoResizeTextarea(this);
+            });
+            
+            explainerInput.addEventListener('keydown', function(e) {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    sendExplainerMessage(this.value);
+                }
+            });
+            
+            explainerSend.addEventListener('click', function() {
+                sendExplainerMessage(explainerInput.value);
             });
             
             // Function to format bytes to human readable format

@@ -311,6 +311,7 @@
     <script>
         // Get parameters from URL
         const urlParams = new URLSearchParams(window.location.search);
+        const chartId = urlParams.get('chart_id');
         const metricId = urlParams.get('metric_id');
         const district = urlParams.get('district') || '0';
         const periodType = urlParams.get('period_type') || 'month';
@@ -1134,9 +1135,11 @@
             const hasGroups = timeSeriesData.some(item => item.group_value);
             let groupCounts = '';
             
+            // Always initialize the groupCounter, even when there are no groups
+            const groupCounter = {};
+            
             if (hasGroups) {
                 // Count items per group
-                const groupCounter = {};
                 timeSeriesData.forEach(item => {
                     const groupValue = item.group_value || 'Unknown';
                     groupCounter[groupValue] = (groupCounter[groupValue] || 0) + 1;
@@ -1261,31 +1264,39 @@
         
         // Function to fetch time series data
         async function fetchTimeSeriesData() {
-            // Check if metric ID is provided
-            if (!metricId) {
-                showError('No metric ID provided. Please specify a metric ID in the URL.');
-                return;
-            }
-            
             try {
                 // Show loading indicator
                 showLoading();
                 
-                // Construct API URL with all parameters
-                let apiUrl = `/api/chart-by-metric?metric_id=${metricId}&district=${district}&period_type=${periodType}`;
+                let apiUrl;
                 
-                // Add groups parameter if present
-                if (groups) {
-                    apiUrl += `&groups=${encodeURIComponent(groups)}`;
-                }
-                
-                // Add group_field parameter if present
-                if (groupField) {
-                    apiUrl += `&group_field=${encodeURIComponent(groupField)}`;
+                // If chart_id is provided, use the direct chart endpoint
+                if (chartId) {
+                    apiUrl = `/api/chart/${chartId}`;
+                    console.log(`Fetching time series data by chart_id with URL: ${apiUrl}`);
+                } 
+                // Otherwise use the metric-based endpoint (backward compatibility)
+                else if (metricId) {
+                    // Construct API URL with all parameters
+                    apiUrl = `/api/chart-by-metric?metric_id=${metricId}&district=${district}&period_type=${periodType}`;
+                    
+                    // Add groups parameter if present
+                    if (groups) {
+                        apiUrl += `&groups=${encodeURIComponent(groups)}`;
+                    }
+                    
+                    // Add group_field parameter if present
+                    if (groupField) {
+                        apiUrl += `&group_field=${encodeURIComponent(groupField)}`;
+                    }
+                    
+                    console.log(`Fetching time series data by metric_id with URL: ${apiUrl}`);
+                } else {
+                    showError('No chart_id or metric_id provided. Please specify either parameter in the URL.');
+                    return;
                 }
                 
                 // Fetch time series data
-                console.log(`Fetching time series data with URL: ${apiUrl}`);
                 const response = await fetch(apiUrl);
                 
                 if (!response.ok) {
@@ -1529,26 +1540,32 @@
             modal.show();
         }
         
-        // Function to update the embed code based on current settings - MODIFIED TO NOT INCLUDE #chart-section
+        // Function to update the embed code based on current settings - Modified to preserve chart_id or metric_id
         function updateEmbedCode() {
             const width = document.getElementById('widthInput').value;
             const height = document.getElementById('heightInput').value;
             const isResponsive = document.getElementById('responsiveCheck').checked;
             
-            // No need to append #chart-section since we show the chart by default now
-            let embedCode = `<iframe src="${window.location.href.split('#')[0].split('?')[0]}?metric_id=${metricId}&district=${district}&period_type=${periodType}`;
+            // Construct the URL based on whether we have chart_id or metric_id
+            let embedUrl = `${window.location.href.split('#')[0].split('?')[0]}?`;
             
-            // Add groups parameter if present
-            if (groups) {
-                embedCode += `&groups=${encodeURIComponent(groups)}`;
+            if (chartId) {
+                embedUrl += `chart_id=${chartId}`;
+            } else {
+                embedUrl += `metric_id=${metricId}&district=${district}&period_type=${periodType}`;
+                
+                // Add groups parameter if present
+                if (groups) {
+                    embedUrl += `&groups=${encodeURIComponent(groups)}`;
+                }
+                
+                // Add group_field parameter if present
+                if (groupField) {
+                    embedUrl += `&group_field=${encodeURIComponent(groupField)}`;
+                }
             }
             
-            // Add group_field parameter if present
-            if (groupField) {
-                embedCode += `&group_field=${encodeURIComponent(groupField)}`;
-            }
-            
-            embedCode += `"`;
+            let embedCode = `<iframe src="${embedUrl}"`;
             
             if (isResponsive) {
                 embedCode += ` style="width: 100%; height: 100%; border: none;"`;

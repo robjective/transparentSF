@@ -13,6 +13,9 @@ from tools.vector_query import query_docs  #
 from tools.genChart import generate_time_series_chart
 from tools.retirementdata import read_csv_with_encoding
 from tools.genGhostPost import generate_ghost_post
+from tools.generate_map import generate_map, get_map_by_id, get_recent_maps
+from tools.gen_map_dw import create_datawrapper_map
+from tools.notes_manager import get_notes, load_and_combine_notes, initialize_notes
 from pathlib import Path
 # Import FastAPI and related modules
 from fastapi import APIRouter, Request, Cookie
@@ -77,35 +80,8 @@ except Exception as e:
     print(f"Error writing to log file: {e}")
     raise
 
-# Configure root logger first
-# logging.basicConfig( # REMOVED: Configuration should happen in main.py
-#     level=logging.INFO,  # Set to INFO level
-#     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-#     handlers=[
-#         logging.StreamHandler(sys.stdout),  # Log to stdout for debugging
-#         logging.FileHandler(log_file, mode='a', encoding='utf-8')
-#     ]
-# )
-
 # Configure our module's logger
 logger = logging.getLogger(__name__)
-# logger.setLevel(logging.INFO) # REMOVED: Inherit level from root logger
-
-# Remove any existing handlers to avoid duplication # REMOVED: Let root logger handle handlers
-# for handler in logger.handlers[:]:
-#     logger.removeHandler(handler)
-
-# Add handlers specifically for our logger # REMOVED: Let root logger handle handlers
-# file_handler = logging.FileHandler(log_file, mode='a', encoding='utf-8')
-# stream_handler = logging.StreamHandler(sys.stdout)
-
-# Create a custom formatter # REMOVED: Let root logger handle handlers
-# formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-# file_handler.setFormatter(formatter)
-# stream_handler.setFormatter(formatter)
-
-# logger.addHandler(file_handler)
-# logger.addHandler(stream_handler)
 
 # Test the logger
 logger.info(f"WebChat logging initialized at {datetime.now()}")
@@ -145,6 +121,9 @@ combined_df = {"dataset": pd.DataFrame()}
 # Add environment check at the top with other configurations
 IS_PRODUCTION = os.getenv("ENVIRONMENT", "development") == "production"
 
+# Load the combined notes using the new tool
+combined_notes = initialize_notes()
+
 def save_notes_to_file(notes_text, filename="combined_notes.txt"):
     """
     Saves the combined notes to a file in the output/notes directory.
@@ -167,68 +146,6 @@ def save_notes_to_file(notes_text, filename="combined_notes.txt"):
     except Exception as e:
         logger.error(f"Error saving notes to file: {e}")
         return False
-
-def load_and_combine_notes():
-    logger = logging.getLogger(__name__)
-    
-    script_dir = Path(__file__).parent
-    dashboard_dir = script_dir / 'output' / 'dashboard'
-    combined_text = ""
-    districts_processed = 0
-    
-    # Process each district folder (0-11)
-    for district_num in range(12):  # Include all districts 0-11
-        district_dir = dashboard_dir / str(district_num)
-        top_level_file = district_dir / 'top_level.json'
-        
-        if top_level_file.exists():
-            try:
-                with open(top_level_file, 'r', encoding='utf-8') as f:
-                    district_data = json.load(f)
-                
-                district_name = district_data.get("name", f"District {district_num}")
-                combined_text += f"\n{'='*80}\n{district_name} Metrics Summary\n{'='*80}\n\n"
-                
-                # Process each category
-                for category in district_data.get("categories", []):
-                    category_name = category.get("category", "")
-                    combined_text += f"\n{category_name}:\n"
-                    
-                    # Process all metrics in the category
-                    metrics = category.get("metrics", [])
-                    for metric in metrics:
-                        name = metric.get("name", "")
-                        this_year = metric.get("thisYear", 0)
-                        last_year = metric.get("lastYear", 0)
-                        last_date = metric.get("lastDataDate", "")
-                        metric_id = metric.get("numeric_id", metric.get("id", ""))
-                        
-                        # Calculate percent change
-                        if last_year != 0:
-                            pct_change = ((this_year - last_year) / last_year) * 100
-                            change_text = f"({pct_change:+.1f}% vs last year)"
-                        else:
-                            change_text = "(no prior year data)"
-                        
-                        combined_text += f"- {name} (ID: {metric_id}): {this_year:,} {change_text} as of {last_date}\n"
-                
-                districts_processed += 1
-            except Exception as e:
-                logger.error(f"Error processing district {district_num} top-level metrics: {e}")
-    
-    logger.info(f"""
-Notes loading complete:
-Districts processed: {districts_processed}
-Total combined length: {len(combined_text)} characters
-First 100 characters: {combined_text[:100]}
-""")
-    
-    # Save the combined notes to a file
-    save_notes_to_file(combined_text)
-    
-    return combined_text
-
-combined_notes=load_and_combine_notes() 
 
 def load_and_combine_climate_data():
     data_folder = 'data/climate'
@@ -1101,6 +1018,7 @@ MANDATORY WORKFLOW (follow this exact sequence):
 4. FOURTH, contextualize this change vs the historical data, you can use the data from get_dashboard_metric to do this. 
 5. FIFTH, if an anomaly is explanatory, then be sure to include a link to the anomaly chart, like this: [CHART:anomaly:anomaly_id]
 6. SIXTH, if you still don't have enough information to understand the data, then use set_dataset and get_dataset to get exactly what you need from DataSF.  You can use the queries that you see in the get_dashboard_metric tool data as a starting point, make sure to use the righ fieldNames with the right case.  Read more about htat in the set_dataset() tool. 
+7. SEVENTH, if the data has a strong geographic component, create a map visualization to show spatial patterns using the generate_map function.
 
 Best Practices for explaining certain categories: 
 1. Housing - If the you are being asked to explain is in housing, then you should query for the actual properties that have new units, and include the address, and the units certified in your explanation.
@@ -1109,7 +1027,7 @@ Arguments: { "endpoint": "j67f-aayr", "query": "SELECT building_permit_applicati
 
 2. If you are being asked to explain a change in business registrations or closures, then you should query for the actual businesses that have closed, and include the DBA name, and the date of closure in your explanation.
 set_dataset
-Arguments: { "endpoint": "g8m3-pdis", "query": "SELECT dba_name, full_business_address, dba_end_date, naic_code_description, supervisor_district WHERE administratively_closed is not null ORDER BY dba_end_date DESC LIMIT 10" }
+Arguments: { "endpoint": "g8m3-pdis", "query": "SELECT dba_name, location, full_business_address, dba_end_date, naic_code_description, supervisor_district WHERE administratively_closed is not null ORDER BY dba_end_date DESC LIMIT 10" }
 
 
 IMPORTANT CHART GENERATION RULES:
@@ -1160,6 +1078,74 @@ TOOLS YOU SHOULD USE:
 - get_anomaly_details: Get detailed information about a specific anomaly by ID
   USAGE: get_anomaly_details(context_variables, anomaly_id=123)
   Use this to get complete information about a specific anomaly, including its time series data and metadata.
+
+- generate_map: Create a map visualization for geographic data
+  USAGE: generate_map(context_variables, map_title="Title", map_type="supervisor_district", location_data=[{"district": "1", "value": 120}], map_metadata={"description": "Description"})
+  
+  Parameter guidelines:
+  - map_title: Descriptive title for the map
+  - map_type: Type of map to create. Must be one of:
+     * "supervisor_district" - Map showing data by San Francisco supervisor district (1-11)
+     * "police_district" - Map showing data by San Francisco police district
+     * "intersection" - Map showing points at specific street intersections
+     * "point" - Map showing points at specific lat/long coordinates
+     * "address" - Map showing points at specific addresses (will be geocoded automatically by Datawrapper)
+  - location_data: List of data objects containing location and value information
+     * For district maps: [{"district": "1", "value": 120}, {"district": "2", "value": 85}]
+     * For point maps: [{"lat": 37.7749, "lon": -122.4194, "title": "City Hall", "description": "Description"}]
+     * For address maps: [{"address": "1 Dr Carlton B Goodlett Pl, San Francisco, CA", "title": "City Hall", "description": "Description"}]
+     * For intersection maps: [{"intersection": "Market St and Castro St", "title": "Market & Castro", "description": "Description"}]
+  - map_metadata: Optional dictionary with additional information about the map
+  
+  Best practices:
+  - Use district maps for showing aggregate statistics by district
+  - Use point or address maps for showing specific locations
+  - Include descriptive titles and explanatory text for each location
+  - When mapping points, include both a title and description for each point
+  - For address maps, include "San Francisco, CA" in the address for better geocoding
+  
+  Example usage:
+  ```
+  # Creating a supervisor district map
+  district_data = [
+    {"district": "1", "value": 120},
+    {"district": "2", "value": 85},
+    {"district": "3", "value": 65}
+  ]
+  generate_map(
+    context_variables,
+    map_title="Crime Incidents by District",
+    map_type="supervisor_district",
+    location_data=district_data,
+    map_metadata={"description": "Number of incidents per district"}
+  )
+  
+  # Creating a point map
+  point_data = [
+    {"lat": 37.7749, "lon": -122.4194, "title": "City Hall", "description": "SF City Hall"},
+    {"lat": 37.8086, "lon": -122.4094, "title": "Alcatraz", "description": "Alcatraz Island"}
+  ]
+  generate_map(
+    context_variables,
+    map_title="Notable Locations",
+    map_type="point",
+    location_data=point_data
+  )
+  
+  # Creating an address map
+  address_data = [
+    {"address": "1 Dr Carlton B Goodlett Pl, San Francisco, CA", "title": "City Hall", "description": "SF City Hall"},
+    {"address": "Golden Gate Bridge, San Francisco, CA", "title": "Golden Gate Bridge", "description": "Famous bridge"},
+    {"address": "Pier 39, SF", "title": "Pier 39", "description": "Tourist attraction"},
+    {"address": "Coit Tower, SF", "title": "Coit Tower", "description": "Historic landmark"}
+  ]
+  generate_map(
+    context_variables,
+    map_title="Key Landmarks",
+    map_type="address",
+    location_data=address_data
+  )
+  ```
 
  - Use `set_dataset(context_variables, endpoint="endpoint-id", query="your-soql-query")` to set the dataset. Both parameters are required:
     - endpoint: The dataset identifier WITHOUT the .json extension (e.g., 'ubvf-ztfx').  If you dont't have that, get it from get_dashboard_metric()
@@ -1212,6 +1198,19 @@ TOOLS YOU SHOULD USE:
   USAGE: query_docs(context_variables, collection_name="SFPublicData", query="information related to [specific anomaly]")
   Use this to find domain-specific information that might explain the anomaly.
 
+- get_map_by_id: Retrieve a previously created map by ID
+  USAGE: get_map_by_id(context_variables, map_id="uuid-string")
+  Use this to retrieve the details of a map that was previously created.
+
+- get_recent_maps: Get a list of recently created maps
+  USAGE: get_recent_maps(context_variables, limit=10, map_type="supervisor_district")
+  Use this to see what maps have been created recently, optionally filtering by map type.
+
+- create_datawrapper_map: Generate an interactive Datawrapper visualization for a map
+  USAGE: create_datawrapper_map(map_id="uuid-string")
+  Creates and publishes a Datawrapper visualization for a previously generated map.
+  Returns the public URL where the map can be viewed.
+
 """
 # - generate_chart_message: Create a chart message to display to the user
 #   USAGE: generate_chart_message(context_variables, chart_data=data_object, chart_type="anomaly")
@@ -1236,6 +1235,10 @@ anomaly_explainer_agent = Agent(
         get_dashboard_metric,
         get_anomaly_details,
         get_dataset_columns,
+        generate_map,
+        get_map_by_id,
+        get_recent_maps,
+        create_datawrapper_map,
     ],
     context_variables=context_variables,
     debug=True,
@@ -1470,6 +1473,13 @@ function_mapping = {
     'format_table': format_table,
     'format_table_page': format_table_page,
     'generate_chart_message': generate_chart_message,
+    'generate_map': generate_map,
+    'get_map_by_id': get_map_by_id,
+    'get_recent_maps': get_recent_maps,
+    'create_datawrapper_map': create_datawrapper_map,
+    'query_anomalies_db': query_anomalies_db,
+    'get_anomaly_details': get_anomaly_details,
+    'get_dataset_columns': get_dataset_columns,
 }
 
 
@@ -1650,6 +1660,13 @@ function_mapping = {
     'format_table': format_table,
     'format_table_page': format_table_page,
     'generate_chart_message': generate_chart_message,
+    'generate_map': generate_map,
+    'get_map_by_id': get_map_by_id,
+    'get_recent_maps': get_recent_maps,
+    'create_datawrapper_map': create_datawrapper_map,
+    'query_anomalies_db': query_anomalies_db,
+    'get_anomaly_details': get_anomaly_details,
+    'get_dataset_columns': get_dataset_columns,
 }
 
 

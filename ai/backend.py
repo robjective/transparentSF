@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Request, Depends
+from fastapi import APIRouter, HTTPException, Request, Depends, Response
 from fastapi.responses import JSONResponse, FileResponse, RedirectResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.requests import Request
@@ -3127,6 +3127,7 @@ async def get_chart_data(chart_id: int):
         # Add group_field if it exists
         if metadata_result["group_field"]:
             response["metadata"]["group_field"] = metadata_result["group_field"]
+            logger.info(f"Added group_field to response metadata: {metadata_result['group_field']}")
         
         # Format the data points
         response["data"] = []
@@ -3150,6 +3151,93 @@ async def get_chart_data(chart_id: int):
     except Exception as e:
         logger.error(f"Error getting chart data: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error retrieving chart data: {str(e)}")
+
+@router.get("/api/active-charts")
+@router.get("/backend/api/active-charts")
+async def get_active_charts(metric_id: str, district: str = "0", period_type: str = "month"):
+    """
+    Get all active chart IDs for a given metric ID, district, and period type.
+    
+    Args:
+        metric_id: The ID of the metric to get charts for
+        district: The district ID (default: "0" for citywide)
+        period_type: The period type (month, year, etc.)
+        
+    Returns:
+        JSON with a list of active charts including their IDs and metadata
+    """
+    try:
+        import psycopg2
+        import psycopg2.extras
+        
+        logger.info(f"Getting active charts for metric_id={metric_id}, district={district}, period_type={period_type}")
+        
+        # Connect to PostgreSQL
+        conn = psycopg2.connect(
+            host=os.getenv("POSTGRES_HOST", "localhost"),
+            port=int(os.getenv("POSTGRES_PORT", "5432")),
+            dbname=os.getenv("POSTGRES_DB", "transparentsf"),
+            user=os.getenv("POSTGRES_USER", "postgres"),
+            password=os.getenv("POSTGRES_PASSWORD", "postgres")
+        )
+        
+        # Create cursor with dictionary-like results
+        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        
+        # Query to get all active charts for the specified metric, district, and period type
+        query = """
+        SELECT 
+            chart_id, 
+            object_name, 
+            group_field, 
+            object_id,
+            district,
+            period_type,
+            is_active
+        FROM time_series_metadata
+        WHERE object_id = %s 
+        AND district = %s 
+        AND period_type = %s
+        AND is_active = TRUE
+        ORDER BY 
+            CASE WHEN group_field IS NULL THEN 0 ELSE 1 END,
+            group_field ASC
+        """
+        
+        cursor.execute(query, [metric_id, district, period_type])
+        charts = cursor.fetchall()
+        
+        # Convert any date objects to ISO format strings for JSON serialization
+        for chart in charts:
+            for key, value in chart.items():
+                if hasattr(value, 'isoformat'):
+                    chart[key] = value.isoformat()
+        
+        logger.info(f"Found {len(charts)} active charts for metric_id={metric_id}")
+        
+        cursor.close()
+        conn.close()
+        
+        return JSONResponse(
+            content={
+                "status": "success",
+                "metric_id": metric_id,
+                "district": district,
+                "period_type": period_type,
+                "chart_count": len(charts),
+                "charts": charts
+            }
+        )
+        
+    except Exception as e:
+        logger.error(f"Error getting active charts: {str(e)}", exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={
+                "status": "error", 
+                "message": f"Failed to get active charts: {str(e)}"
+            }
+        )
 
 @router.get("/api/chart-by-metric")
 @router.get("/backend/api/chart-by-metric")  # Add an extra route
@@ -3420,6 +3508,7 @@ async def get_chart_by_metric(
         # Add group_field if it exists
         if metadata_result["group_field"]:
             response["metadata"]["group_field"] = metadata_result["group_field"]
+            logger.info(f"Added group_field to response metadata: {metadata_result['group_field']}")
         
         # Format the data points
         response["data"] = []
@@ -3436,6 +3525,9 @@ async def get_chart_by_metric(
             response["data"].append(data_point)
         
         logger.info(f"Retrieved chart data for object_id: {metric_id}, district: {district}, period_type: {period_type}, group_field: {group_field}")
+        # Add debug info about group values
+        group_values_in_data = set([row.get("group_value") for row in data_results if row.get("group_value")])
+        logger.info(f"Found group values in data: {group_values_in_data}")
         return JSONResponse(content=response)
         
     except Exception as e:
@@ -3718,7 +3810,7 @@ async def get_monthly_report_by_id(report_id: int):
         # Get the report details
         cur.execute("""
             SELECT id, district, period_type, max_items, created_at, updated_at, 
-                   original_filename, revised_filename, published_url, headlines
+                   original_filename, revised_filename, published_url, audio_file, headlines
             FROM reports
             WHERE id = %s
         """, (report_id,))
@@ -3754,6 +3846,7 @@ async def get_monthly_report_by_id(report_id: int):
             "original_filename": report["original_filename"],
             "revised_filename": report["revised_filename"],
             "published_url": report["published_url"],
+            "audio_file": report["audio_file"],
             "headlines": report["headlines"],
             "metrics": []
         }
@@ -4007,6 +4100,58 @@ async def get_monthly_report_file(filename: str):
         raise http_exc
     except Exception as e:
         error_message = f"Error getting monthly report file: {str(e)}"
+        logger.error(error_message, exc_info=True)
+        raise HTTPException(status_code=500, detail=error_message)
+
+@router.get("/narration/{filename}")
+@router.head("/narration/{filename}")
+async def get_narration_file(filename: str, request: Request):
+    """
+    Serve a narration audio file directly by filename from the output/narration directory.
+    Supports both GET (to serve the file) and HEAD (to check if file exists) methods.
+    """
+    try:
+        logger.info(f"Requesting narration file: {filename} (method: {request.method})")
+        
+        # Construct the path to the narration directory
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        narration_dir = os.path.join(script_dir, "output", "narration")
+        file_path = os.path.join(narration_dir, filename)
+        
+        # Security check to prevent accessing files outside the narration directory
+        if not os.path.abspath(file_path).startswith(os.path.abspath(narration_dir)):
+            logger.error(f"Security check failed: Attempt to access file outside narration directory: {filename}")
+            raise HTTPException(status_code=403, detail="Access denied")
+            
+        # Check if the file exists
+        if os.path.exists(file_path) and os.path.isfile(file_path):
+            logger.info(f"Narration file found: {file_path}")
+            
+            # For HEAD requests, just return the headers without content
+            if request.method == "HEAD":
+                media_type = "audio/mpeg" if filename.lower().endswith(".mp3") else "application/octet-stream"
+                return Response(
+                    content=None,
+                    media_type=media_type,
+                    headers={
+                        "content-length": str(os.path.getsize(file_path)),
+                        "accept-ranges": "bytes"
+                    }
+                )
+            
+            # For GET requests, serve the file
+            logger.info(f"Serving narration file: {file_path}")
+            media_type = "audio/mpeg" if filename.lower().endswith(".mp3") else "application/octet-stream"
+            return FileResponse(file_path, media_type=media_type)
+        else:
+            logger.error(f"Narration file not found at: {file_path}")
+            raise HTTPException(status_code=404, detail=f"Narration file not found: {filename}")
+            
+    except HTTPException as http_exc:
+        # Re-raise HTTPException to ensure correct status code is sent
+        raise http_exc
+    except Exception as e:
+        error_message = f"Error getting narration file: {str(e)}"
         logger.error(error_message, exc_info=True)
         raise HTTPException(status_code=500, detail=error_message)
 
@@ -4670,7 +4815,7 @@ async def get_monthly_report_by_district(district: str):
         
         # Query the reports table to find the latest report for the specified district
         cursor.execute("""
-            SELECT id, district, revised_filename, published_url
+            SELECT id, district, revised_filename, published_url, audio_file
             FROM reports
             WHERE district = %s AND revised_filename IS NOT NULL
             ORDER BY created_at DESC
@@ -4710,6 +4855,7 @@ async def get_monthly_report_by_district(district: str):
             "report_id": report_dict['id'],
             "filename": report_dict['revised_filename'],
             "published_url": report_dict['published_url'],
+            "audio_file": report_dict['audio_file'],
             "content": html_content
         })
         
@@ -4781,36 +4927,1148 @@ async def add_subscriber(request: Request):
 @router.post("/rerun_email_version")
 async def rerun_email_version(request: Request):
     """
-    Re-run email-compatible report generation for a selected report (no chart expansion).
-    Expects JSON body: { "filename": "monthly_report_0_2024_06.html" }
+    Re-run the email version generation for a monthly report
+    
+    This endpoint allows users to manually regenerate the email-compatible version of a report
     """
+    try:
+        from monthly_report import generate_email_compatible_report
+        import asyncio
+        
+        # Get request data
+        data = await request.json()
+        report_path = data.get("report_path")
+        
+        if not report_path:
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "status": "error",
+                    "message": "Missing report_path parameter"
+                }
+            )
+        
+        logger.info(f"Re-running email version generation for report at {report_path}")
+        
+        # Run the email generation process in a separate thread to prevent blocking
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(
+            None,
+            lambda: generate_email_compatible_report(report_path)
+        )
+        
+        if result:
+            return JSONResponse(
+                content={
+                    "status": "success",
+                    "message": "Email version generated successfully",
+                    "email_report_path": result
+                }
+            )
+        else:
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "status": "error",
+                    "message": "Failed to generate email version"
+                }
+            )
+            
+    except Exception as e:
+        logger.error(f"Error re-running email version generation: {str(e)}", exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={
+                "status": "error",
+                "message": f"Error re-running email version generation: {str(e)}"
+            }
+        )
+
+@router.post("/generate_narrated_report")
+async def generate_narrated_report_endpoint(request: Request):
+    """
+    Generate a narrated audio version of the monthly report using ElevenLabs API.
+    
+    This endpoint takes the final email version of a report and converts it to speech.
+    """
+    try:
+        from monthly_report import generate_narrated_report
+        import asyncio
+        
+        # Get request data
+        data = await request.json()
+        filename = data.get("filename")
+        
+        if not filename:
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "status": "error",
+                    "message": "Missing filename parameter"
+                }
+            )
+        
+        logger.info(f"Generating narrated version for report: {filename}")
+        
+        # Construct the path to the email version of the report
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        reports_dir = os.path.join(script_dir, "output", "reports")
+        
+        # Generate email version filename
+        email_filename = filename.replace('.html', '_revised_email.html')
+        email_report_path = os.path.join(reports_dir, email_filename)
+        
+        # Check if email version exists
+        if not os.path.exists(email_report_path):
+            # Try to find the revised version instead
+            revised_filename = filename.replace('.html', '_revised.html')
+            revised_report_path = os.path.join(reports_dir, revised_filename)
+            
+            if os.path.exists(revised_report_path):
+                email_report_path = revised_report_path
+                logger.info(f"Using revised version instead: {revised_report_path}")
+            else:
+                # Fall back to original report
+                original_report_path = os.path.join(reports_dir, filename)
+                if os.path.exists(original_report_path):
+                    email_report_path = original_report_path
+                    logger.info(f"Using original report: {original_report_path}")
+                else:
+                    return JSONResponse(
+                        status_code=404,
+                        content={
+                            "status": "error",
+                            "message": f"Report file not found: {filename}"
+                        }
+                    )
+        
+        # Run the narration generation process in a separate thread to prevent blocking
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(
+            None,
+            lambda: generate_narrated_report(email_report_path)
+        )
+        
+        if result:
+            # Update the database with the audio file path
+            try:
+                # Extract the audio filename from the full path
+                audio_filename = os.path.basename(result)
+                
+                # Find the report ID from the filename
+                # Extract district and date from the filename to match with the database
+                # Expected format: monthly_report_{district}_{date}.html
+                # or monthly_report_{district}_{date}_revised.html
+                base_filename = filename.replace('_revised.html', '.html').replace('.html', '')
+                
+                # Get database connection
+                conn = get_db_connection()
+                if conn:
+                    cursor = conn.cursor()
+                    
+                    # Find the report by matching the original or revised filename
+                    cursor.execute("""
+                        SELECT id FROM reports 
+                        WHERE original_filename = %s OR revised_filename = %s
+                        ORDER BY created_at DESC
+                        LIMIT 1
+                    """, (filename, filename))
+                    
+                    report_record = cursor.fetchone()
+                    
+                    if report_record:
+                        report_id = report_record[0]
+                        
+                        # Update the report with the audio file path
+                        cursor.execute("""
+                            UPDATE reports 
+                            SET audio_file = %s, updated_at = CURRENT_TIMESTAMP
+                            WHERE id = %s
+                        """, (audio_filename, report_id))
+                        
+                        conn.commit()
+                        logger.info(f"Updated report {report_id} with audio file: {audio_filename}")
+                    else:
+                        logger.warning(f"Could not find report record for filename: {filename}")
+                    
+                    cursor.close()
+                    conn.close()
+                else:
+                    logger.error("Failed to get database connection for audio file update")
+                    
+            except Exception as db_error:
+                logger.error(f"Error updating database with audio file: {str(db_error)}", exc_info=True)
+                # Don't fail the request if database update fails
+            
+            return JSONResponse(
+                content={
+                    "status": "success",
+                    "message": "Narrated report generated successfully",
+                    "audio_path": result,
+                    "audio_filename": os.path.basename(result)
+                }
+            )
+        else:
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "status": "error",
+                    "message": "Failed to generate narrated report. Check if ElevenLabs API key is configured."
+                }
+            )
+            
+    except Exception as e:
+        logger.error(f"Error generating narrated report: {str(e)}", exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={
+                "status": "error",
+                "message": f"Error generating narrated report: {str(e)}"
+            }
+        )
+
+@router.post("/api/metrics")
+async def create_metric(metric_data: dict):
+    """Create a new metric in the system."""
+    logger.info("Create metric endpoint called")
+    try:
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        enhanced_queries_file = os.path.join(script_dir, "data", "dashboard", "dashboard_queries_enhanced.json")
+        mapping_file = os.path.join(script_dir, "data", "dashboard", "metric_id_mapping.json")
+        
+        # Load existing data
+        with open(enhanced_queries_file, 'r') as f:
+            enhanced_queries = json.load(f)
+        
+        with open(mapping_file, 'r') as f:
+            mapping = json.load(f)
+        
+        # Extract category and subcategory from the metric name
+        # For now, we'll use a default category and subcategory
+        category = "crime"  # Default category
+        subcategory = "Crime"  # Default subcategory
+        
+        # Create the metric entry
+        metric_entry = {
+            "id": metric_data["id"],
+            "endpoint": metric_data["endpoint"],
+            "summary": metric_data["summary"],
+            "definition": metric_data["definition"],
+            "data_sf_url": metric_data["data_sf_url"],
+            "ytd_query": metric_data["ytd_query"],
+            "metric_query": metric_data["metric_query"],
+            "dataset_title": metric_data["dataset_title"],
+            "dataset_category": metric_data["dataset_category"],
+            "location_fields": metric_data["location_fields"],
+            "category_fields": metric_data["category_fields"]
+        }
+        
+        # Add the metric to the enhanced queries
+        if category not in enhanced_queries:
+            enhanced_queries[category] = {}
+        if subcategory not in enhanced_queries[category]:
+            enhanced_queries[category][subcategory] = {"queries": {}}
+        
+        enhanced_queries[category][subcategory]["queries"][metric_data["name"]] = metric_entry
+        
+        # Add the metric to the mapping
+        mapping[str(metric_data["id"])] = {
+            "name": metric_data["name"],
+            "category": category,
+            "subcategory": subcategory
+        }
+        
+        # Save the updated files
+        with open(enhanced_queries_file, 'w') as f:
+            json.dump(enhanced_queries, f, indent=4)
+        
+        with open(mapping_file, 'w') as f:
+            json.dump(mapping, f, indent=4)
+        
+        return JSONResponse({
+            "status": "success",
+            "message": "Metric created successfully",
+            "metric": metric_entry
+        })
+        
+    except Exception as e:
+        logger.exception(f"Error creating metric: {str(e)}")
+        return JSONResponse({
+            "status": "error",
+            "message": str(e)
+        }, status_code=500)
+
+@router.get("/backend/api/active-charts")
+async def get_active_charts(metric_id: str, district: str = "0", period_type: str = "month"):
+    """
+    Get all active chart IDs for a given metric ID, district, and period type.
+    
+    Args:
+        metric_id: The ID of the metric to get charts for
+        district: The district ID (default: "0" for citywide)
+        period_type: The period type (month, year, etc.)
+        
+    Returns:
+        JSON with a list of active charts including their IDs and metadata
+    """
+    try:
+        import psycopg2
+        import psycopg2.extras
+        
+        logger.info(f"Getting active charts for metric_id={metric_id}, district={district}, period_type={period_type}")
+        
+        # Connect to PostgreSQL
+        conn = psycopg2.connect(
+            host=os.getenv("POSTGRES_HOST", "localhost"),
+            port=int(os.getenv("POSTGRES_PORT", "5432")),
+            dbname=os.getenv("POSTGRES_DB", "transparentsf"),
+            user=os.getenv("POSTGRES_USER", "postgres"),
+            password=os.getenv("POSTGRES_PASSWORD", "postgres")
+        )
+        
+        # Create cursor with dictionary-like results
+        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        
+        # Query to get all active charts for the specified metric, district, and period type
+        query = """
+        SELECT 
+            chart_id, 
+            object_name, 
+            group_field, 
+            object_id,
+            district,
+            period_type,
+            is_active
+        FROM time_series_metadata
+        WHERE object_id = %s 
+        AND district = %s 
+        AND period_type = %s
+        AND is_active = TRUE
+        ORDER BY 
+            CASE WHEN group_field IS NULL THEN 0 ELSE 1 END,
+            group_field ASC
+        """
+        
+        cursor.execute(query, [metric_id, district, period_type])
+        charts = cursor.fetchall()
+        
+        # Convert any date objects to ISO format strings for JSON serialization
+        for chart in charts:
+            for key, value in chart.items():
+                if hasattr(value, 'isoformat'):
+                    chart[key] = value.isoformat()
+        
+        logger.info(f"Found {len(charts)} active charts for metric_id={metric_id}")
+        
+        cursor.close()
+        conn.close()
+        
+        return JSONResponse(
+            content={
+                "status": "success",
+                "metric_id": metric_id,
+                "district": district,
+                "period_type": period_type,
+                "chart_count": len(charts),
+                "charts": charts
+            }
+        )
+        
+    except Exception as e:
+        logger.error(f"Error getting active charts: {str(e)}", exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={
+                "status": "error", 
+                "message": f"Failed to get active charts: {str(e)}"
+            }
+        )
+
+@router.post("/expand_chart_placeholders")
+async def expand_chart_placeholders(request: Request):
+    """
+    Process a report file and replace simplified chart references with Datawrapper charts.
+    
+    Args:
+        filename: The filename of the report to process
+        
+    Returns:
+        Success status and message
+    """
+    # For JSON response
+    from fastapi.responses import JSONResponse
+    import psycopg2.extras
+    
     try:
         data = await request.json()
         filename = data.get("filename")
+        
         if not filename:
-            return JSONResponse({"status": "error", "message": "Missing filename"}, status_code=400)
-
-        # Construct the report path
+            return {"status": "error", "message": "No filename provided"}
+        
+        # Construct the path to the reports directory
         script_dir = os.path.dirname(os.path.abspath(__file__))
+        logger.info(f"expand_chart_placeholders - script_dir: {script_dir}")
         reports_dir = os.path.join(script_dir, "output", "reports")
-        base, ext = os.path.splitext(filename)
-        revised_filename = f"{base}_revised{ext}"
-        revised_path = os.path.join(reports_dir, revised_filename)
-        if os.path.exists(revised_path):
-            report_path = revised_path
-            logger.info(f"Using revised report for email version: {revised_path}")
-        else:
-            report_path = os.path.join(reports_dir, filename)
-            logger.info(f"Using original report for email version: {report_path}")
+        logger.info(f"expand_chart_placeholders - reports_dir: {reports_dir}")
+        report_path = os.path.join(reports_dir, filename)
+        logger.info(f"expand_chart_placeholders - constructed file_path: {report_path}")
+        
+        # Security check to prevent accessing files outside the reports directory
+        if not os.path.abspath(report_path).startswith(os.path.abspath(reports_dir)):
+            logger.error(f"Security check failed: Attempt to access file outside reports directory: {filename}")
+            return {"status": "error", "message": "Access denied"}
+            
+        # Check if the file exists
         if not os.path.exists(report_path):
-            return JSONResponse({"status": "error", "message": f"Report file not found: {report_path}"}, status_code=404)
-
-        # Only generate the email-compatible version (do NOT expand chart references)
-        email_path = generate_email_compatible_report(report_path)
-        if not email_path:
-            return JSONResponse({"status": "error", "message": "Failed to generate email-compatible report"}, status_code=500)
-
-        return JSONResponse({"status": "success", "email_path": str(email_path)})
+            logger.error(f"Monthly report file not found at: {report_path}")
+            return {"status": "error", "message": f"Report file not found: {filename}"}
+        
+        # Define function to get chart data directly from the database
+        def get_chart_data_direct(metric_id, district, period_type):
+            """
+            Direct database access function to get chart data without making HTTP requests
+            """
+            try:
+                conn = get_db_connection()
+                cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+                
+                # Get the metric details
+                cursor.execute("""
+                    SELECT * FROM metrics WHERE id = %s
+                """, (metric_id,))
+                
+                metric = cursor.fetchone()
+                if not metric:
+                    cursor.close()
+                    conn.close()
+                    logger.error(f"Metric {metric_id} not found in database")
+                    return None
+                
+                # Get chart data - similar logic to get_chart_by_metric
+                # This gets time series data for the metric
+                cursor.execute("""
+                    SELECT * FROM time_series_data 
+                    WHERE metric_id = %s AND district = %s AND period_type = %s
+                    ORDER BY date
+                """, (metric_id, district, period_type))
+                
+                data_points = []
+                rows = cursor.fetchall()
+                for row in rows:
+                    data_points.append({
+                        "time_period": row["date"].strftime("%Y-%m-%d"),
+                        "numeric_value": float(row["value"])
+                    })
+                
+                # Get metadata
+                metadata = {
+                    "chart_title": f"{metric['name']} - {district if district != '0' else 'Citywide'}",
+                    "y_axis_label": metric["name"],
+                    "period_type": period_type,
+                    "object_type": "dashboard_metric",
+                    "object_id": str(metric_id),
+                    "object_name": metric["name"],
+                    "district": district
+                }
+                
+                cursor.close()
+                conn.close()
+                
+                return {
+                    "data": data_points,
+                    "metadata": metadata
+                }
+                
+            except Exception as e:
+                logger.error(f"Error getting chart data directly from database: {str(e)}", exc_info=True)
+                return None
+        
+        # Import the original functions
+        from monthly_report import expand_chart_references
+        from tools.genChartdw import create_datawrapper_chart
+        
+        # Create a wrapper function that uses direct data access
+        def create_datawrapper_chart_direct(metric_id, district="0", period_type="month", **kwargs):
+            # Get chart data directly from the database
+            direct_data = get_chart_data_direct(metric_id, district, period_type)
+            if direct_data:
+                # Call the original function with direct data
+                return create_datawrapper_chart(
+                    metric_id=metric_id,
+                    district=district,
+                    period_type=period_type,
+                    direct_data=direct_data,
+                    **kwargs
+                )
+            else:
+                logger.error(f"Failed to get direct data for chart metric_id={metric_id}, district={district}, period_type={period_type}")
+                return None
+        
+        # Monkey patch the create_datawrapper_chart function in the monthly_report module
+        import sys
+        import monthly_report
+        
+        # Store the original function for restoration later
+        original_create_datawrapper_chart = monthly_report.create_datawrapper_chart
+        
+        # Patch the function with our direct data version
+        monthly_report.create_datawrapper_chart = create_datawrapper_chart_direct
+        
+        try:
+            # Call the expand_chart_references function with the patched version
+            result = expand_chart_references(report_path)
+            
+            # Restore the original function
+            monthly_report.create_datawrapper_chart = original_create_datawrapper_chart
+            
+            if result:
+                return {"status": "success", "message": f"Chart references expanded in {filename}"}
+            else:
+                return {"status": "error", "message": f"Failed to expand chart references in {filename}"}
+        finally:
+            # Ensure we restore the original function even if an error occurs
+            monthly_report.create_datawrapper_chart = original_create_datawrapper_chart
+            
     except Exception as e:
-        import traceback
-        return JSONResponse({"status": "error", "message": str(e), "trace": traceback.format_exc()}, status_code=500)
+        logger.error(f"Error in expand_chart_placeholders: {str(e)}", exc_info=True)
+        return {"status": "error", "message": f"Error processing request: {str(e)}"}
+
+@router.get("/api/district-maps")
+@router.get("/backend/api/district-maps")  # Add an extra route
+async def get_district_maps(metric_id: str = None):
+    """
+    Retrieve district maps for a specific metric ID.
+    
+    Args:
+        metric_id: The ID of the metric to get maps for
+        
+    Returns:
+        JSON with a list of maps including their IDs and URLs
+    """
+    try:
+        import psycopg2
+        import psycopg2.extras
+        
+        logger.info(f"Getting district maps for metric_id={metric_id}")
+        
+        # Connect to PostgreSQL
+        conn = psycopg2.connect(
+            host=os.getenv("POSTGRES_HOST", "localhost"),
+            port=int(os.getenv("POSTGRES_PORT", "5432")),
+            dbname=os.getenv("POSTGRES_DB", "transparentsf"),
+            user=os.getenv("POSTGRES_USER", "postgres"),
+            password=os.getenv("POSTGRES_PASSWORD", "postgres")
+        )
+        
+        # Create cursor with dictionary-like results
+        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        
+        # Query to get maps for the specified metric
+        query = """
+        SELECT *
+        FROM maps
+        WHERE type = 'supervisor_district' AND active = TRUE
+        """
+        
+        # Add metric_id filter if provided
+        params = []
+        if metric_id:
+            # First try to use the direct metric_id column
+            query = """
+            SELECT *
+            FROM maps
+            WHERE type = 'supervisor_district' 
+              AND active = TRUE
+              AND (
+                  metric_id = %s 
+                  OR metadata::jsonb->>'metric_id' = %s
+              )
+            ORDER BY created_at DESC
+            """
+            params = [metric_id, metric_id]
+        else:
+            query += " ORDER BY created_at DESC"
+        
+        cursor.execute(query, params)
+        maps = cursor.fetchall()
+        
+        # Convert any date objects to ISO format strings for JSON serialization
+        for map_item in maps:
+            for key, value in map_item.items():
+                if hasattr(value, 'isoformat'):
+                    map_item[key] = value.isoformat()
+                # Parse JSON strings to objects
+                elif key in ('metadata', 'location_data') and value:
+                    if isinstance(value, str):
+                        try:
+                            map_item[key] = json.loads(value)
+                        except:
+                            # If parsing fails, keep as string
+                            pass
+                    # Ensure the metadata is properly formatted as a string when it's already an object
+                    elif isinstance(value, dict) or isinstance(value, list):
+                        try:
+                            # Convert to JSON string for display
+                            map_item[key] = json.dumps(value, indent=2)
+                        except:
+                            # If conversion fails, use string representation
+                            map_item[key] = str(value)
+        
+        logger.info(f"Found {len(maps)} maps for metric_id={metric_id}")
+        
+        cursor.close()
+        conn.close()
+        
+        return JSONResponse(
+            content={
+                "status": "success",
+                "metric_id": metric_id,
+                "map_count": len(maps),
+                "maps": maps
+            }
+        )
+        
+    except Exception as e:
+        logger.error(f"Error getting district maps: {str(e)}", exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={
+                "status": "error", 
+                "message": f"Failed to get district maps: {str(e)}"
+            }
+        )
+
+@router.post("/api/explain-change")
+async def explain_change_api(request: Request):
+    """
+    API endpoint to explain data changes using the explainer agent.
+    
+    Expected JSON payload:
+    {
+        "prompt": "Explain the change in metric X for district Y",
+        "metric_id": 123,
+        "district_id": 0,
+        "period_type": "month",
+        "return_json": true
+    }
+    """
+    try:
+        from agents.explainer_agent import create_explainer_agent
+        
+        data = await request.json()
+        prompt = data.get("prompt")
+        metric_id = data.get("metric_id")
+        district_id = data.get("district_id", 0)
+        period_type = data.get("period_type", "month")
+        return_json = data.get("return_json", True)
+        
+        if not prompt:
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "status": "error",
+                    "message": "No prompt provided"
+                }
+            )
+        
+        logger.info(f"Explaining change with prompt: {prompt}")
+        
+        # Create explainer agent
+        agent = create_explainer_agent()
+        
+        # If specific metric parameters are provided, enhance the prompt
+        if metric_id is not None:
+            enhanced_prompt = f"""
+            {prompt}
+            
+            Please analyze metric {metric_id} for district {district_id} over the {period_type} period.
+            """
+        else:
+            enhanced_prompt = prompt
+        
+        # Get explanation
+        result = agent.explain_change_sync(enhanced_prompt, return_json=return_json)
+        
+        return JSONResponse(
+            content={
+                "status": "success" if result.get("success", True) else "error",
+                "result": result
+            }
+        )
+        
+    except Exception as e:
+        logger.error(f"Error in explain_change_api: {str(e)}", exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={
+                "status": "error",
+                "message": f"Error explaining change: {str(e)}"
+            }
+        )
+
+# Session store for explainer agents
+# This stores ExplainerAgent instances by session_id to maintain conversation history
+explainer_sessions = {}
+
+@router.post("/api/explain-change-streaming")
+async def explain_change_streaming_api(request: Request):
+    """
+    Streaming API endpoint for explainer agent chat functionality.
+    
+    Expected JSON payload:
+    {
+        "prompt": "Explain the change in metric X for district Y",
+        "session_data": {
+            "session_id": "unique_session_id"  // Optional, will create new if not provided
+        }
+    }
+    """
+    try:
+        from agents.explainer_agent import create_explainer_agent
+        
+        data = await request.json()
+        prompt = data.get("prompt")
+        session_data = data.get("session_data", {})
+        session_id = session_data.get("session_id")
+        
+        if not prompt:
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "status": "error",
+                    "message": "No prompt provided"
+                }
+            )
+        
+        logger.info(f"Starting streaming explanation with prompt: {prompt}")
+        
+        # Get or create explainer agent for this session
+        if session_id and session_id in explainer_sessions:
+            agent = explainer_sessions[session_id]
+            logger.info(f"Using existing explainer agent for session: {session_id}")
+        else:
+            # Create new agent and session
+            agent = create_explainer_agent()
+            if not session_id:
+                import uuid
+                session_id = str(uuid.uuid4())
+            explainer_sessions[session_id] = agent
+            logger.info(f"Created new explainer agent for session: {session_id}")
+        
+        async def generate_stream():
+            """Generate streaming response"""
+            try:
+                # Send session ID first so frontend can track it
+                yield f"data: {json.dumps({'session_id': session_id})}\n\n"
+                
+                async for chunk in agent.explain_change_streaming(prompt, session_data):
+                    if chunk:
+                        yield f"data: {json.dumps({'content': chunk})}\n\n"
+                
+                # Send completion signal
+                yield f"data: {json.dumps({'completed': True})}\n\n"
+                
+            except Exception as e:
+                logger.error(f"Error in streaming generation: {str(e)}")
+                yield f"data: {json.dumps({'error': str(e)})}\n\n"
+        
+        return StreamingResponse(
+            generate_stream(),
+            media_type="text/plain",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no"
+            }
+        )
+        
+    except Exception as e:
+        logger.error(f"Error in explain_change_streaming_api: {str(e)}", exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={
+                "status": "error",
+                "message": f"Error in streaming explanation: {str(e)}"
+            }
+        )
+
+@router.post("/api/explain-metric-change")
+async def explain_metric_change_api(request: Request):
+    """
+    Convenience API endpoint to explain a specific metric change.
+    
+    Expected JSON payload:
+    {
+        "metric_id": 123,
+        "district_id": 0,
+        "period_type": "month"
+    }
+    """
+    try:
+        from agents.explainer_agent import explain_metric_change
+        
+        data = await request.json()
+        metric_id = data.get("metric_id")
+        district_id = data.get("district_id", 0)
+        period_type = data.get("period_type", "month")
+        
+        if metric_id is None:
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "status": "error",
+                    "message": "metric_id is required"
+                }
+            )
+        
+        logger.info(f"Explaining metric {metric_id} change for district {district_id}")
+        
+        # Get explanation using convenience function
+        result = explain_metric_change(
+            metric_id=metric_id,
+            district_id=district_id,
+            period_type=period_type,
+            return_json=True
+        )
+        
+        return JSONResponse(
+            content={
+                "status": "success" if result.get("success", True) else "error",
+                "result": result
+            }
+        )
+        
+    except Exception as e:
+        logger.error(f"Error in explain_metric_change_api: {str(e)}", exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={
+                "status": "error",
+                "message": f"Error explaining metric change: {str(e)}"
+            }
+        )
+
+@router.post("/api/explainer-clear-session")
+async def clear_explainer_session(request: Request):
+    """
+    Clear a specific explainer session.
+    
+    Expected JSON payload:
+    {
+        "session_id": "session_id_to_clear"
+    }
+    """
+    try:
+        data = await request.json()
+        session_id = data.get("session_id")
+        
+        if not session_id:
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "status": "error",
+                    "message": "session_id is required"
+                }
+            )
+        
+        if session_id in explainer_sessions:
+            del explainer_sessions[session_id]
+            logger.info(f"Cleared explainer session: {session_id}")
+            return JSONResponse(content={"status": "success", "message": f"Session {session_id} cleared"})
+        else:
+            return JSONResponse(
+                status_code=404,
+                content={
+                    "status": "error",
+                    "message": f"Session {session_id} not found"
+                }
+            )
+        
+    except Exception as e:
+        logger.error(f"Error clearing explainer session: {str(e)}", exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={
+                "status": "error",
+                "message": f"Error clearing session: {str(e)}"
+            }
+        )
+
+@router.post("/api/explainer-clear-all-sessions")
+async def clear_all_explainer_sessions():
+    """Clear all explainer sessions."""
+    try:
+        session_count = len(explainer_sessions)
+        explainer_sessions.clear()
+        logger.info(f"Cleared all {session_count} explainer sessions")
+        return JSONResponse(content={
+            "status": "success", 
+            "message": f"Cleared {session_count} sessions"
+        })
+        
+    except Exception as e:
+        logger.error(f"Error clearing all explainer sessions: {str(e)}", exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={
+                "status": "error",
+                "message": f"Error clearing sessions: {str(e)}"
+            }
+        )
+
+@router.get("/api/explainer-sessions")
+async def get_explainer_sessions():
+    """Get information about active explainer sessions."""
+    try:
+        sessions_info = {}
+        for session_id, agent in explainer_sessions.items():
+            sessions_info[session_id] = {
+                "message_count": len(agent.get_conversation_history()),
+                "agent_name": agent.agent.name,
+                "has_context": bool(agent.context_variables)
+            }
+        
+        return JSONResponse(content={
+            "status": "success",
+            "active_sessions": len(explainer_sessions),
+            "sessions": sessions_info
+        })
+        
+    except Exception as e:
+        logger.error(f"Error getting explainer sessions: {str(e)}", exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={
+                "status": "error",
+                "message": f"Error getting sessions: {str(e)}"
+            }
+        )
+
+@router.get("/api/test-explainer-session")
+async def test_explainer_session():
+    """Test endpoint to verify explainer session management is working."""
+    try:
+        from agents.explainer_agent import create_explainer_agent
+        import uuid
+        
+        # Create a test session
+        test_session_id = str(uuid.uuid4())
+        agent = create_explainer_agent()
+        explainer_sessions[test_session_id] = agent
+        
+        # Add some test messages
+        agent.add_message("user", "Hello, this is a test message")
+        agent.add_message("assistant", "Hello! I received your test message.", "TestExplainer")
+        
+        # Get session info
+        session_info = {
+            "test_session_id": test_session_id,
+            "message_count": len(agent.get_conversation_history()),
+            "total_sessions": len(explainer_sessions),
+            "conversation_history": agent.get_conversation_history()
+        }
+        
+        return JSONResponse(content={
+            "status": "success",
+            "message": "Session management test completed",
+            "session_info": session_info
+        })
+        
+    except Exception as e:
+        logger.error(f"Error in test explainer session: {str(e)}", exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={
+                "status": "error",
+                "message": f"Test failed: {str(e)}"
+            }
+        )
+
+@router.get("/backend/map-chart")
+@router.get("/map-chart")
+async def get_map_chart(request: Request, id: str):
+    """
+    Retrieve a map by ID and redirect to its published DataWrapper URL.
+    
+    Args:
+        id: The map ID to retrieve
+        
+    Returns:
+        Redirect to the published DataWrapper URL or error if not found
+    """
+    try:
+        import psycopg2
+        import psycopg2.extras
+        from fastapi.responses import RedirectResponse
+        
+        logger.info(f"Getting map chart for id={id}")
+        
+        # Connect to PostgreSQL
+        conn = psycopg2.connect(
+            host=os.getenv("POSTGRES_HOST", "localhost"),
+            port=int(os.getenv("POSTGRES_PORT", "5432")),
+            dbname=os.getenv("POSTGRES_DB", "transparentsf"),
+            user=os.getenv("POSTGRES_USER", "postgres"),
+            password=os.getenv("POSTGRES_PASSWORD", "postgres")
+        )
+        
+        # Create cursor with dictionary-like results
+        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        
+        # Query to get the map by ID
+        cursor.execute("""
+            SELECT id, title, published_url, chart_id, edit_url, type, metadata
+            FROM maps 
+            WHERE id = %s AND active = TRUE
+        """, (id,))
+        
+        map_record = cursor.fetchone()
+        cursor.close()
+        conn.close()
+        
+        if not map_record:
+            logger.warning(f"Map with ID {id} not found")
+            return JSONResponse({
+                "status": "error",
+                "message": f"Map with ID {id} not found"
+            }, status_code=404)
+        
+        # Check if we have a published URL
+        if map_record['published_url']:
+            logger.info(f"Redirecting to published URL: {map_record['published_url']}")
+            return RedirectResponse(url=map_record['published_url'])
+        else:
+            # Try to create/publish the map if it doesn't have a published URL
+            logger.info(f"Map {id} doesn't have published URL, attempting to create it")
+            try:
+                from tools.gen_map_dw import create_datawrapper_map
+                published_url = create_datawrapper_map(id)
+                
+                if published_url:
+                    logger.info(f"Successfully created published URL: {published_url}")
+                    return RedirectResponse(url=published_url)
+                else:
+                    return JSONResponse({
+                        "status": "error",
+                        "message": f"Map {id} exists but could not be published"
+                    }, status_code=500)
+                    
+            except Exception as create_error:
+                logger.error(f"Error creating map: {str(create_error)}")
+                return JSONResponse({
+                    "status": "error", 
+                    "message": f"Map {id} exists but could not be published: {str(create_error)}"
+                }, status_code=500)
+        
+    except Exception as e:
+        logger.error(f"Error retrieving map chart: {str(e)}", exc_info=True)
+        return JSONResponse({
+            "status": "error",
+            "message": f"Error retrieving map chart: {str(e)}"
+        }, status_code=500)
+
+@router.get("/api/district-maps")
+@router.get("/backend/api/district-maps")  # Add an extra route
+async def get_district_maps(metric_id: str = None):
+    """
+    Retrieve district maps for a specific metric ID.
+    
+    Args:
+        metric_id: The ID of the metric to get maps for
+        
+    Returns:
+        JSON with a list of maps including their IDs and URLs
+    """
+    try:
+        import psycopg2
+        import psycopg2.extras
+        
+        logger.info(f"Getting district maps for metric_id={metric_id}")
+        
+        # Connect to PostgreSQL
+        conn = psycopg2.connect(
+            host=os.getenv("POSTGRES_HOST", "localhost"),
+            port=int(os.getenv("POSTGRES_PORT", "5432")),
+            dbname=os.getenv("POSTGRES_DB", "transparentsf"),
+            user=os.getenv("POSTGRES_USER", "postgres"),
+            password=os.getenv("POSTGRES_PASSWORD", "postgres")
+        )
+        
+        # Create cursor with dictionary-like results
+        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        
+        # Query to get maps for the specified metric
+        query = """
+        SELECT *
+        FROM maps
+        WHERE type = 'supervisor_district' AND active = TRUE
+        """
+        
+        # Add metric_id filter if provided
+        params = []
+        if metric_id:
+            # First try to use the direct metric_id column
+            query = """
+            SELECT *
+            FROM maps
+            WHERE type = 'supervisor_district' 
+              AND active = TRUE
+              AND (
+                  metric_id = %s 
+                  OR metadata::jsonb->>'metric_id' = %s
+              )
+            ORDER BY created_at DESC
+            """
+            params = [metric_id, metric_id]
+        else:
+            query += " ORDER BY created_at DESC"
+        
+        cursor.execute(query, params)
+        maps = cursor.fetchall()
+        
+        # Convert any date objects to ISO format strings for JSON serialization
+        for map_item in maps:
+            for key, value in map_item.items():
+                if hasattr(value, 'isoformat'):
+                    map_item[key] = value.isoformat()
+                # Parse JSON strings to objects
+                elif key in ('metadata', 'location_data') and value:
+                    if isinstance(value, str):
+                        try:
+                            map_item[key] = json.loads(value)
+                        except:
+                            # If parsing fails, keep as string
+                            pass
+                    # Ensure the metadata is properly formatted as a string when it's already an object
+                    elif isinstance(value, dict) or isinstance(value, list):
+                        try:
+                            # Convert to JSON string for display
+                            map_item[key] = json.dumps(value, indent=2)
+                        except:
+                            # If conversion fails, use string representation
+                            map_item[key] = str(value)
+        
+        logger.info(f"Found {len(maps)} maps for metric_id={metric_id}")
+        
+        cursor.close()
+        conn.close()
+        
+        return JSONResponse(
+            content={
+                "status": "success",
+                "metric_id": metric_id,
+                "map_count": len(maps),
+                "maps": maps
+            }
+        )
+        
+    except Exception as e:
+        logger.error(f"Error getting district maps: {str(e)}", exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={
+                "status": "error", 
+                "message": f"Failed to get district maps: {str(e)}"
+            }
+        )

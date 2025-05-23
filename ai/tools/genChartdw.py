@@ -4,6 +4,7 @@ import json
 import logging
 from dotenv import load_dotenv
 from pathlib import Path
+import datetime
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -80,7 +81,7 @@ def _make_dw_request(method, endpoint, headers=None, data=None, json_payload=Non
         logger.error(f"Request failed: {e}")
     return None
 
-def create_datawrapper_chart(metric_id: str, intro: str = "", district: str = "0", period_type: str = "month"):
+def create_datawrapper_chart(metric_id: str, intro: str = "", district: str = "0", period_type: str = "month", direct_data=None):
     """
     Creates a Datawrapper line chart for a given metric.
 
@@ -89,6 +90,7 @@ def create_datawrapper_chart(metric_id: str, intro: str = "", district: str = "0
         intro: An introductory text/description for the chart.
         district: The district for which to fetch data.
         period_type: The period type for data aggregation (e.g., 'month', 'year').
+        direct_data: Optional data dictionary to use instead of fetching from API. Used to avoid deadlocks.
 
     Returns:
         The public URL of the created and published Datawrapper chart, or None if failed.
@@ -101,41 +103,45 @@ def create_datawrapper_chart(metric_id: str, intro: str = "", district: str = "0
         logger.error("Cannot create chart: DATAWRAPPER_API_KEY is not set.")
         return None
 
-    # 1. Fetch data from the backend
-    data_fetch_url = f"{API_BASE_URL}/backend/api/chart-by-metric?metric_id={metric_id}&district={district}&period_type={period_type}"
-    logger.info(f"Fetching chart data from: {data_fetch_url}")
-    try:
-        response = requests.get(data_fetch_url)
-        response.raise_for_status()
-        metric_data_response = response.json()
-        
-        # Extract metadata and data from response
-        chart_data_points = metric_data_response.get("data")
-        metadata = metric_data_response.get("metadata", {})
-        
-        # Get chart title and y-axis label from metadata
-        chart_title = metadata.get("chart_title", default_title)
-        y_axis_label = metadata.get("y_axis_label", default_title)
-        actual_description = metadata.get("caption", intro)
-        
-        if not chart_data_points:
-            logger.error(f"No data points found in response from {data_fetch_url}")
+    # 1. Get data either from the direct_data parameter or fetch from the backend
+    if direct_data:
+        logger.info(f"Using provided direct data for chart creation instead of making HTTP request")
+        metric_data_response = direct_data
+    else:
+        # Fetch data from the backend via HTTP
+        data_fetch_url = f"{API_BASE_URL}/backend/api/chart-by-metric?metric_id={metric_id}&district={district}&period_type={period_type}"
+        logger.info(f"Fetching chart data from: {data_fetch_url}")
+        try:
+            response = requests.get(data_fetch_url)
+            response.raise_for_status()
+            metric_data_response = response.json()
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Failed to fetch data for metric {metric_id}: {e}")
             return None
-        
-        # Log the first data point to inspect its structure
-        if chart_data_points and len(chart_data_points) > 0:
-            logger.info(f"First data point received: {json.dumps(chart_data_points[0])}")
-        else:
-            logger.info("chart_data_points is empty or None after fetching.")
-            
-        logger.info(f"Successfully fetched {len(chart_data_points)} data points for chart '{chart_title}'.")
+        except json.JSONDecodeError:
+            logger.error(f"Failed to parse JSON response from {data_fetch_url}")
+            return None
 
-    except requests.exceptions.RequestException as e:
-        logger.error(f"Failed to fetch data for metric {metric_id}: {e}")
+    # Extract metadata and data from response
+    chart_data_points = metric_data_response.get("data")
+    metadata = metric_data_response.get("metadata", {})
+    
+    # Get chart title and y-axis label from metadata
+    chart_title = metadata.get("chart_title", default_title)
+    y_axis_label = metadata.get("y_axis_label", default_title)
+    actual_description = metadata.get("caption", intro)
+    
+    if not chart_data_points:
+        logger.error(f"No data points found in response data")
         return None
-    except json.JSONDecodeError:
-        logger.error(f"Failed to parse JSON response from {data_fetch_url}")
-        return None
+    
+    # Log the first data point to inspect its structure
+    if chart_data_points and len(chart_data_points) > 0:
+        logger.info(f"First data point received: {json.dumps(chart_data_points[0])}")
+    else:
+        logger.info("chart_data_points is empty or None after fetching.")
+        
+    logger.info(f"Successfully received {len(chart_data_points)} data points for chart '{chart_title}'.")
 
     # 2. Convert data to CSV format for Datawrapper
     csv_data_lines = ["time_period,numeric_value"] # CSV header
@@ -193,7 +199,7 @@ def create_datawrapper_chart(metric_id: str, intro: str = "", district: str = "0
         "metadata": {
             "describe": {
                 "intro": "", # Removed caption text
-                "source-name": "TransparentSF",
+                "source-name": "DataSF",
                 "byline": "Generated by TransparentSF"
             },
             "visualize": {
@@ -220,7 +226,8 @@ def create_datawrapper_chart(metric_id: str, intro: str = "", district: str = "0
                 "legend": {
                     "enabled": True,
                     "position": "top-right"
-                }
+                },
+                "custom-range-y": ["0", ""]  # This is the key setting that forces y-axis to start at 0
             },
             "axes": {
                 "keys": "time_period", # X-axis data column
@@ -228,7 +235,7 @@ def create_datawrapper_chart(metric_id: str, intro: str = "", district: str = "0
                 "y-grid": True,
                 "y-label": y_axis_label, # Use the y_axis_label from metadata
                 "dateFormat": "MMM YYYY", # Format dates as "Apr 2023"
-                "y-min": 0 # Ensure y-axis always starts at 0
+                "y-min": 0 # Keep this as backup
             },
             "publish": { # Ensure chart is embeddable
                 "embed-width": 600, # Default or adjust
@@ -276,6 +283,278 @@ def create_datawrapper_chart(metric_id: str, intro: str = "", district: str = "0
         
     if not public_url: # Fallback if structure is different or publicUrl not directly in response
         logger.info("Public URL not found directly in publish response, attempting to retrieve chart details...")
+        chart_details = _make_dw_request("GET", f"/charts/{chart_id}")
+        if chart_details:
+            public_url = chart_details.get("publicUrl")
+
+    if public_url:
+        logger.info(f"Chart published successfully! Public URL: {public_url}")
+        return public_url
+    else:
+        logger.error(f"Failed to retrieve public URL for chart ID: {chart_id} after publishing.")
+        return None
+
+def create_time_series_chart_from_data(chart_data, metadata):
+    """
+    Creates a Datawrapper line chart from provided time series data.
+    
+    Args:
+        chart_data: List of data points with 'time_period', 'value', and optional 'group_value' keys
+        metadata: Dictionary with chart metadata including title, object_name, field_name, etc.
+        
+    Returns:
+        The public URL of the created and published Datawrapper chart, or None if failed.
+    """
+    # Use the title from metadata, with proper fallback chain
+    # In the database, titles are typically stored as 'object_name'
+    chart_title = (
+        metadata.get('object_name') or  # First choice: object_name (how it's stored in DB)
+        metadata.get('title') or        # Second choice: title
+        metadata.get('chart_title') or  # Third choice: chart_title  
+        f"Time Series Chart {metadata.get('chart_id', '')}"  # Fallback
+    )
+    logger.info(f"Starting Datawrapper chart creation from stored data, title: '{chart_title}'")
+
+    if not DATAWRAPPER_API_KEY:
+        logger.error("Cannot create chart: DATAWRAPPER_API_KEY is not set.")
+        return None
+
+    if not chart_data:
+        logger.error("No chart data provided")
+        return None
+
+    # Convert date objects to strings for safe processing
+    processed_chart_data = []
+    for point in chart_data:
+        processed_point = point.copy()
+        
+        # Handle time_period - convert date objects to strings
+        time_period = processed_point.get('time_period')
+        if isinstance(time_period, (datetime.date, datetime.datetime)):
+            processed_point['time_period'] = time_period.strftime('%Y-%m-%d')
+        elif time_period is not None:
+            processed_point['time_period'] = str(time_period)
+        
+        # Ensure value is properly formatted
+        value = processed_point.get('value')
+        if value is not None:
+            try:
+                processed_point['value'] = float(value)
+            except (ValueError, TypeError):
+                processed_point['value'] = 0.0
+        
+        processed_chart_data.append(processed_point)
+
+    # Log the first data point to inspect structure (now safe for JSON serialization)
+    if processed_chart_data:
+        try:
+            logger.info(f"First data point: {json.dumps(processed_chart_data[0])}")
+        except TypeError as e:
+            logger.warning(f"Could not serialize first data point for logging: {e}")
+        logger.info(f"Successfully received {len(processed_chart_data)} data points for chart '{chart_title}'.")
+
+    # Check if we have multiple series (group_value field)
+    has_groups = any('group_value' in point for point in processed_chart_data)
+    
+    if has_groups:
+        # Multiple series - create CSV with separate columns for each group
+        logger.info("Detected multiple series data, creating multi-line chart")
+        
+        # Get all unique groups and time periods
+        groups = set()
+        time_periods = set()
+        
+        for point in processed_chart_data:
+            if 'group_value' in point and point['group_value'] is not None:
+                groups.add(str(point['group_value']))
+            if 'time_period' in point and point['time_period'] is not None:
+                time_periods.add(point['time_period'])
+        
+        groups = sorted(list(groups))
+        time_periods = sorted(list(time_periods))
+        
+        logger.info(f"Found {len(groups)} groups: {groups}")
+        logger.info(f"Found {len(time_periods)} time periods")
+        
+        # Create CSV header with time_period and each group as a column
+        csv_header = ["time_period"] + groups
+        csv_data_lines = [",".join(csv_header)]
+        
+        # Create a dictionary to organize data by time_period and group
+        data_matrix = {}
+        for period in time_periods:
+            data_matrix[period] = {}
+            for group in groups:
+                data_matrix[period][group] = None  # Default to None (empty)
+        
+        # Fill in the data
+        for point in processed_chart_data:
+            period = point.get('time_period')
+            group = str(point.get('group_value', ''))
+            value = point.get('value', 0)
+            
+            if period and group in groups:
+                data_matrix[period][group] = value
+        
+        # Generate CSV rows
+        for period in time_periods:
+            row = [period]
+            for group in groups:
+                value = data_matrix[period][group]
+                # Use empty string for None values (Datawrapper will treat as no data point)
+                row.append(str(value) if value is not None else "")
+            csv_data_lines.append(",".join(row))
+        
+        csv_data = "\n".join(csv_data_lines)
+        
+        # Configure chart for multiple lines
+        lines_config = {}
+        colors = ["#ad35fa", "#00bcd4", "#ff9800", "#4caf50", "#f44336", "#9c27b0", "#607d8b"]  # Multiple colors
+        
+        for i, group in enumerate(groups):
+            color = colors[i % len(colors)]  # Cycle through colors if more groups than colors
+            lines_config[group] = {
+                "symbols": {
+                    "on": "every",
+                    "enabled": True
+                },
+                "colorKey": True,
+                "directLabel": False,
+                "valueLabels": {
+                    "enabled": True
+                },
+                "name": group
+            }
+        
+        custom_colors = {group: colors[i % len(colors)] for i, group in enumerate(groups)}
+        values_config = groups  # Multiple value columns
+        
+    else:
+        # Single series - use original format
+        logger.info("Detected single series data, creating single-line chart")
+        
+        csv_data_lines = ["time_period,numeric_value"]  # CSV header
+        for point in processed_chart_data:
+            date_val = point.get('time_period', '')
+            numeric_val = point.get('value', 0)
+            csv_data_lines.append(f"{date_val},{numeric_val}")
+        csv_data = "\n".join(csv_data_lines)
+        
+        # Configure chart for single line
+        y_axis_label = metadata.get('field_name', metadata.get('object_name', 'Value'))
+        lines_config = {
+            "numeric_value": {
+                "symbols": {
+                    "on": "every", 
+                    "enabled": True
+                },
+                "colorKey": True,
+                "directLabel": False,
+                "valueLabels": {
+                    "enabled": True
+                },
+                "name": y_axis_label
+            }
+        }
+        custom_colors = {"numeric_value": "#ad35fa"}
+        values_config = "numeric_value"
+    
+    logger.debug(f"Prepared CSV data:\n{csv_data[:500]}...")  # Log a snippet
+
+    # Create a new chart in Datawrapper
+    logger.info("Creating new chart in Datawrapper...")
+    create_payload = {
+        "title": chart_title,
+        "type": "d3-lines",  # Line chart
+    }
+    created_chart_info = _make_dw_request("POST", "/charts", json_payload=create_payload)
+
+    if not created_chart_info or "id" not in created_chart_info:
+        logger.error("Failed to create Datawrapper chart.")
+        return None
+    
+    chart_id = created_chart_info["id"]
+    logger.info(f"Datawrapper chart created with ID: {chart_id}")
+
+    # Upload data to the chart
+    logger.info(f"Uploading data to chart ID: {chart_id}...")
+    upload_headers = {"Content-Type": "text/csv"}
+    upload_response = _make_dw_request("PUT", f"/charts/{chart_id}/data", headers=upload_headers, data=csv_data.encode('utf-8'))
+    logger.info(f"Data upload process completed for chart ID: {chart_id}. Response: {type(upload_response)}")
+
+    # Customize chart (metadata)
+    logger.info(f"Customizing chart ID: {chart_id}...")
+    
+    # Get y-axis label from metadata
+    y_axis_label = metadata.get('field_name', metadata.get('object_name', 'Value'))
+    
+    customization_payload = {
+        "metadata": {
+            "describe": {
+                "intro": "",
+                "source-name": "TransparentSF", 
+                "byline": "Generated by TransparentSF"
+            },
+            "visualize": {
+                "interpolation": "linear",
+                "custom-colors": custom_colors,
+                "y-grid": True,
+                "x-grid": False,
+                "lines": lines_config,
+                "legend": {
+                    "enabled": True,
+                    "position": "top-right"
+                },
+                "custom-range-y": ["0", ""]  # Force y-axis to start at 0
+            },
+            "axes": {
+                "keys": "time_period",  # X-axis data column
+                "values": values_config,  # Y-axis data column(s)
+                "y-grid": True,
+                "y-label": y_axis_label,
+                "dateFormat": "MMM YYYY",  # Format dates as "Apr 2023"
+                "y-min": 0
+            },
+            "publish": {
+                "embed-width": 700,
+                "embed-height": 450
+            }
+        }
+    }
+    
+    update_response = _make_dw_request("PATCH", f"/charts/{chart_id}", json_payload=customization_payload)
+    if update_response:
+        logger.info(f"Chart metadata updated successfully for chart ID: {chart_id}")
+    else:
+        logger.warning(f"Failed to update chart metadata for chart ID: {chart_id}")
+
+    # Publish the chart
+    logger.info(f"Publishing chart ID: {chart_id}...")
+    publish_response = _make_dw_request("POST", f"/charts/{chart_id}/publish")
+
+    # Handle publish response similar to the main function
+    if not publish_response:
+        # If no response content, try to get chart details directly
+        logger.warning("No content returned from publish request, checking chart details...")
+        chart_details = _make_dw_request("GET", f"/charts/{chart_id}")
+        if chart_details:
+            public_url = chart_details.get("publicUrl")
+            if public_url:
+                logger.warning(f"Publish command might have failed or returned no content, but found publicUrl: {public_url}")
+                return public_url
+        return None
+
+    # Extract public URL from publish response
+    public_url = None
+    if isinstance(publish_response, dict):
+        public_url = publish_response.get("publicUrl")
+        # Try nested structure if not found directly
+        if not public_url:
+            if "data" in publish_response and isinstance(publish_response["data"], list) and len(publish_response["data"]) > 0:
+                public_url = publish_response["data"][0].get("publicUrl")
+        
+    if not public_url:  # Fallback
+        logger.info("Public URL not found in publish response, retrieving chart details...")
         chart_details = _make_dw_request("GET", f"/charts/{chart_id}")
         if chart_details:
             public_url = chart_details.get("publicUrl")
@@ -415,15 +694,16 @@ if __name__ == '__main__':
                     "legend": {
                         "enabled": True,
                         "position": "top-right"
-                    }
+                    },
+                    "custom-range-y": ["0", ""]  # This is the key setting that forces y-axis to start at 0
                 },
                 "axes": {
                     "keys": "time_period", # X-axis data column
                     "values": "numeric_value", # Y-axis data column
                     "y-grid": True,
-                    "y-label": y_axis_label,
+                    "y-label": y_axis_label, # Use the y_axis_label from metadata
                     "dateFormat": "MMM YYYY", # Format dates as "Apr 2023"
-                    "y-min": 0 # Ensure y-axis always starts at 0
+                    "y-min": 0 # Keep this as backup
                 },
                 "publish": {
                     "embed-width": 700,

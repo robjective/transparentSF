@@ -12,6 +12,7 @@ from generate_dashboard_metrics import main as generate_metrics
 from dotenv import load_dotenv
 import re
 import glob
+from typing import List, Optional
 
 # --- Logging Configuration Moved Up ---
 # Get the absolute path to the current directory
@@ -486,12 +487,14 @@ async def api_add_subscriber(request: Request):
 async def forward_chart_by_metric(
     metric_id: str,
     district: int = 0,
-    period_type: str = 'year'
+    period_type: str = 'year',
+    group_field: str = None,
+    groups: str = None
 ):
     """
     Forward requests from /api/chart-by-metric to /backend/api/chart-by-metric
     """
-    return await get_chart_by_metric(metric_id, district, period_type)
+    return await get_chart_by_metric(metric_id, district, period_type, group_field, groups)
 
 @app.get("/api/chart/{chart_id}")
 async def forward_chart_data(chart_id: int):
@@ -499,6 +502,168 @@ async def forward_chart_data(chart_id: int):
     Forward requests from /api/chart/{chart_id} to /backend/api/chart/{chart_id}
     """
     return await get_chart_data(chart_id)
+
+@app.get("/api/district-shapes/{district_type}")
+async def get_district_shapes(district_type: str, district_ids: Optional[List[str]] = None):
+    """
+    Endpoint to fetch district shape data from the city's API.
+    
+    Args:
+        district_type: Type of district ("supervisor" or "police")
+        district_ids: Optional list of specific district IDs to fetch
+        
+    Returns:
+        JSON response containing district polygon data
+    """
+    logger.info(f"API request for {district_type} district shapes, districts: {district_ids}")
+    
+    try:
+        # Validate district type
+        if district_type.lower() not in ["supervisor", "police"]:
+            logger.error(f"Invalid district type: {district_type}")
+            raise HTTPException(status_code=400, detail=f"Invalid district type. Must be 'supervisor' or 'police'")
+        
+        # Set up endpoint ID and field name based on district type
+        if district_type.lower() == "supervisor":
+            endpoint_id = "f2zs-jevy"  # Supervisor districts endpoint (2022)
+            id_field = "sup_dist"
+        else:  # Police districts
+            endpoint_id = "wkhw-cjsf"  # Police districts endpoint
+            id_field = "district"
+        
+        # Import the set_dataset function
+        from tools.data_fetcher import set_dataset
+        
+        # Build the SoQL query - polygon is the column that contains the geometry data
+        query = "SELECT *"  # Don't explicitly include 'polygon' as it's already part of *
+        if district_ids:
+            # Format list of district IDs for query
+            district_filter = " OR ".join([f"{id_field}='{dist_id}'" for dist_id in district_ids])
+            query += f" WHERE {district_filter}"
+        
+        # Create context variables dictionary
+        context_variables = {}
+        
+        # Use set_dataset to fetch the data
+        result = set_dataset(context_variables, endpoint=endpoint_id, query=query)
+        
+        if isinstance(result, dict) and "error" in result:
+            logger.error(f"Error fetching district shapes: {result['error']}")
+            raise HTTPException(status_code=500, detail=f"Error fetching district shapes: {result['error']}")
+        
+        # Check if we got data
+        dataset = context_variables.get("dataset")
+        if dataset is None or dataset.empty:
+            logger.error("No district data retrieved")
+            raise HTTPException(status_code=404, detail="No district data found")
+        
+        # Process the data into a dictionary mapping district IDs to GeoJSON
+        district_shapes = {}
+        for _, row in dataset.iterrows():
+            district_id = str(row.get(id_field))
+            if not district_id:
+                logger.warning(f"Missing district ID in data row")
+                continue
+                
+            # Extract the geometry data - check polygon column
+            if "polygon" in row and row["polygon"]:
+                geometry_data = row["polygon"]
+                # Parse the geometry data if it's a string
+                geometry = json.loads(geometry_data) if isinstance(geometry_data, str) else geometry_data
+                district_shapes[district_id] = {
+                    "type": "Feature",
+                    "properties": {
+                        "district": district_id,
+                        "name": f"District {district_id}" if district_type.lower() == "supervisor" else district_id
+                    },
+                    "geometry": geometry
+                }
+            else:
+                logger.warning(f"No polygon data found for district {district_id}")
+        
+        # Return GeoJSON FeatureCollection
+        geojson_response = {
+            "type": "FeatureCollection",
+            "features": list(district_shapes.values())
+        }
+        
+        # Add metadata to the response
+        response_data = {
+            "status": "success",
+            "district_type": district_type,
+            "count": len(district_shapes),
+            "geojson": geojson_response
+        }
+        
+        return response_data
+    
+    except Exception as e:
+        logger.error(f"Error processing district shapes: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error processing district shapes: {str(e)}")
+
+@app.get("/api/district-ids/{district_type}")
+async def get_district_ids(district_type: str):
+    """
+    Endpoint to fetch just the list of district IDs of a specific type.
+    
+    Args:
+        district_type: Type of district ("supervisor" or "police")
+        
+    Returns:
+        JSON response containing list of district IDs
+    """
+    logger.info(f"API request for {district_type} district IDs")
+    
+    try:
+        # Validate district type
+        if district_type.lower() not in ["supervisor", "police"]:
+            logger.error(f"Invalid district type: {district_type}")
+            raise HTTPException(status_code=400, detail=f"Invalid district type. Must be 'supervisor' or 'police'")
+        
+        # Set up endpoint ID and field name based on district type
+        if district_type.lower() == "supervisor":
+            endpoint_id = "f2zs-jevy"  # Supervisor districts endpoint (2022)
+            id_field = "sup_dist"
+        else:  # Police districts
+            endpoint_id = "wkhw-cjsf"  # Police districts endpoint
+            id_field = "district"
+        
+        # Import the set_dataset function
+        from tools.data_fetcher import set_dataset
+        
+        # Build the SoQL query - only select the district ID field
+        query = f"SELECT {id_field}"
+        
+        # Create context variables dictionary
+        context_variables = {}
+        
+        # Use set_dataset to fetch the data
+        result = set_dataset(context_variables, endpoint=endpoint_id, query=query)
+        
+        if isinstance(result, dict) and "error" in result:
+            logger.error(f"Error fetching district IDs: {result['error']}")
+            raise HTTPException(status_code=500, detail=f"Error fetching district IDs: {result['error']}")
+        
+        # Check if we got data
+        dataset = context_variables.get("dataset")
+        if dataset is None or dataset.empty:
+            logger.error("No district data retrieved")
+            raise HTTPException(status_code=404, detail="No district data found")
+        
+        # Extract the district IDs
+        district_ids = dataset[id_field].astype(str).unique().tolist()
+        
+        # Return the list of district IDs
+        return {
+            "status": "success",
+            "district_type": district_type,
+            "count": len(district_ids),
+            "district_ids": district_ids
+        }
+    
+    except Exception as e:
+        logger.error(f"Error processing district IDs: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error processing district IDs: {str(e)}")
 
 async def schedule_metrics_generation():
     """Schedule metrics generation to run daily at 5 AM and 11 AM."""

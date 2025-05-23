@@ -857,7 +857,7 @@
                     </button>
                     <button id="rerun-proofreading" class="action-btn">Re-run Proofreading</button>
                     <button id="rerun-postproofing" class="action-btn">Re-run Email</button>
-                    <button id="publish-to-ghost" class="action-btn" >Publish</button>
+                    <button id="generate-narration" class="action-btn">Generate Narration</button>
                     <button id="delete-report" class="action-btn delete-btn">Delete Newsletter</button>
                 </div>
             </div>
@@ -968,6 +968,42 @@
                         console.log("No published URL found for report:", originalFilename);
                     }
                 }
+                
+                // Audio player
+                const audioPlayerContainer = document.getElementById('audio-player-container');
+                const audioPlayer = document.getElementById('audio-player');
+                if (audioPlayerContainer && audioPlayer) {
+                    // Construct the audio filename from the email version
+                    const audioFilename = emailFilename ? emailFilename.replace('.html', '.mp3') : null;
+                    
+                    if (audioFilename) {
+                        // Check if audio file exists by trying to load it
+                        const audioUrl = `/backend/narration/${audioFilename}`;
+                        
+                        // Test if the audio file exists
+                        fetch(audioUrl, { method: 'HEAD' })
+                            .then(response => {
+                                if (response.ok) {
+                                    // Audio file exists, show player
+                                    audioPlayer.src = audioUrl;
+                                    audioPlayerContainer.style.display = 'flex';
+                                    console.log("Audio file found:", audioUrl);
+                                } else {
+                                    // Audio file doesn't exist, hide player
+                                    audioPlayerContainer.style.display = 'none';
+                                    console.log("Audio file not found:", audioUrl);
+                                }
+                            })
+                            .catch(error => {
+                                // Error checking file, hide player
+                                audioPlayerContainer.style.display = 'none';
+                                console.log("Error checking audio file:", error);
+                            });
+                    } else {
+                        // No email filename, hide player
+                        audioPlayerContainer.style.display = 'none';
+                    }
+                }
             };
             
             // Initialize the prompt editor components
@@ -1045,7 +1081,8 @@
                     'context_enrichment',
                     'generate_report_text',
                     'generate_report',
-                    'proofread'
+                    'proofread',
+                    'audio_transformation'
                 ];
                 orderedKeys.forEach(key => {
                     if (monthlyReportPrompts[key]) {
@@ -1294,12 +1331,12 @@
                         };
                     }
 
-                    // Set up the publish to Ghost button
-                    const publishToGhostBtn = document.getElementById('publish-to-ghost');
-                    if (publishToGhostBtn) {
-                        publishToGhostBtn.onclick = () => {
-                            console.log("Publishing to Ghost:", selectedReport);
-                            publishToGhost(selectedReport);
+                    // Set up the generate narration button
+                    const generateNarrationBtn = document.getElementById('generate-narration');
+                    if (generateNarrationBtn) {
+                        generateNarrationBtn.onclick = () => {
+                            console.log("Generating narration for:", selectedReport);
+                            generateNarration(selectedReport);
                         };
                     }
                 } else {
@@ -1583,95 +1620,6 @@
                 }
             }
             
-            // Function to publish newsletter to Ghost
-            async function publishToGhost(filename) {
-                try {
-                    // Get the selected option to extract title and check for revised version
-                    const selectedOption = reportSelect.options[reportSelect.selectedIndex];
-                    const reportTitle = selectedOption.textContent;
-                    const revisedFilename = selectedOption.dataset.revisedFilename;
-                    const originalFilename = selectedOption.value;
-                    const emailFilename = originalFilename ? originalFilename.replace('.html', '_revised_email.html') : null;
-                    
-                    // Use revised version if available, otherwise use original
-                    const fileToPublish = revisedFilename || filename;
-                    
-                    // Show loading state
-                    const publishBtn = document.getElementById('publish-to-ghost');
-                    publishBtn.disabled = true;
-                    publishBtn.innerHTML = '<div style="display: flex; align-items: center; justify-content: center;"><span class="loading"></span> Publishing...</div>';
-                    
-                    // Confirm with the user 
-                    if (!confirm(`Are you sure you want to publish "${reportTitle}" to the blog?`)) {
-                        publishBtn.disabled = false;
-                        publishBtn.textContent = 'Publish';
-                        return;
-                    }
-                    
-                    // Find the report ID from the reports data
-                    const report = reportsData?.reports?.find(r => r.original_filename === originalFilename);
-                    if (!report || !report.id) {
-                        throw new Error('Could not find report ID for the selected newsletter');
-                    }
-                    
-                    // Call the API to publish to Ghost, including the report ID
-                    const response = await fetch('/backend/publish_to_ghost', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json'
-                        },
-                        body: JSON.stringify({
-                            filename: fileToPublish,
-                            title: reportTitle,
-                            report_id: report.id
-                        })
-                    });
-                    
-                    const data = await response.json();
-                    
-                    if (data.status === 'success') {
-                        // Open the post URL in a new tab
-                        if (data.url) {
-                            window.open(data.url, '_blank');
-                        }
-                        alert(`Newsletter published successfully!\nThe URL has been saved to the database.\n${data.url || ''}`);
-                        
-                        // Reload the report details to show the published URL
-                        if (report && report.id) {
-                            // Load report directly with the ID to ensure we get the most up-to-date data
-                            const reportResponse = await fetch(`/backend/monthly-report/${report.id}`, {
-                                headers: {
-                                    'Accept': 'application/json'
-                                }
-                            });
-                            
-                            if (reportResponse.ok) {
-                                const reportData = await reportResponse.json();
-                                if (reportData.status === 'success' && reportData.report) {
-                                    // Update display
-                                    displayReportDetails(reportData.report);
-                                }
-                            } else {
-                                // Fall back to filename-based lookup if ID lookup fails
-                                loadReportDetails(originalFilename);
-                            }
-                        } else {
-                            loadReportDetails(originalFilename);
-                        }
-                    } else {
-                        throw new Error(data.message || 'Failed to publish newsletter');
-                    }
-                } catch (error) {
-                    console.error('Error publishing to Ghost:', error);
-                    alert(`Error publishing to Ghost: ${error.message}`);
-                } finally {
-                    // Reset button state
-                    const publishBtn = document.getElementById('publish-to-ghost');
-                    publishBtn.disabled = false;
-                    publishBtn.textContent = 'Publish';
-                }
-            }
-            
             // Function to delete a report
             async function deleteReport(filename) {
                 if (!filename) {
@@ -1771,10 +1719,16 @@
                             <div class="metadata-item"><strong>Last Updated:</strong> ${updatedDate}</div>
                             ${report.published_url ? `<div class="metadata-item"><strong>Published URL:</strong> <a href="${report.published_url}" target="_blank">${report.published_url}</a></div>` : ''}
                         </div>
-                        <div class="report-links" style="margin-top: 15px; display: flex; flex-wrap: wrap; gap: 15px;">
+                        <div class="report-links" style="margin-top: 15px; display: flex; flex-wrap: wrap; gap: 15px; align-items: center;">
                             <a href="#" id="view-original-report" target="_blank" style="text-decoration: none; color: #ad35fa;">View Original</a>
                             <a href="#" id="view-revised-report" target="_blank" style="text-decoration: none; color: #ad35fa;">View Revised</a>
                             <a href="#" id="view-email-report" target="_blank" style="text-decoration: none; color: #ad35fa;">View Email Version</a>
+                            <div id="audio-player-container" style="display: none; align-items: center; gap: 10px;">
+                                <span style="color: #ad35fa; font-size: 14px;">🎧 Audio:</span>
+                                <audio id="audio-player" controls style="height: 32px;">
+                                    Your browser does not support the audio element.
+                                </audio>
+                            </div>
                             <a href="#" id="view-published-report" target="_blank" style="text-decoration: none; color: #ad35fa;">View Published Post</a>
                         </div>
                     </div>
@@ -1876,12 +1830,49 @@
                                                             </div>
                                                         `;
                                                     } else if (typeof chart === 'object') {
-                                                        // For chart objects with more data
+                                                        // For chart objects with more data - create an expand button instead of showing JSON
                                                         const chartTitle = chart.title || 'Chart';
+                                                        let chartRef = '';
+                                                        
+                                                        // Try to construct a chart reference from the object
+                                                        if (chart.type === 'anomaly' && chart.id) {
+                                                            chartRef = `[CHART:anomaly:${chart.id}]`;
+                                                        } else if (chart.type === 'time_series' && chart.metric_id) {
+                                                            const district = chart.district || '0';
+                                                            const period = chart.period_type || 'month';
+                                                            chartRef = `[CHART:time_series:${chart.metric_id}:${district}:${period}]`;
+                                                        } else if (chart.type === 'map' && chart.map_id) {
+                                                            chartRef = `[CHART:map:${chart.map_id}]`;
+                                                        } else if (chart.reference && chart.reference.startsWith('[CHART:')) {
+                                                            // Use the reference field if it contains a chart reference
+                                                            chartRef = chart.reference;
+                                                        } else if (chart.html) {
+                                                            // If chart has HTML, display it directly
+                                                            chartsHtml += `
+                                                                <div class="chart-container">
+                                                                    <h5>${chartTitle}</h5>
+                                                                    ${chart.html}
+                                                                </div>
+                                                            `;
+                                                            return; // Skip the chart-placeholder creation
+                                                        } else if (chart.url) {
+                                                            // If chart has URL, create iframe
+                                                            chartsHtml += `
+                                                                <div class="chart-container">
+                                                                    <h5>${chartTitle}</h5>
+                                                                    <iframe src="${chart.url}" style="width: 100%; height: 600px; border: none;" frameborder="0"></iframe>
+                                                                </div>
+                                                            `;
+                                                            return; // Skip the chart-placeholder creation
+                                                        } else {
+                                                            // Fallback for unknown chart objects
+                                                            chartRef = JSON.stringify(chart);
+                                                        }
+                                                        
+                                                        // Create chart placeholder for expandable charts
                                                         chartsHtml += `
-                                                            <div class="chart-container">
-                                                                <h5>${chartTitle}</h5>
-                                                                ${chart.html || chart.url || JSON.stringify(chart)}
+                                                            <div class="chart-placeholder">
+                                                                ${chartRef}
                                                             </div>
                                                         `;
                                                     }
@@ -2065,8 +2056,13 @@
                         });
                         
                         // Process any chart placeholders to expand them
-                        document.querySelectorAll('.chart-placeholder').forEach(placeholder => {
+                        const chartPlaceholders = document.querySelectorAll('.chart-placeholder');
+                        console.log('Found chart placeholders:', chartPlaceholders.length);
+                        
+                        chartPlaceholders.forEach((placeholder, index) => {
                             const chartRef = placeholder.textContent.trim();
+                            console.log(`Processing placeholder ${index}:`, chartRef);
+                            
                             if (chartRef.startsWith('[CHART:')) {
                                 console.log('Found chart reference:', chartRef);
                                 
@@ -2087,46 +2083,138 @@
                                 `;
                                 
                                 const expandBtn = placeholder.querySelector('.expand-chart-btn');
+                                console.log('Found expand button:', expandBtn);
+                                
                                 if (expandBtn) {
                                     expandBtn.addEventListener('click', (e) => {
+                                        console.log('Chart expand button clicked!', chartRef);
                                         e.preventDefault();
                                         e.stopPropagation();
                                         
                                         // Extract chart type and params
-                                        const chartMatch = chartRef.match(/\[CHART:([^:]+):([^:]+)(?::([^:]+))?(?::([^:]+))?(?::([^:]+))?\]/);
+                                        const chartMatch = chartRef.match(/\[CHART:([^:]+):([^\]]+)\]/);
                                         if (chartMatch) {
                                             const chartType = chartMatch[1];
-                                            const param1 = chartMatch[2];
-                                            const param2 = chartMatch[3];
-                                            const param3 = chartMatch[4];
+                                            const params = chartMatch[2];
+                                            const paramParts = params.split(':');
                                             
-                                            if (chartType === 'time_series') {
-                                                // For time series: [CHART:time_series:metric_id:district:period]
-                                                const metricId = param1;
-                                                const district = param2 || '0';
-                                                const period = param3 || 'month';
-                                                
-                                                // Create iframe for time series chart
-                                                placeholder.innerHTML = `
-                                                    <div>
-                                                        <iframe src="/backend/time-series-chart?metric_id=${metricId}&district=${district}&period_type=${period}" 
-                                                                style="width: 100%; height: 400px; border: none;" frameborder="0">
-                                                        </iframe>
-                                                    </div>
-                                                `;
+                                            if (chartType === 'time_series' || chartType === 'time_series_id') {
+                                                // For time series charts: [CHART:time_series:metric_id:district:period] or [CHART:time_series_id:chart_id]
+                                                if (paramParts.length === 1) {
+                                                    // Chart ID format: [CHART:time_series_id:chart_id]
+                                                    const chartId = paramParts[0];
+                                                    placeholder.innerHTML = `
+                                                        <div>
+                                                            <iframe src="/backend/time-series-chart?chart_id=${chartId}" 
+                                                                    style="width: 100%; height: 600px; border: none;" frameborder="0">
+                                                            </iframe>
+                                                        </div>
+                                                    `;
+                                                } else {
+                                                    // Metric format: [CHART:time_series:metric_id:district:period]
+                                                    const metricId = paramParts[0];
+                                                    const district = paramParts[1] || '0';
+                                                    const period = paramParts[2] || 'month';
+                                                    placeholder.innerHTML = `
+                                                        <div>
+                                                            <iframe src="/backend/time-series-chart?metric_id=${metricId}&district=${district}&period_type=${period}" 
+                                                                    style="width: 100%; height: 600px; border: none;" frameborder="0">
+                                                            </iframe>
+                                                        </div>
+                                                    `;
+                                                }
                                             } else if (chartType === 'anomaly') {
                                                 // For anomaly: [CHART:anomaly:anomaly_id]
-                                                const anomalyId = param1;
+                                                const anomalyId = paramParts[0];
                                                 
                                                 // Create iframe for anomaly chart
                                                 placeholder.innerHTML = `
                                                     <div>
                                                         <iframe src="/anomaly-analyzer/anomaly-chart?id=${anomalyId}" 
-                                                                style="width: 100%; height: 400px; border: none;" frameborder="0">
+                                                                style="width: 100%; height: 600px; border: none;" frameborder="0">
                                                         </iframe>
                                                     </div>
                                                 `;
+                                            } else if (chartType === 'map') {
+                                                // For map: [CHART:map:map_id]
+                                                const mapId = paramParts[0];
+                                                
+                                                // Create iframe for map chart
+                                                placeholder.innerHTML = `
+                                                    <div>
+                                                        <iframe src="/backend/map-chart?id=${mapId}" 
+                                                                style="width: 100%; height: 600px; border: none;" frameborder="0">
+                                                        </iframe>
+                                                    </div>
+                                                `;
+                                            } else {
+                                                // Unknown chart type
+                                                placeholder.innerHTML = `
+                                                    <div style="color: red; padding: 20px;">
+                                                        <p>Unknown chart type: ${chartType}</p>
+                                                        <p>Chart reference: ${chartRef}</p>
+                                                    </div>
+                                                `;
                                             }
+                                        } else {
+                                            // Invalid chart reference format
+                                            placeholder.innerHTML = `
+                                                <div style="color: red; padding: 20px;">
+                                                    <p>Invalid chart reference format</p>
+                                                    <p>Chart reference: ${chartRef}</p>
+                                                </div>
+                                            `;
+                                        }
+                                    });
+                                }
+                            } else if (chartRef.startsWith('{') || chartRef.startsWith('[')) {
+                                // Handle JSON objects that might represent chart data
+                                console.log('Found JSON chart data:', chartRef);
+                                
+                                placeholder.style.cursor = 'pointer';
+                                placeholder.style.backgroundColor = '#f0f0f0';
+                                placeholder.style.padding = '10px';
+                                placeholder.style.borderRadius = '5px';
+                                placeholder.style.marginBottom = '10px';
+                                placeholder.style.display = 'block';
+                                placeholder.style.textAlign = 'center';
+                                
+                                placeholder.innerHTML = `
+                                    <div>
+                                        <div>Chart Data Available</div>
+                                        <button class="action-btn expand-chart-btn" style="margin-top: 10px;">Show Chart Data</button>
+                                    </div>
+                                `;
+                                
+                                const expandBtn = placeholder.querySelector('.expand-chart-btn');
+                                console.log('Found JSON expand button:', expandBtn);
+                                
+                                if (expandBtn) {
+                                    expandBtn.addEventListener('click', (e) => {
+                                        console.log('JSON chart button clicked!', chartRef);
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                        
+                                        // Try to parse and format the JSON
+                                        try {
+                                            const chartData = JSON.parse(chartRef);
+                                            const formattedJson = JSON.stringify(chartData, null, 2);
+                                            
+                                            placeholder.innerHTML = `
+                                                <div style="text-align: left;">
+                                                    <h5>Chart Data:</h5>
+                                                    <pre style="background: #f8f8f8; padding: 15px; border-radius: 5px; overflow-x: auto; font-size: 12px;">${formattedJson}</pre>
+                                                    <button class="action-btn" style="margin-top: 10px;" onclick="this.parentElement.parentElement.querySelector('.chart-placeholder').style.display='none'">Hide</button>
+                                                </div>
+                                            `;
+                                        } catch (e) {
+                                            placeholder.innerHTML = `
+                                                <div style="text-align: left;">
+                                                    <h5>Raw Chart Data:</h5>
+                                                    <pre style="background: #f8f8f8; padding: 15px; border-radius: 5px; overflow-x: auto; font-size: 12px;">${chartRef}</pre>
+                                                    <button class="action-btn" style="margin-top: 10px;" onclick="this.parentElement.parentElement.querySelector('.chart-placeholder').style.display='none'">Hide</button>
+                                                </div>
+                                            `;
                                         }
                                     });
                                 }
@@ -2261,6 +2349,119 @@
                         rerunPostProofingBtn.textContent = originalText;
                     }
                 };
+            }
+            
+            // Add click handler for expand-charts button
+            const expandChartsBtn = document.getElementById('expand-charts');
+            if (expandChartsBtn) {
+                expandChartsBtn.onclick = async (e) => {
+                    e.preventDefault();
+                    const selectedOption = reportSelect.options[reportSelect.selectedIndex];
+                    if (!selectedOption || !selectedOption.value) {
+                        alert('Please select a newsletter to expand charts.');
+                        return;
+                    }
+                    
+                    // Get the original or revised filename (prefer revised if available)
+                    const revisedFilename = selectedOption.dataset.revisedFilename;
+                    const originalFilename = selectedOption.value;
+                    const filename = revisedFilename || originalFilename;
+                    
+                    // Set loading state
+                    expandChartsBtn.disabled = true;
+                    const originalText = expandChartsBtn.textContent;
+                    expandChartsBtn.innerHTML = '<div style="display: flex; align-items: center; justify-content: center;"><span class="loading"></span> Expanding Charts...</div>';
+                    
+                    try {
+                        // Call backend endpoint to expand chart placeholders
+                        const response = await fetch('/backend/expand_chart_placeholders', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ filename })
+                        });
+                        
+                        const data = await response.json();
+                        
+                        if (data.status === 'success') {
+                            alert('Chart placeholders expanded successfully!');
+                            // Reload the report to show the updated charts
+                            loadReportDetails(filename);
+                        } else {
+                            throw new Error(data.message || 'Failed to expand chart placeholders');
+                        }
+                    } catch (error) {
+                        alert('Error: ' + error.message);
+                    } finally {
+                        expandChartsBtn.disabled = false;
+                        expandChartsBtn.textContent = originalText;
+                    }
+                };
+            }
+            
+            // Function to generate narrated version of the newsletter
+            async function generateNarration(filename) {
+                try {
+                    // Get the selected option to extract title
+                    const selectedOption = reportSelect.options[reportSelect.selectedIndex];
+                    const reportTitle = selectedOption.textContent;
+                    
+                    // Show loading state
+                    const narrationBtn = document.getElementById('generate-narration');
+                    narrationBtn.disabled = true;
+                    narrationBtn.innerHTML = '<div style="display: flex; align-items: center; justify-content: center;"><span class="loading"></span> Generating Narration...</div>';
+                    
+                    // Confirm with the user 
+                    if (!confirm(`Are you sure you want to generate narration for "${reportTitle}"?`)) {
+                        narrationBtn.disabled = false;
+                        narrationBtn.textContent = 'Generate Narration';
+                        return;
+                    }
+                    
+                    // Call the API to generate narration
+                    const response = await fetch('/backend/generate_narrated_report', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            filename: filename
+                        })
+                    });
+                    
+                    const data = await response.json();
+                    
+                    if (data.status === 'success') {
+                        // Create download link for the audio file
+                        const audioFilename = data.audio_filename;
+                        const downloadUrl = `/backend/narration/${audioFilename}`;
+                        
+                        // Create a temporary link to download the file
+                        const link = document.createElement('a');
+                        link.href = downloadUrl;
+                        link.download = audioFilename;
+                        link.style.display = 'none';
+                        document.body.appendChild(link);
+                        link.click();
+                        document.body.removeChild(link);
+                        
+                        // Refresh the audio player to show the new narration
+                        setTimeout(() => {
+                            updateReportLinks();
+                        }, 1000);
+                        
+                        alert(`Narration generated successfully!\nThe audio file "${audioFilename}" has been downloaded and is now available in the player.`);
+                    } else {
+                        throw new Error(data.message || 'Failed to generate narration');
+                    }
+                } catch (error) {
+                    console.error('Error generating narration:', error);
+                    alert(`Error generating narration: ${error.message}`);
+                } finally {
+                    // Reset button state
+                    const narrationBtn = document.getElementById('generate-narration');
+                    narrationBtn.disabled = false;
+                    narrationBtn.textContent = 'Generate Narration';
+                }
             }
         });
     </script>

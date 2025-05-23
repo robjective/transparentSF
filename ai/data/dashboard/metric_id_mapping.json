@@ -83,5 +83,15 @@
         "name": "\ud83c\udfea Retail Closures",
         "category": "economy",
         "subcategory": "business"
+    },
+    "18": {
+        "name": "\ud83d\udcde 311 Cases",
+        "category": "safety",
+        "subcategory": "311_cases"
+    },
+    "19": {
+        "name": "\u26fa Encampment Calls",
+        "category": "safety",
+        "subcategory": "311_cases"
     }
 }

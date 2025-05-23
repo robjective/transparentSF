@@ -15,6 +15,7 @@ from typing import Dict, List, Any, Optional, Union, Tuple
 from dateutil import parser
 from tools.db_utils import get_postgres_connection, execute_with_connection, CustomJSONEncoder
 from dotenv import load_dotenv
+import re
 
 # Load environment variables from .env file
 load_dotenv()
@@ -153,6 +154,26 @@ def store_anomalies_in_db(connection, results, metadata):
         object_type = metadata.get('object_type', 'unknown')
         object_id = metadata.get('object_id', 'unknown')
         object_name = metadata.get('object_name', metadata.get('title', 'unknown'))
+        
+        # Clean up object_name: remove "Citywide" and district numbers
+        if isinstance(object_name, str):
+            # Remove " - Citywide" suffix
+            object_name = object_name.replace(" - Citywide", "")
+            
+            # Remove " - District X" where X is any number
+            object_name = re.sub(r' - District \d+', '', object_name)
+            
+            # Also handle "DistrictX" format without spaces
+            object_name = re.sub(r' - District\d+', '', object_name)
+            
+            # Log the cleaned object name
+            logging.info(f"Cleaned object_name: {object_name}")
+            
+            # Update the metadata with the cleaned object_name
+            metadata['object_name'] = object_name
+            if isinstance(serializable_metadata, dict):
+                serializable_metadata['object_name'] = object_name
+        
         field_name = metadata.get('numeric_field', 'unknown')
         group_field_name = metadata.get('group_field', 'unknown')
         period_type = metadata.get('period_type', 'month')
@@ -302,10 +323,26 @@ def store_anomalies_in_db(connection, results, metadata):
                 comparison_period_label = f"{comp_start.strftime('%B %Y')} to {comp_end.strftime('%B %Y')}"
                 recent_period_label = f"{recent_start.strftime('%B %Y')}"
                 
+                # Generate a title for the anomaly in the new format
+                percent_change = int(abs((result['difference'] / result['comparison_mean']) * 100)) if result['comparison_mean'] else 0
+                trend_type = "Spike" if result['difference'] > 0 else "Drop"
+                group_field_display = group_field_name.replace("_", " ").title()
+                
+                # Generate the title with the exact HTML formatting:
+                # - Object name in default weight (which is bold in Datawrapper)
+                # - Percentage and trend in normal weight (span tag)
+                # - Value after colon in bold (strong tag)
+                title = f"{object_name} <span style=\"font-weight: normal;\">{percent_change}% {trend_type} in {group_field_display}</span>: <strong>{result['group_value']}</strong>"
+                
+                # Override the title in metadata
+                if isinstance(serializable_metadata, dict):
+                    serializable_metadata['title'] = title
+                
+                # Update caption format to match new requirements
+                direction = "Increase" if result['difference'] > 0 else "Decrease"
                 caption = (
-                    f"In {recent_period_label}, there were {result['recent_mean']:,.0f} {result['group_value']} {y_axis_label} per month, "
-                    f"compared to an average of {result['comparison_mean']:,.0f} per month over {comparison_period_label}, "
-                    f"a {percent_difference:.1f}% {action}."
+                    f"{direction} of {percent_change}% vs the average between {comp_start.strftime('%B %Y')} and "
+                    f"{comp_end.strftime('%B %Y')} of {result['comparison_mean']:.0f}."
                 )
                 
                 # Add caption to metadata

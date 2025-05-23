@@ -12,6 +12,8 @@ import copy
 from tools.data_fetcher import set_dataset
 from tools.genChart import generate_time_series_chart
 from tools.anomaly_detection import anomaly_detection
+from tools.generate_map import generate_map
+from tools.genAggregate import aggregate_data  # Import aggregate_data function
 
 # Configure logging
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -550,6 +552,351 @@ def process_metric_analysis(metric_info, period_type='month', process_districts=
         # Save the analysis files for the citywide result (district 0)
         save_analysis_files(result, metric_id, period_type, district=0)
     
+    # Generate choropleth maps for supervisor districts if they exist in the dataset
+    if has_district and 'supervisor_district' in dataset.columns and period_type == 'month':
+        logging.info("Found supervisor_district field. Generating choropleth maps...")
+        
+        # Create a dictionary to store map IDs for reference in markdown
+        generated_maps = {
+            'density_map_id': None,
+            'density_map_url': None,
+            'delta_map_id': None,
+            'delta_map_url': None
+        }
+        
+        try:
+            # Get the most recent month's data
+            if 'month_period' in dataset.columns:
+                recent_months = dataset[dataset['period_type'] == 'recent']['month_period'].unique()
+                if len(recent_months) > 0:
+                    # Sort months and get the most recent one
+                    recent_months = sorted(recent_months)
+                    last_month = recent_months[-1]
+                    
+                    # For second_last_month, look in comparison period if not found in recent
+                    second_last_month = recent_months[-2] if len(recent_months) > 1 else None
+                    
+                    # If we don't have a second recent month, look for the most recent comparison month
+                    if second_last_month is None:
+                        comparison_months = dataset[dataset['period_type'] == 'comparison']['month_period'].unique()
+                        if len(comparison_months) > 0:
+                            comparison_months = sorted(comparison_months)
+                            second_last_month = comparison_months[-1]  # Most recent comparison month
+                            logging.info(f"Using most recent comparison month as second_last_month: {second_last_month}")
+                    
+                    # Log the months we're using
+                    logging.info(f"Recent months available: {recent_months}")
+                    logging.info(f"Using last_month: {last_month}, second_last_month: {second_last_month}")
+                    
+                    # Format date values for display
+                    last_month_display = last_month
+                    second_last_month_display = second_last_month
+                    
+                    # Try to parse and format the date values
+                    try:
+                        # Check if last_month is an ISO date format string
+                        if isinstance(last_month, str) and (last_month.startswith('20') or 'T' in last_month):
+                            # Parse the date - try different formats
+                            try:
+                                if 'T' in last_month:
+                                    # ISO format with time component
+                                    dt = datetime.fromisoformat(last_month.replace('Z', '+00:00'))
+                                else:
+                                    # Just YYYY-MM format
+                                    if '-' in last_month and len(last_month.split('-')) == 2:
+                                        year, month = last_month.split('-')
+                                        dt = datetime(int(year), int(month), 1)
+                                    else:
+                                        dt = datetime.fromisoformat(f"{last_month}-01")
+                                
+                                # Format as "Month Year"
+                                last_month_display = dt.strftime('%B %Y')
+                            except (ValueError, TypeError) as e:
+                                logging.warning(f"Failed to parse last_month date {last_month}: {e}")
+                                
+                        # Do the same for second_last_month if it exists
+                        if second_last_month and isinstance(second_last_month, str) and (second_last_month.startswith('20') or 'T' in second_last_month):
+                            try:
+                                if 'T' in second_last_month:
+                                    dt = datetime.fromisoformat(second_last_month.replace('Z', '+00:00'))
+                                else:
+                                    if '-' in second_last_month and len(second_last_month.split('-')) == 2:
+                                        year, month = second_last_month.split('-')
+                                        dt = datetime(int(year), int(month), 1)
+                                    else:
+                                        dt = datetime.fromisoformat(f"{second_last_month}-01")
+                                
+                                second_last_month_display = dt.strftime('%B %Y')
+                            except (ValueError, TypeError) as e:
+                                logging.warning(f"Failed to parse second_last_month date {second_last_month}: {e}")
+                    except Exception as e:
+                        logging.warning(f"Error formatting date values: {e}")
+                    
+                    # Filter dataset for last month
+                    last_month_data = dataset[(dataset['month_period'] == last_month) & 
+                                            (dataset['period_type'] == 'recent')]
+                    
+                    # Prepare data for density map
+                    if not last_month_data.empty:
+                        density_map_data = []
+                        
+                        # Log the dataset structure
+                        logging.info(f"Last month dataset columns: {last_month_data.columns.tolist()}")
+                        logging.info(f"Last month dataset sample (first few rows): {last_month_data.head().to_dict()}")
+                        logging.info(f"Value field: {value_field}, Aggregation function: {agg_functions[value_field]}")
+                        
+                        # Use direct pandas aggregation for spatial data rather than time series aggregation
+                        # The genAggregate.aggregate_data function is designed for time series, not spatial data
+                        
+                        # First ensure value field is numeric
+                        try:
+                            last_month_data[value_field] = pd.to_numeric(last_month_data[value_field], errors='coerce')
+                            logging.info(f"Converted {value_field} to numeric type")
+                        except Exception as e:
+                            logging.error(f"Error converting values to numeric: {e}")
+                        
+                        if agg_functions[value_field] == 'mean':
+                            district_values = last_month_data.groupby('supervisor_district')[value_field].mean().reset_index()
+                            logging.info(f"Using MEAN aggregation for district values")
+                        else:
+                            district_values = last_month_data.groupby('supervisor_district')[value_field].sum().reset_index()
+                            logging.info(f"Using SUM aggregation for district values")
+                        
+                        logging.info(f"Aggregated district values: {district_values.head().to_dict()}")
+                        
+                        # Process results for the map
+                        for _, row in district_values.iterrows():
+                            if pd.isna(row['supervisor_district']):
+                                logging.info(f"Skipping NaN district value")
+                                continue
+                            
+                            try:
+                                # Handle both numeric and text district values
+                                district_value = row['supervisor_district']
+                                if pd.api.types.is_numeric_dtype(type(district_value)) or (isinstance(district_value, str) and district_value.replace('.', '', 1).isdigit()):
+                                    # It's a numeric value (or numeric as string) - convert to int if possible
+                                    try:
+                                        district = str(int(float(district_value)))
+                                    except:
+                                        district = str(district_value)
+                                else:
+                                    # It's a non-numeric string
+                                    district = str(district_value)
+                                    # If it's a string like "District 1", extract just the number
+                                    district_match = re.search(r'district\s*(\d+)', district.lower())
+                                    if district_match:
+                                        district = district_match.group(1)
+                                
+                                value = float(row[value_field])
+                                density_map_data.append({
+                                    "district": district,
+                                    "value": value
+                                })
+                                logging.info(f"Added district {district} with value {value} to map data")
+                            except (ValueError, TypeError) as e:
+                                logging.warning(f"Skipping invalid district value: {row['supervisor_district']} - {e}")
+                        
+                        # Log the final map data
+                        logging.info(f"Final density map data: {density_map_data}")
+                        
+                        # Generate density map
+                        if density_map_data:
+                            map_title = f"{query_name} - {last_month_display} Values by District"
+                            
+                            # Convert density_map_data to CSV format for supervisor_district maps
+                            csv_data = "district,value\n"
+                            for item in density_map_data:
+                                csv_data += f"{item['district']},{item['value']}\n"
+                            
+                            map_result = generate_map(
+                                context_variables={},
+                                map_title=map_title,
+                                map_type="supervisor_district",
+                                location_data=csv_data,
+                                map_metadata={
+                                    "period": last_month_display,
+                                    "description": f"Values for {query_name} by supervisor district for {last_month_display}"
+                                },
+                                metric_id=metric_id,
+                                group_field="supervisor_district"
+                            )
+                            
+                            if map_result and map_result.get("chart_id"):
+                                chart_id = map_result.get('chart_id')
+                                logging.info(f"Successfully generated density map with ID: {chart_id}")
+                                
+                                # Store map ID and URL for markdown reference
+                                generated_maps['density_map_id'] = chart_id
+                                generated_maps['density_map_url'] = map_result.get('publish_url')
+                                
+                                # Add map to HTML content
+                                if "publish_url" in map_result:
+                                    map_html = f"""
+                                    <div class="map-container">
+                                        <h3>District Map: {map_title}</h3>
+                                        <iframe width="100%" height="500" src="{map_result['publish_url']}" 
+                                            frameborder="0" allowfullscreen></iframe>
+                                    </div>
+                                    """
+                                    all_html_contents.append(map_html)
+                            else:
+                                logging.error(f"Failed to generate density map: {map_result}")
+                    
+                    # Generate delta map showing percent change if we have two months
+                    if second_last_month and not last_month_data.empty:
+                        # Determine which period to look for second_last_month data
+                        # If second_last_month is in recent_months, look in recent period, otherwise look in comparison
+                        if second_last_month in recent_months:
+                            second_last_month_data = dataset[(dataset['month_period'] == second_last_month) & 
+                                                          (dataset['period_type'] == 'recent')]
+                        else:
+                            second_last_month_data = dataset[(dataset['month_period'] == second_last_month) & 
+                                                          (dataset['period_type'] == 'comparison')]
+                        
+                        if not second_last_month_data.empty:
+                            # Log data for debugging
+                            logging.info(f"Second last month: {second_last_month}")
+                            logging.info(f"Current month data size: {len(last_month_data)}")
+                            logging.info(f"Previous month data size: {len(second_last_month_data)}")
+                            
+                            # Use direct pandas aggregation for spatial data
+                            
+                            # First ensure value field is numeric for both datasets
+                            try:
+                                last_month_data[value_field] = pd.to_numeric(last_month_data[value_field], errors='coerce')
+                                second_last_month_data[value_field] = pd.to_numeric(second_last_month_data[value_field], errors='coerce')
+                                logging.info(f"Converted {value_field} to numeric type for both months")
+                            except Exception as e:
+                                logging.error(f"Error converting values to numeric: {e}")
+                            
+                            # For current month
+                            if agg_functions[value_field] == 'mean':
+                                last_month_grouped = last_month_data.groupby('supervisor_district')[value_field].mean().reset_index()
+                                second_last_month_grouped = second_last_month_data.groupby('supervisor_district')[value_field].mean().reset_index()
+                                logging.info(f"Using MEAN aggregation for district percent change")
+                            else:
+                                last_month_grouped = last_month_data.groupby('supervisor_district')[value_field].sum().reset_index()
+                                second_last_month_grouped = second_last_month_data.groupby('supervisor_district')[value_field].sum().reset_index()
+                                logging.info(f"Using SUM aggregation for district percent change")
+                            
+                            logging.info(f"Current month aggregated values: {last_month_grouped.head().to_dict()}")
+                            logging.info(f"Previous month aggregated values: {second_last_month_grouped.head().to_dict()}")
+                            
+                            # Merge the data to calculate percent change
+                            merged_data = pd.merge(
+                                last_month_grouped, 
+                                second_last_month_grouped,
+                                on='supervisor_district', 
+                                suffixes=('_current', '_previous')
+                            )
+                            
+                            logging.info(f"Merged data for percent change calculation: {merged_data.to_dict()}")
+                            
+                            delta_map_data = []
+                            for _, row in merged_data.iterrows():
+                                if pd.isna(row['supervisor_district']):
+                                    logging.info(f"Skipping NaN district value")
+                                    continue
+                                
+                                try:
+                                    # Handle both numeric and text district values
+                                    district_value = row['supervisor_district']
+                                    if pd.api.types.is_numeric_dtype(type(district_value)) or (isinstance(district_value, str) and district_value.replace('.', '', 1).isdigit()):
+                                        # It's a numeric value (or numeric as string) - convert to int if possible
+                                        try:
+                                            district = str(int(float(district_value)))
+                                        except:
+                                            district = str(district_value)
+                                    else:
+                                        # It's a non-numeric string
+                                        district = str(district_value)
+                                        # If it's a string like "District 1", extract just the number
+                                        district_match = re.search(r'district\s*(\d+)', district.lower())
+                                        if district_match:
+                                            district = district_match.group(1)
+                                    
+                                    current_value = row[f"{value_field}_current"]
+                                    previous_value = row[f"{value_field}_previous"]
+                                    
+                                    # Calculate percent change
+                                    if previous_value != 0:
+                                        pct_change = ((current_value - previous_value) / previous_value) * 100
+                                    else:
+                                        pct_change = 0 if current_value == 0 else 100
+                                    
+                                    delta_map_data.append({
+                                        "district": district,
+                                        "value": round(pct_change, 1)  # Round to 1 decimal place
+                                    })
+                                    logging.info(f"District {district}: Current={current_value}, Previous={previous_value}, Change={pct_change:.1f}%")
+                                except (ValueError, TypeError) as e:
+                                    logging.warning(f"Skipping invalid district for percent change: {row['supervisor_district']} - {e}")
+                            
+                            # Log the final delta map data
+                            logging.info(f"Final delta map data: {delta_map_data}")
+                            
+                            # Generate delta map
+                            if delta_map_data:
+                                map_title = f"{query_name} - Changes by District from {second_last_month_display} to {last_month_display}"
+                                
+                                # Convert delta_map_data to CSV format for supervisor_district maps  
+                                csv_data = "district,value\n"
+                                for item in delta_map_data:
+                                    csv_data += f"{item['district']},{item['value']}\n"
+                                
+                                map_result = generate_map(
+                                    context_variables={},
+                                    map_title=map_title,
+                                    map_type="supervisor_district",
+                                    location_data=csv_data,
+                                    map_metadata={
+                                        "period": f"{second_last_month_display} to {last_month_display}",
+                                        "description": f"Percent change in {query_name} by supervisor district",
+                                        "map_type": "delta"
+                                    },
+                                    metric_id=metric_id,
+                                    group_field="supervisor_district"
+                                )
+                                
+                                if map_result and map_result.get("chart_id"):
+                                    chart_id = map_result.get('chart_id')
+                                    logging.info(f"Successfully generated delta map with ID: {chart_id}")
+                                    
+                                    # Store map ID and URL for markdown reference
+                                    generated_maps['delta_map_id'] = chart_id
+                                    generated_maps['delta_map_url'] = map_result.get('publish_url')
+                                    
+                                    # Add map to HTML content
+                                    if "publish_url" in map_result:
+                                        map_html = f"""
+                                        <div class="map-container">
+                                            <h3>District Map: {map_title}</h3>
+                                            <iframe width="100%" height="500" src="{map_result['publish_url']}" 
+                                                frameborder="0" allowfullscreen></iframe>
+                                        </div>
+                                        """
+                                        all_html_contents.append(map_html)
+                                else:
+                                    logging.error(f"Failed to generate delta map: {map_result}")
+        except Exception as e:
+            logging.error(f"Error generating choropleth maps: {str(e)}")
+            logging.error(traceback.format_exc())
+        
+        # Add markdown reference for the maps
+        map_markdown = ""
+        if generated_maps['density_map_id']:
+            map_markdown += f"\n\n### District Map References\n\n"
+            map_markdown += f"* **Current Values Map**: Map ID: `{generated_maps['density_map_id']}`"
+            if generated_maps['density_map_url']:
+                map_markdown += f" - [View Map]({generated_maps['density_map_url']})"
+            
+            if generated_maps['delta_map_id']:
+                map_markdown += f"\n* **Percent Change Map**: Map ID: `{generated_maps['delta_map_id']}`"
+                if generated_maps['delta_map_url']:
+                    map_markdown += f" - [View Map]({generated_maps['delta_map_url']})"
+            
+            all_markdown_contents.append(map_markdown)
+    
     # Process district-specific analysis if needed
     if process_districts and has_district and 'supervisor_district' in dataset.columns:
         # Get list of districts in the dataset
@@ -971,8 +1318,13 @@ def transform_query_for_period(original_query, date_field, category_fields, peri
                     field_name = field
                 
                 if field_name:
-                    category_select += f", {field_name}"
-                    group_by_fields.append(field_name)
+                    # Handle supervisor_district specially
+                    if field_name == 'supervisor_district':
+                        category_select += f", CASE WHEN supervisor_district IS NOT NULL THEN supervisor_district ELSE NULL END as supervisor_district"
+                        group_by_fields.append("supervisor_district")
+                    else:
+                        category_select += f", {field_name}"
+                        group_by_fields.append(field_name)
             
             # Add period_type to distinguish recent from comparison - FIXED POSITION
             period_type_select = f", CASE WHEN {date_field_match} >= '{recent_start}' AND {date_field_match} <= '{recent_end}' THEN 'recent' ELSE 'comparison' END as period_type"
@@ -1033,8 +1385,13 @@ def transform_query_for_period(original_query, date_field, category_fields, peri
                 field_name = field
             
             if field_name:
-                category_select += f", {field_name}"
-                category_fields_list.append(field_name)
+                # Handle supervisor_district specially
+                if field_name == 'supervisor_district':
+                    category_select += f", CASE WHEN supervisor_district IS NOT NULL THEN supervisor_district ELSE NULL END as supervisor_district"
+                    category_fields_list.append("supervisor_district")
+                else:
+                    category_select += f", {field_name}"
+                    category_fields_list.append(field_name)
         
         # Build the date transformation part based on period_type
         if period_type == 'month':
@@ -1144,8 +1501,13 @@ def transform_query_for_period(original_query, date_field, category_fields, peri
                 field_name = field
             
             if field_name:
-                category_select += f", {field_name}"
-                category_fields_list.append(field_name)
+                # Handle supervisor_district specially
+                if field_name == 'supervisor_district':
+                    category_select += f", CASE WHEN supervisor_district IS NOT NULL THEN supervisor_district ELSE NULL END as supervisor_district"
+                    category_fields_list.append("supervisor_district")
+                else:
+                    category_select += f", {field_name}"
+                    category_fields_list.append(field_name)
         
         # Build the date transformation part based on period_type
         if period_type == 'month':

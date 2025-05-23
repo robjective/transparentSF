@@ -1,13 +1,15 @@
 import os
 import json
 from datetime import datetime
-from webChat import analyst_agent, function_mapping
+from agents.explainer_agent import create_explainer_agent
 import pytest
 from dotenv import load_dotenv
 from swarm import Swarm
+
 load_dotenv()
 
-agent = analyst_agent
+# Create explainer agent instance
+agent = create_explainer_agent()
 client = Swarm()
 
 # Create logs subfolder if it doesn't exist
@@ -27,7 +29,6 @@ def run_and_get_tool_calls(agent, initial_query, max_turns=5):
     
     messages = []
     collected_tool_calls = []
-    context_variables = {}  # Initialize context variables
 
     # Start the conversation with the initial user query
     user_message = {"role": "user", "content": initial_query}
@@ -48,9 +49,9 @@ def run_and_get_tool_calls(agent, initial_query, max_turns=5):
         print(f"Turn {turn+1}: Sending request to agent...")
         try:
             response = client.run(
-                agent=agent,
+                agent=agent.agent,  # Use the agent property of the ExplainerAgent
                 messages=messages[-2:],  # Only send the last two messages
-                context_variables=context_variables,  # Pass context variables
+                context_variables=agent.context_variables,  # Use agent's context variables
                 execute_tools=True,  # Execute tools automatically like in the UI
             )
             print(f"Turn {turn+1}: Received response from agent")
@@ -100,51 +101,6 @@ def run_and_get_tool_calls(agent, initial_query, max_turns=5):
                             json.dump(log_entry, log_file, indent=2)
                             log_file.write("\n\n")
                         
-                        # Execute the tool call using the real function
-                        if function_name in function_mapping:
-                            try:
-                                # Parse arguments
-                                args = json.loads(function_info.get('arguments', '{}'))
-                                
-                                # Add context_variables to args if the function expects it
-                                if function_name in ['query_docs', 'set_dataset', 'get_dataset']:
-                                    args['context_variables'] = context_variables
-                                
-                                # Call the actual function
-                                result = function_mapping[function_name](**args)
-                                
-                                # Create tool response message
-                                tool_response = {
-                                    "role": "tool",
-                                    "name": function_name,
-                                    "tool_call_id": call['id'],
-                                    "content": json.dumps(result) if result is not None else ""
-                                }
-                                
-                                # Log the tool response
-                                with open(log_filename, 'a') as log_file:
-                                    log_entry = {
-                                        "timestamp": datetime.now().isoformat(),
-                                        "type": "tool_response",
-                                        "function": function_name,
-                                        "content": tool_response['content']
-                                    }
-                                    json.dump(log_entry, log_file, indent=2)
-                                    log_file.write("\n\n")
-                                
-                                # Add the tool response to the messages list
-                                messages.append(tool_response)
-                            except Exception as e:
-                                print(f"Error executing {function_name}: {str(e)}")
-                                # Add error response
-                                tool_response = {
-                                    "role": "tool",
-                                    "name": function_name,
-                                    "tool_call_id": call['id'],
-                                    "content": json.dumps({"error": str(e)})
-                                }
-                                messages.append(tool_response)
-                        
                         collected_tool_calls.append(call)
                 else:
                     print(f"Turn {turn+1}: No tool calls in this message")
@@ -173,8 +129,11 @@ def run_and_get_tool_calls(agent, initial_query, max_turns=5):
 def test_sets_data_when_asked(query):
     print(f"\n\nTesting with query: {query}")
     
+    # Create a new explainer agent for this test
+    test_agent = create_explainer_agent()
+    
     # Run the agent with the query
-    run_and_get_tool_calls(analyst_agent, query)
+    run_and_get_tool_calls(test_agent, query)
     
     # Check the log file for tool calls
     with open(log_filename, 'r') as log_file:
@@ -202,6 +161,13 @@ def test_sets_data_when_asked(query):
 )
 def test_does_not_call_set_dataset_when_not_asked(query):
     print(f"\n\nTesting with query: {query}")
-    tool_calls = run_and_get_tool_calls(analyst_agent, query)
+    
+    # Create a new explainer agent for this test
+    test_agent = create_explainer_agent()
+    
+    tool_calls = run_and_get_tool_calls(test_agent, query)
     print(f"Tool Calls for query '{query}': {tool_calls}")
-    assert len(tool_calls) == 0
+    
+    # Check that set_dataset specifically was not called, even though other tools may be called
+    set_dataset_calls = [call for call in tool_calls if call.get('function', {}).get('name') == 'set_dataset']
+    assert len(set_dataset_calls) == 0, f"Expected no set_dataset calls, but found {len(set_dataset_calls)} for query: {query}"

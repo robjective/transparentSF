@@ -464,9 +464,23 @@ def generate_time_series_chart(
                     "period_type": aggregation_period  # Add the period_type to metadata
                 }
                 
+                # Prepare data points in the correct format for database storage
+                chart_data = []
+                for _, row in aggregated_df.iterrows():
+                    data_point = {
+                        'time_period': row['time_period'],
+                        'value': row[numeric_fields[0]]  # Use the first numeric field as the value
+                    }
+                    
+                    # Add group_value if group_field exists
+                    if group_field:
+                        data_point['group_value'] = row[group_field]
+                        
+                    chart_data.append(data_point)
+                
                 # Use the new store_chart_data function
                 db_result = store_chart_data(
-                    chart_data=aggregated_df.to_dict('records'),
+                    chart_data=chart_data,
                     metadata=metadata,
                     db_host=db_host,
                     db_port=db_port,

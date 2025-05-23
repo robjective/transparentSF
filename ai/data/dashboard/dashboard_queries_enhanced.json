@@ -61,11 +61,6 @@
                     ],
                     "category_fields": [
                         {
-                            "name": "report_type_description",
-                            "fieldName": "report_type_description",
-                            "description": "Selected column for enhanced dashboard queries"
-                        },
-                        {
                             "name": "incident_category",
                             "fieldName": "incident_category",
                             "description": "Selected column for enhanced dashboard queries"
@@ -433,6 +428,81 @@
                     ]
                 }
             }
+        },
+        "311_cases": {
+            "queries": {
+                "\ud83d\udcde 311 Cases": {
+                    "id": 18,
+                    "endpoint": "vw6y-z8j6",
+                    "summary": "Total count of 311 cases reported.",
+                    "definition": "Total count of 311 cases reported.",
+                    "data_sf_url": "https://data.sfgov.org/City-Infrastructure/311-Cases/vw6y-z8j6",
+                    "show_on_dash": "yes",
+                    "item_noun": "Cases",
+                    "ytd_query": "SELECT date_trunc_ymd(requested_datetime) as date, COUNT(*) as value WHERE requested_datetime >= last_year_start AND requested_datetime <= current_date GROUP BY date ORDER BY date",
+                    "metric_query": "SELECT '311 Cases' as label, MAX(requested_datetime) as max_date, COUNT(CASE WHEN requested_datetime >= this_year_start AND requested_datetime <= this_year_end THEN 1 END) as this_year, COUNT(CASE WHEN requested_datetime >= last_year_start AND requested_datetime <= last_year_end THEN 1 END) as last_year, (COUNT(CASE WHEN requested_datetime >= this_year_start AND requested_datetime <= this_year_end THEN 1 END) - COUNT(CASE WHEN requested_datetime >= last_year_start AND requested_datetime <= last_year_end THEN 1 END)) as delta, ((COUNT(CASE WHEN requested_datetime >= this_year_start AND requested_datetime <= this_year_end THEN 1 END) - COUNT(CASE WHEN requested_datetime >= last_year_start AND requested_datetime <= last_year_end THEN 1 END)) * 100.0 / NULLIF(COUNT(CASE WHEN requested_datetime >= last_year_start AND requested_datetime <= last_year_end THEN 1 END), 0)) as perc_diff, floor(supervisor_district) as supervisor_district GROUP BY floor(supervisor_district)",
+                    "category_fields": [
+                        {
+                            "name": "agency_responsible",
+                            "fieldName": "agency_responsible",
+                            "description": "Selected column for enhanced dashboard queries"
+                        },
+                        {
+                            "name": "service_name",
+                            "fieldName": "service_name",
+                            "description": "Selected column for enhanced dashboard queries"
+                        },
+                        {
+                            "name": "service_subtype",
+                            "fieldName": "service_subtype",
+                            "description": "Selected column for enhanced dashboard queries"
+                        },
+                        {
+                            "name": "supervisor_district",
+                            "fieldName": "supervisor_district",
+                            "description": "Selected column for enhanced dashboard queries"
+                        }
+                    ]
+                },
+                "\u26fa Encampment Calls": {
+                    "id": 19,
+                    "endpoint": "vw6y-z8j6",
+                    "summary": "Count of 311 cases related to encampments.",
+                    "definition": "Count of 311 cases where the service subtype contains 'encampment' or 'encampments' or equals 'Encampment Reports'.",
+                    "data_sf_url": "https://data.sfgov.org/City-Infrastructure/311-Cases/vw6y-z8j6",
+                    "show_on_dash": "yes",
+                    "item_noun": "Calls",
+                    "ytd_query": "SELECT date_trunc_ymd(requested_datetime) as date, COUNT(*) as value WHERE requested_datetime >= last_year_start AND requested_datetime <= current_date AND (service_subtype LIKE '%encampment%' OR service_subtype LIKE '%encampments%' OR service_subtype = 'Encampment Reports') GROUP BY date ORDER BY date",
+                    "metric_query": "SELECT 'Encampment Calls' as label, MAX(requested_datetime) as max_date, COUNT(CASE WHEN requested_datetime >= this_year_start AND requested_datetime <= this_year_end AND (service_subtype LIKE '%encampment%' OR service_subtype LIKE '%encampments%' OR service_subtype = 'Encampment Reports') THEN 1 END) as this_year, COUNT(CASE WHEN requested_datetime >= last_year_start AND requested_datetime <= last_year_end AND (service_subtype LIKE '%encampment%' OR service_subtype LIKE '%encampments%' OR service_subtype = 'Encampment Reports') THEN 1 END) as last_year, (COUNT(CASE WHEN requested_datetime >= this_year_start AND requested_datetime <= this_year_end AND (service_subtype LIKE '%encampment%' OR service_subtype LIKE '%encampments%' OR service_subtype = 'Encampment Reports') THEN 1 END) - COUNT(CASE WHEN requested_datetime >= last_year_start AND requested_datetime <= last_year_end AND (service_subtype LIKE '%encampment%' OR service_subtype LIKE '%encampments%' OR service_subtype = 'Encampment Reports') THEN 1 END)) as delta, ((COUNT(CASE WHEN requested_datetime >= this_year_start AND requested_datetime <= this_year_end AND (service_subtype LIKE '%encampment%' OR service_subtype LIKE '%encampments%' OR service_subtype = 'Encampment Reports') THEN 1 END) - COUNT(CASE WHEN requested_datetime >= last_year_start AND requested_datetime <= last_year_end AND (service_subtype LIKE '%encampment%' OR service_subtype LIKE '%encampments%' OR service_subtype = 'Encampment Reports') THEN 1 END)) * 100.0 / NULLIF(COUNT(CASE WHEN requested_datetime >= last_year_start AND requested_datetime <= last_year_end AND (service_subtype LIKE '%encampment%' OR service_subtype LIKE '%encampments%' OR service_subtype = 'Encampment Reports') THEN 1 END), 0)) as perc_diff, floor(supervisor_district) as supervisor_district GROUP BY floor(supervisor_district)",
+                    "category_fields": [
+                        {
+                            "name": "agency_responsible",
+                            "fieldName": "agency_responsible",
+                            "description": "Selected column for enhanced dashboard queries"
+                        },
+                        {
+                            "name": "service_name",
+                            "fieldName": "service_name",
+                            "description": "Selected column for enhanced dashboard queries"
+                        },
+                        {
+                            "name": "service_subtype",
+                            "fieldName": "service_subtype",
+                            "description": "Selected column for enhanced dashboard queries"
+                        },
+                        {
+                            "name": "service_details",
+                            "fieldName": "service_details",
+                            "description": "Selected column for enhanced dashboard queries"
+                        },
+                        {
+                            "name": "supervisor_district",
+                            "fieldName": "supervisor_district",
+                            "description": "Selected column for enhanced dashboard queries"
+                        }
+                    ]
+                }
+            }
         }
     },
     "economy": {
@@ -449,13 +519,7 @@
                     "dataset_title": "Dwelling Unit Completion Counts by Building Permit",
                     "dataset_category": "Housing and Buildings",
                     "location_fields": [],
-                    "category_fields": [
-                        {
-                            "name": "Document Type",
-                            "fieldName": "document_type",
-                            "description": "Several documents issued near or at project completion can certify units for occupation. They are: Initial Temporary Certificate of Occupancy (TCO), Amended TCO, and Certificate of Final Completion (CFC). See this dataset's Methodology section for definitions of document types."
-                        }
-                    ]
+                    "category_fields": []
                 }
             }
         },

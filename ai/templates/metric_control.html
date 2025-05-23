@@ -42,15 +42,16 @@
             gap: 20px;
         }
         .output-window {
-            border: 1px solid #ddd;
+            border: none;
             border-radius: 4px;
-            padding: 15px;
-            background-color: #f9f9f9;
+            padding: 15px 0;
+            background-color: white;
+            margin-bottom: 30px;
         }
         .output-window h3 {
             margin-top: 0;
             color: #444;
-            border-bottom: 1px solid #ddd;
+            border-bottom: 1px solid #eee;
             padding-bottom: 10px;
         }
         .output-content {
@@ -289,6 +290,155 @@
         .log-success {
             color: #155724;
         }
+        /* Add styles for the metric definition modal */
+        .metric-definition-modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.4);
+        }
+        .metric-definition-content {
+            background-color: #fefefe;
+            margin: 5% auto;
+            padding: 20px;
+            border: 1px solid #888;
+            width: 80%;
+            max-width: 800px;
+            border-radius: 8px;
+            position: relative;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+        .metric-form-group {
+            margin-bottom: 20px;
+        }
+        .metric-form-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 500;
+            color: #333;
+        }
+        .metric-form-group input[type="text"],
+        .metric-form-group textarea,
+        .metric-form-group select {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        .metric-form-group textarea {
+            min-height: 100px;
+            resize: vertical;
+        }
+        .metric-form-group .field-list {
+            margin-top: 10px;
+        }
+        .metric-form-group .field-item {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 10px;
+            align-items: center;
+        }
+        .metric-form-group .field-item input {
+            flex: 1;
+        }
+        .metric-form-group .field-item button {
+            padding: 4px 8px;
+            background-color: #dc3545;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .metric-form-group .add-field-btn {
+            background-color: #28a745;
+            color: white;
+            border: none;
+            padding: 8px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-top: 10px;
+        }
+        .metric-form-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+            margin-top: 20px;
+            padding-top: 20px;
+            border-top: 1px solid #ddd;
+        }
+        .metric-form-actions button {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: 500;
+        }
+        .metric-form-actions .save-btn {
+            background-color: #ad35fa;
+            color: white;
+        }
+        .metric-form-actions .cancel-btn {
+            background-color: #6c757d;
+            color: white;
+        }
+        .charts-scrollable-container {
+            overflow-x: auto;
+            padding: 15px 0;
+            margin: 20px 0;
+        }
+        .charts-row {
+            display: flex;
+            gap: 20px;
+        }
+        .loading-charts {
+            text-align: center;
+            padding: 10px;
+            background-color: #f8f9fa;
+            border-radius: 4px;
+            flex: 1;
+        }
+        .chart-card {
+            min-width: 400px;
+            max-width: 550px;
+            height: 600px;
+            border: 1px solid #eee;
+            border-radius: 4px;
+            overflow: hidden;
+            box-shadow: none;
+            flex-shrink: 0;
+            display: flex;
+            flex-direction: column;
+            background-color: white;
+        }
+        .chart-card-header {
+            display: none;
+        }
+        .chart-card-body {
+            flex: 1;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            overflow: hidden;
+            padding: 0;
+        }
+        .chart-card-body iframe {
+            width: 100%;
+            height: 100%;
+            border: none;
+        }
+        .no-charts-message {
+            text-align: center;
+            padding: 20px;
+            background-color: #f8f9fa;
+            border-radius: 4px;
+            width: 100%;
+        }
     </style>
 </head>
 <body>
@@ -336,6 +486,12 @@
                     <span class="btn-spinner"></span>
                 </button>
             </div>
+            
+            <div class="form-group">
+                <button id="define-metric-btn" class="btn btn-primary">
+                    Define New Metric
+                </button>
+            </div>
         </div>
         
         <!-- Progress and status information moved below the controls -->
@@ -373,15 +529,144 @@
                 <div id="annual-output" class="output-content">Select a metric to view annual output</div>
             </div>
             
+            <!-- Add annual time series charts row -->
+            <div class="output-window">
+                <h3>Annual Time Series Charts</h3>
+                <div class="charts-scrollable-container">
+                    <div id="annual-time-series-charts" class="charts-row">
+                        <div class="loading-charts">Loading charts...</div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Add annual anomaly charts row -->
+            <div class="output-window">
+                <h3>Annual Anomalies</h3>
+                <div class="charts-scrollable-container">
+                    <div id="annual-anomaly-charts" class="charts-row">
+                        <div class="loading-charts">Loading charts...</div>
+                    </div>
+                </div>
+            </div>
+            
             <div class="output-window">
                 <h3>Monthly Output</h3>
                 <div id="monthly-output" class="output-content">Select a metric to view monthly output</div>
+            </div>
+            
+            <!-- Add time series charts row -->
+            <div class="output-window">
+                <h3>Time Series Charts</h3>
+                <div class="charts-scrollable-container">
+                    <div id="time-series-charts" class="charts-row">
+                        <div class="loading-charts">Loading charts...</div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Add anomaly charts row -->
+            <div class="output-window">
+                <h3>Anomalies</h3>
+                <div class="charts-scrollable-container">
+                    <div id="anomaly-charts" class="charts-row">
+                        <div class="loading-charts">Loading charts...</div>
+                    </div>
+                </div>
             </div>
             
             <div class="output-window">
                 <h3>Weekly Output</h3>
                 <div id="weekly-output" class="output-content">Select a metric to view weekly output</div>
             </div>
+            
+            <!-- Add maps section -->
+            <div class="output-window">
+                <h3>District Maps</h3>
+                <div class="charts-scrollable-container">
+                    <div id="district-maps" class="charts-row">
+                        <div class="loading-charts">Select a metric to view district maps</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Add the metric definition modal -->
+    <div id="metricDefinitionModal" class="metric-definition-modal">
+        <div class="metric-definition-content">
+            <h2>Define New Metric</h2>
+            <form id="metricDefinitionForm">
+                <div class="metric-form-group">
+                    <label for="metricName">Metric Name (with emoji)</label>
+                    <input type="text" id="metricName" name="metricName" required>
+                </div>
+                
+                <div class="metric-form-group">
+                    <label for="metricId">ID</label>
+                    <input type="text" id="metricId" name="metricId" required>
+                </div>
+                
+                <div class="metric-form-group">
+                    <label for="endpoint">Endpoint</label>
+                    <input type="text" id="endpoint" name="endpoint" required>
+                </div>
+                
+                <div class="metric-form-group">
+                    <label for="summary">Summary</label>
+                    <textarea id="summary" name="summary" required></textarea>
+                </div>
+                
+                <div class="metric-form-group">
+                    <label for="definition">Definition</label>
+                    <textarea id="definition" name="definition" required></textarea>
+                </div>
+                
+                <div class="metric-form-group">
+                    <label for="dataSfUrl">Data SF URL</label>
+                    <input type="text" id="dataSfUrl" name="dataSfUrl" required>
+                </div>
+                
+                <div class="metric-form-group">
+                    <label for="ytdQuery">YTD Query</label>
+                    <textarea id="ytdQuery" name="ytdQuery" required></textarea>
+                </div>
+                
+                <div class="metric-form-group">
+                    <label for="metricQuery">Metric Query</label>
+                    <textarea id="metricQuery" name="metricQuery" required></textarea>
+                </div>
+                
+                <div class="metric-form-group">
+                    <label for="datasetTitle">Dataset Title</label>
+                    <input type="text" id="datasetTitle" name="datasetTitle" required>
+                </div>
+                
+                <div class="metric-form-group">
+                    <label for="datasetCategory">Dataset Category</label>
+                    <input type="text" id="datasetCategory" name="datasetCategory" required>
+                </div>
+                
+                <div class="metric-form-group">
+                    <label>Location Fields</label>
+                    <div id="locationFields" class="field-list">
+                        <!-- Location fields will be added here dynamically -->
+                    </div>
+                    <button type="button" class="add-field-btn" onclick="addLocationField()">Add Location Field</button>
+                </div>
+                
+                <div class="metric-form-group">
+                    <label>Category Fields</label>
+                    <div id="categoryFields" class="field-list">
+                        <!-- Category fields will be added here dynamically -->
+                    </div>
+                    <button type="button" class="add-field-btn" onclick="addCategoryField()">Add Category Field</button>
+                </div>
+                
+                <div class="metric-form-actions">
+                    <button type="button" class="cancel-btn" onclick="closeMetricDefinitionModal()">Cancel</button>
+                    <button type="submit" class="save-btn">Save Metric</button>
+                </div>
+            </form>
         </div>
     </div>
     
@@ -797,6 +1082,9 @@
                     
                     // Reload outputs after successful generation
                     await loadOutputs();
+                    
+                    // Also reload charts
+                    loadAllCharts(metricSelect.value, districtSelect.value);
                 } catch (error) {
                     console.error('Error generating metrics:', error);
                     progressBar.style.width = '100%';
@@ -957,6 +1245,316 @@
             
             // Load metrics when page loads
             loadMetrics();
+
+            // Function to load time series charts
+            async function loadTimeSeriesCharts(metricId, districtId, periodType = 'month', container = 'time-series-charts') {
+                const timeSeriesChartsContainer = document.getElementById(container);
+                
+                if (metricId === 'all') {
+                    timeSeriesChartsContainer.innerHTML = '<div class="no-charts-message">Please select a specific metric to view time series charts</div>';
+                    return;
+                }
+                
+                // Show loading state
+                timeSeriesChartsContainer.innerHTML = '<div class="loading-charts">Loading time series charts...</div>';
+                
+                try {
+                    // Fetch active charts from the backend API
+                    const chartsResponse = await fetch(`/backend/api/active-charts?metric_id=${metricId}&district=${districtId}&period_type=${periodType}`);
+                    
+                    if (!chartsResponse.ok) {
+                        throw new Error(`Failed to fetch charts: ${chartsResponse.status} ${chartsResponse.statusText}`);
+                    }
+                    
+                    const chartsData = await chartsResponse.json();
+                    
+                    if (chartsData.status === "error") {
+                        throw new Error(`API error: ${chartsData.message}`);
+                    }
+                    
+                    const charts = chartsData.charts || [];
+                    
+                    if (charts.length > 0) {
+                        let chartHtml = '';
+                        
+                        // Add a chart for each chart_id returned by the API
+                        charts.forEach(chart => {
+                            const chartId = chart.chart_id;
+                            const groupField = chart.group_field;
+                            
+                            // If the chart has a group field, include it in the URL
+                            let iframeSrc = `/backend/time-series-chart?chart_id=${chartId}#chart-section`;
+                            
+                            chartHtml += `
+                                <div class="chart-card">
+                                    <div class="chart-card-body">
+                                        <iframe src="${iframeSrc}"></iframe>
+                                    </div>
+                                </div>
+                            `;
+                        });
+                        
+                        timeSeriesChartsContainer.innerHTML = chartHtml;
+                    } else {
+                        timeSeriesChartsContainer.innerHTML = '<div class="no-charts-message">No active charts found for this metric</div>';
+                    }
+                } catch (error) {
+                    console.error('Error loading time series charts:', error);
+                    timeSeriesChartsContainer.innerHTML = `<div class="no-charts-message">Error loading charts: ${error.message}</div>`;
+                }
+            }
+            
+            // Function to load anomaly charts
+            async function loadAnomalyCharts(metricId, districtId, periodType = 'month', container = 'anomaly-charts') {
+                const anomalyChartsContainer = document.getElementById(container);
+                
+                if (metricId === 'all') {
+                    anomalyChartsContainer.innerHTML = '<div class="no-charts-message">Please select a specific metric to view anomalies</div>';
+                    return;
+                }
+                
+                // Show loading state
+                anomalyChartsContainer.innerHTML = '<div class="loading-charts">Loading anomaly charts...</div>';
+                
+                try {
+                    // Try the endpoint with anomaly-analyzer prefix
+                    const anomaliesResponse = await fetch(`/anomaly-analyzer/api/query-anomalies?object_id=${metricId}&district=${districtId}&period_type=${periodType}&only_anomalies=true&only_active=true&limit=10`);
+                    
+                    if (!anomaliesResponse.ok) {
+                        throw new Error(`Failed to fetch anomalies: ${anomaliesResponse.status} ${anomaliesResponse.statusText}`);
+                    }
+                    
+                    const anomaliesData = await anomaliesResponse.json();
+                    
+                    if (anomaliesData.status === "error") {
+                        throw new Error(`API error: ${anomaliesData.message}`);
+                    }
+                    
+                    const anomalies = anomaliesData.anomalies || [];
+                    
+                    if (anomalies.length > 0) {
+                        let chartHtml = '';
+                        
+                        // Add chart for each anomaly
+                        for (const anomaly of anomalies) {
+                            const groupValue = anomaly.group_value || 'Total';
+                            const fieldName = anomaly.group_field_name || 'Group';
+                            const deltaStr = anomaly.percent_change > 0 ? `+${anomaly.percent_change.toFixed(1)}%` : `${anomaly.percent_change.toFixed(1)}%`;
+                            const deltaClass = anomaly.percent_change > 0 ? 'text-danger' : 'text-success';
+                            
+                            chartHtml += `
+                                <div class="chart-card">
+                                    <div class="chart-card-body">
+                                        <iframe src="/anomaly-analyzer/anomaly-chart?id=${anomaly.id}"></iframe>
+                                    </div>
+                                </div>
+                            `;
+                        }
+                        
+                        anomalyChartsContainer.innerHTML = chartHtml;
+                    } else {
+                        anomalyChartsContainer.innerHTML = '<div class="no-charts-message">No active anomalies found for this metric</div>';
+                    }
+                } catch (error) {
+                    console.error('Error loading anomaly charts:', error);
+                    anomalyChartsContainer.innerHTML = `<div class="no-charts-message">Error loading anomalies: ${error.message}</div>`;
+                }
+            }
+            
+            // Function to load all charts
+            function loadAllCharts(metricId, districtId) {
+                // Always load both monthly and annual charts
+                loadTimeSeriesCharts(metricId, districtId, 'month', 'time-series-charts');
+                loadAnomalyCharts(metricId, districtId, 'month', 'anomaly-charts');
+                loadTimeSeriesCharts(metricId, districtId, 'year', 'annual-time-series-charts');
+                loadAnomalyCharts(metricId, districtId, 'year', 'annual-anomaly-charts');
+                loadDistrictMaps(metricId);
+            }
+            
+            // Function to load district maps
+            async function loadDistrictMaps(metricId) {
+                const mapsContainer = document.getElementById('district-maps');
+                
+                if (metricId === 'all') {
+                    mapsContainer.innerHTML = '<div class="no-charts-message">Please select a specific metric to view district maps</div>';
+                    return;
+                }
+                
+                // Show loading state
+                mapsContainer.innerHTML = '<div class="loading-charts">Loading district maps...</div>';
+                
+                try {
+                    // Try the main API endpoint first
+                    let mapsResponse;
+                    try {
+                        mapsResponse = await fetch(`/api/district-maps?metric_id=${metricId}`);
+                        if (!mapsResponse.ok) {
+                            throw new Error(`Failed to fetch from main API: ${mapsResponse.status}`);
+                        }
+                    } catch (apiError) {
+                        console.warn('Error using main API endpoint, falling back to backend:', apiError);
+                        // Fall back to the backend endpoint
+                        mapsResponse = await fetch(`/backend/api/district-maps?metric_id=${metricId}`);
+                        if (!mapsResponse.ok) {
+                            throw new Error(`Failed to fetch maps: ${mapsResponse.status} ${mapsResponse.statusText}`);
+                        }
+                    }
+                    
+                    const mapsData = await mapsResponse.json();
+                    
+                    if (mapsData.status === "error") {
+                        throw new Error(`API error: ${mapsData.message}`);
+                    }
+                    
+                    const maps = mapsData.maps || [];
+                    
+                    if (maps.length > 0) {
+                        let mapsHtml = '';
+                        
+                        // Add each map
+                        maps.forEach(map => {
+                            const mapId = map.id;
+                            const mapTitle = map.title;
+                            const publishedUrl = map.published_url;
+                            
+                            if (publishedUrl) {
+                                mapsHtml += `
+                                    <div class="chart-card">
+                                        <div class="chart-card-header">
+                                            <h4>${mapTitle}</h4>
+                                            <p><small>Map ID: ${mapId}</small></p>
+                                        </div>
+                                        <div class="chart-card-body">
+                                            <iframe src="${publishedUrl}" frameborder="0" allowfullscreen></iframe>
+                                        </div>
+                                        <div class="chart-card-footer" style="padding: 10px; font-size: 12px; max-height: 100px; overflow-y: auto; background-color: #f8f9fa;">
+                                            <p><strong>Metadata:</strong> <pre style="white-space: pre-wrap; word-break: break-word;">${JSON.stringify(map.metadata || {}, null, 2)}</pre></p>
+                                        </div>
+                                    </div>
+                                `;
+                            }
+                        });
+                        
+                        if (mapsHtml) {
+                            mapsContainer.innerHTML = mapsHtml;
+                        } else {
+                            mapsContainer.innerHTML = '<div class="no-charts-message">No maps found for this metric</div>';
+                        }
+                    } else {
+                        mapsContainer.innerHTML = '<div class="no-charts-message">No maps found for this metric</div>';
+                    }
+                } catch (error) {
+                    console.error('Error loading district maps:', error);
+                    mapsContainer.innerHTML = `<div class="no-charts-message">Error loading maps: ${error.message}</div>`;
+                }
+            }
+            
+            // Update event listeners to use the new function
+            districtSelect.addEventListener('change', function() {
+                loadOutputs();
+                loadAllCharts(metricSelect.value, districtSelect.value);
+            });
+            
+            metricSelect.addEventListener('change', function() {
+                loadOutputs();
+                loadAllCharts(metricSelect.value, districtSelect.value);
+            });
+            
+            // Also update when period type changes
+            periodTypeSelect.addEventListener('change', function() {
+                loadAllCharts(metricSelect.value, districtSelect.value);
+            });
+            
+            // Load charts initially
+            loadAllCharts(metricSelect.value, districtSelect.value);
+
+            // Add functions for the metric definition modal
+            function openMetricDefinitionModal() {
+                document.getElementById('metricDefinitionModal').style.display = 'block';
+            }
+
+            function closeMetricDefinitionModal() {
+                document.getElementById('metricDefinitionModal').style.display = 'none';
+            }
+
+            function addLocationField() {
+                const fieldList = document.getElementById('locationFields');
+                const fieldItem = document.createElement('div');
+                fieldItem.className = 'field-item';
+                fieldItem.innerHTML = `
+                    <input type="text" placeholder="Name" required>
+                    <input type="text" placeholder="Field Name" required>
+                    <input type="text" placeholder="Description" required>
+                    <button type="button" onclick="this.parentElement.remove()">Remove</button>
+                `;
+                fieldList.appendChild(fieldItem);
+            }
+
+            function addCategoryField() {
+                const fieldList = document.getElementById('categoryFields');
+                const fieldItem = document.createElement('div');
+                fieldItem.className = 'field-item';
+                fieldItem.innerHTML = `
+                    <input type="text" placeholder="Name" required>
+                    <input type="text" placeholder="Field Name" required>
+                    <input type="text" placeholder="Description" required>
+                    <button type="button" onclick="this.parentElement.remove()">Remove</button>
+                `;
+                fieldList.appendChild(fieldItem);
+            }
+
+            document.getElementById('metricDefinitionForm').addEventListener('submit', async function(e) {
+                e.preventDefault();
+                
+                // Collect form data
+                const formData = {
+                    name: document.getElementById('metricName').value,
+                    id: parseInt(document.getElementById('metricId').value),
+                    endpoint: document.getElementById('endpoint').value,
+                    summary: document.getElementById('summary').value,
+                    definition: document.getElementById('definition').value,
+                    data_sf_url: document.getElementById('dataSfUrl').value,
+                    ytd_query: document.getElementById('ytdQuery').value,
+                    metric_query: document.getElementById('metricQuery').value,
+                    dataset_title: document.getElementById('datasetTitle').value,
+                    dataset_category: document.getElementById('datasetCategory').value,
+                    location_fields: Array.from(document.getElementById('locationFields').children).map(field => ({
+                        name: field.children[0].value,
+                        fieldName: field.children[1].value,
+                        description: field.children[2].value
+                    })),
+                    category_fields: Array.from(document.getElementById('categoryFields').children).map(field => ({
+                        name: field.children[0].value,
+                        fieldName: field.children[1].value,
+                        description: field.children[2].value
+                    }))
+                };
+                
+                try {
+                    const response = await fetch('/api/metrics', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify(formData)
+                    });
+                    
+                    if (response.ok) {
+                        alert('Metric created successfully!');
+                        closeMetricDefinitionModal();
+                        // Refresh the metrics list
+                        loadMetrics();
+                    } else {
+                        const error = await response.json();
+                        alert('Error creating metric: ' + error.message);
+                    }
+                } catch (error) {
+                    alert('Error creating metric: ' + error.message);
+                }
+            });
+
+            // Add event listener for the define metric button
+            document.getElementById('define-metric-btn').addEventListener('click', openMetricDefinitionModal);
         });
     </script>
 </body>
