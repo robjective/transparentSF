@@ -283,7 +283,7 @@ wait_for_service "http://0.0.0.0:8000" "Frontend"
 # Start Qdrant
 echo "Starting Qdrant..."
 if check_qdrant; then
-    qdrant &
+    qdrant --host 0.0.0.0 --port 6333 &
     wait_for_service "http://0.0.0.0:6333/healthz" "Qdrant"
 else
     echo "Continuing without Qdrant..."
