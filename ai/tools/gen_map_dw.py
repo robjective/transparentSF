@@ -180,13 +180,13 @@ def get_district_shapes(district_type="supervisor", district_ids=None):
 
 def create_datawrapper_map(map_id):
     """
-    Creates a Datawrapper map for the specified map ID.
+    Creates a Datawrapper map for the specified map ID, or returns existing published URL if available.
     
     Args:
         map_id: The ID of the map to generate
         
     Returns:
-        The public URL of the created and published Datawrapper map, or None if failed
+        The public URL of the existing or newly created Datawrapper map, or None if failed
     """
     logger.info(f"Creating Datawrapper map for map_id: {map_id}")
     
@@ -211,6 +211,17 @@ def create_datawrapper_map(map_id):
         
         # Convert to dictionary and process JSON fields
         map_data = dict(map_record)
+        
+        # Check if map already has a published URL
+        if map_data.get("published_url"):
+            logger.info(f"Map {map_id} already has published URL: {map_data['published_url']}")
+            cursor.close()
+            conn.close()
+            return map_data["published_url"]
+        
+        # If no published URL, proceed with creating a new map
+        logger.info(f"No published URL found for map {map_id}, creating new Datawrapper chart")
+        
         map_data["location_data"] = json.loads(map_data["location_data"]) if isinstance(map_data["location_data"], str) else map_data["location_data"]
         map_data["metadata"] = json.loads(map_data["metadata"]) if map_data["metadata"] and isinstance(map_data["metadata"], str) else map_data["metadata"] or {}
         
@@ -220,6 +231,26 @@ def create_datawrapper_map(map_id):
         metadata = map_data["metadata"]
         
         logger.info(f"Processing map: {map_title}, type: {map_type}")
+        
+        # If location_data is stored as a wrapper dict with csv_data, unpack it
+        if isinstance(location_data, dict) and location_data.get("type") == "csv":
+            csv_str = location_data.get("csv_data", "").strip()
+            if csv_str:
+                import csv
+                import io
+                reader = csv.DictReader(io.StringIO(csv_str))
+                location_data = [row for row in reader]
+                # ensure numeric where appropriate (district kept as str)
+                for row in location_data:
+                    for k in row:
+                        try:
+                            # attempt float conversion
+                            row[k] = float(row[k]) if row[k] not in ["", None] and k != "district" else row[k]
+                        except ValueError:
+                            pass
+            else:
+                logger.error("location_data csv_data is empty – cannot create map")
+                return None
         
         chart_id = None
         create_url = "https://api.datawrapper.de/v3/charts"

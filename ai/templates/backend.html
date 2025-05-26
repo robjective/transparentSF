@@ -438,6 +438,38 @@
         .explainer-send:disabled {
             background: var(--cloud-gray);
             cursor: not-allowed;
+            position: relative;
+        }
+        
+        .explainer-send.processing {
+            background: var(--cloud-gray);
+            cursor: not-allowed;
+            position: relative;
+            color: transparent;
+            min-width: 60px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .explainer-send.processing::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 16px;
+            height: 16px;
+            border: 2px solid rgba(173, 53, 250, 0.3);
+            border-top: 2px solid var(--bright-purple);
+            border-radius: 50%;
+            animation: spin-centered 1s linear infinite;
+            z-index: 1;
+        }
+        
+        @keyframes spin-centered {
+            0% { transform: translate(-50%, -50%) rotate(0deg); }
+            100% { transform: translate(-50%, -50%) rotate(360deg); }
         }
         
         /* Message styles for explainer - updated with brand colors */
@@ -468,8 +500,8 @@
             color: var(--ink-black);
             border: 1px solid var(--cloud-gray);
             font-style: italic;
-            text-align: center;
-            margin: 10px auto;
+            text-align: left;
+            margin: 10px 0;
             max-width: 90%;
         }
         
@@ -536,6 +568,7 @@
             max-width: 85%;
             margin-bottom: 20px;
             font-family: 'IBM Plex Sans', sans-serif;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
         }
         
         .explainer-typing.show {
@@ -550,7 +583,7 @@
         .explainer-typing-dot {
             width: 8px;
             height: 8px;
-            background: var(--ink-black);
+            background: var(--bright-purple);
             border-radius: 50%;
             animation: typing 1.4s infinite ease-in-out;
         }
@@ -869,6 +902,108 @@
         .confirm-btn:hover {
             background-color: #e55a4a;
         }
+
+        /* Tool call message styles - nav tab appearance */
+        .explainer-tool-call {
+            display: block;
+            width: 90%;
+            margin: 8px auto;
+            padding: 10px 15px;
+            border: none;
+            border-radius: 4px;
+            color: var(--ink-black);
+            text-align: left;
+            font-size: 13px;
+            font-family: 'IBM Plex Sans', sans-serif;
+            transition: all 0.2s ease;
+            position: relative;
+            cursor: pointer;
+        }
+        
+        .explainer-tool-call:hover {
+            opacity: 0.8;
+        }
+        
+        .explainer-tool-call.running {
+            background: var(--cloud-gray);
+            border-left: 3px solid var(--bright-purple);
+        }
+        
+        .explainer-tool-call.completed {
+            background: #ffffff;
+            border-left: 3px solid var(--cloud-gray);
+        }
+        
+        .explainer-tool-call.error {
+            background: #fff8f8;
+            border-left: 3px solid var(--warm-coral);
+        }
+        
+        .explainer-tool-call.error .tool-status {
+            color: var(--warm-coral);
+        }
+        
+        .explainer-tool-call-content {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .explainer-tool-call .tool-name {
+            font-weight: 500;
+            flex: 1;
+        }
+        
+        .explainer-tool-call .tool-status {
+            font-size: 11px;
+            opacity: 0.7;
+            margin-left: 10px;
+        }
+        
+        .explainer-tool-call.running .tool-status::after {
+            content: "...";
+            animation: dots 1.5s infinite;
+        }
+        
+        .explainer-tool-call-details {
+            display: none;
+            margin-top: 10px;
+            padding: 10px;
+            background: #f8f9fa;
+            border-radius: 4px;
+            border: 1px solid var(--cloud-gray);
+            font-family: 'IBM Plex Mono', 'Courier New', monospace;
+            font-size: 11px;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        
+        .explainer-tool-call-details.show {
+            display: block;
+        }
+        
+        .explainer-tool-call-details h4 {
+            margin: 0 0 8px 0;
+            font-family: 'Inter', sans-serif;
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--ink-black);
+        }
+        
+        .explainer-tool-call-details pre {
+            margin: 0;
+            white-space: pre-wrap;
+            word-break: break-word;
+            background: none;
+            padding: 0;
+        }
+        
+        @keyframes dots {
+            0%, 20% { content: ""; }
+            40% { content: "."; }
+            60% { content: ".."; }
+            80%, 100% { content: "..."; }
+        }
     </style>
 </head>
 <body>
@@ -943,7 +1078,7 @@
                 <div class="explainer-messages" id="explainer-messages">
                     <div class="explainer-message system">
                         <div class="content">
-                            I'm Seymour, the AI behind Transparent SF.<br><br>I turn San Francisco's public data into clear, no-spin insights you can actually use. Crime trends, housing shifts, budget breakdowns — I surface the signals that matter and show who's responsible.<br><br>No jargon. No panic. Just clean, calm, civic intelligence.
+                            I'm Seymour, the AI behind Transparent SF.<br><br>I turn San Francisco's public data into clear, no-spin insights you can actually use. 
                         </div>
                     </div>
                 </div>
@@ -960,7 +1095,7 @@
                         <textarea 
                             class="explainer-input" 
                             id="explainer-input" 
-                            placeholder="Ask me to explain a metric change, anomaly, or data pattern..."
+                            placeholder="Ask me anything..."
                             rows="1"
                         ></textarea>
                         <button class="explainer-send" id="explainer-send">Send</button>
@@ -1122,6 +1257,11 @@
             const messagesContainer = document.getElementById('explainer-messages');
             messagesContainer.innerHTML = '';
             
+            // Clear active tool calls tracking
+            if (window.activeToolCalls) {
+                window.activeToolCalls.clear();
+            }
+            
             // Clear session on backend if we have one
             if (explainerSessionId) {
                 clearExplainerSessionBackend(explainerSessionId);
@@ -1228,6 +1368,8 @@
             if (isMarkdown && typeof marked !== 'undefined') {
                 contentDiv.innerHTML = marked.parse(processedContent);
             } else {
+                // Convert newlines to <br> tags for non-markdown content
+                processedContent = processedContent.replace(/\n/g, '<br>');
                 contentDiv.innerHTML = processedContent;
             }
             
@@ -1238,6 +1380,123 @@
             messagesContainer.scrollTop = messagesContainer.scrollHeight;
             
             return messageDiv;
+        }
+        
+        // Add tool call message with nav tab styling
+        function addToolCallMessage(toolName, toolId = null) {
+            const messagesContainer = document.getElementById('explainer-messages');
+            const toolCallDiv = document.createElement('div');
+            
+            // Generate unique ID if not provided
+            const id = toolId || `tool-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+            toolCallDiv.id = id;
+            toolCallDiv.className = 'explainer-tool-call running';
+            
+            // Create content container with flex layout
+            const contentDiv = document.createElement('div');
+            contentDiv.className = 'explainer-tool-call-content';
+            
+            const toolNameDiv = document.createElement('div');
+            toolNameDiv.className = 'tool-name';
+            toolNameDiv.textContent = `🔧 ${toolName}`;
+            
+            const toolStatusDiv = document.createElement('div');
+            toolStatusDiv.className = 'tool-status';
+            toolStatusDiv.textContent = 'Running';
+            
+            contentDiv.appendChild(toolNameDiv);
+            contentDiv.appendChild(toolStatusDiv);
+            toolCallDiv.appendChild(contentDiv);
+            
+            // Create details container (initially hidden)
+            const detailsDiv = document.createElement('div');
+            detailsDiv.className = 'explainer-tool-call-details';
+            detailsDiv.innerHTML = `
+                <h4>Tool Call Details</h4>
+                <div><strong>Function:</strong> ${toolName}</div>
+                <div><strong>Status:</strong> Running...</div>
+                <div><strong>Arguments:</strong> <pre id="${id}-args">Loading...</pre></div>
+                <div><strong>Response:</strong> <pre id="${id}-response">Waiting for completion...</pre></div>
+            `;
+            toolCallDiv.appendChild(detailsDiv);
+            
+            // Add click handler to toggle details
+            contentDiv.addEventListener('click', function() {
+                detailsDiv.classList.toggle('show');
+            });
+            
+            messagesContainer.appendChild(toolCallDiv);
+            
+            // Initialize tool call data storage
+            if (!window.toolCallData) {
+                window.toolCallData = new Map();
+            }
+            window.toolCallData.set(id, {
+                name: toolName,
+                status: 'running',
+                arguments: null,
+                response: null,
+                startTime: Date.now()
+            });
+            
+            // Scroll to bottom
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+            
+            return id;
+        }
+        
+        // Complete tool call message
+        function completeToolCallMessage(toolId, success = true, response = null) {
+            const toolCallDiv = document.getElementById(toolId);
+            if (toolCallDiv) {
+                if (success) {
+                    toolCallDiv.className = 'explainer-tool-call completed';
+                } else {
+                    toolCallDiv.className = 'explainer-tool-call error';
+                }
+                
+                const statusDiv = toolCallDiv.querySelector('.tool-status');
+                if (statusDiv) {
+                    statusDiv.textContent = success ? 'Completed' : 'Failed';
+                }
+                
+                // Update details
+                const detailsDiv = toolCallDiv.querySelector('.explainer-tool-call-details');
+                if (detailsDiv) {
+                    const statusText = detailsDiv.querySelector('div:nth-child(2)');
+                    if (statusText) {
+                        statusText.innerHTML = `<strong>Status:</strong> ${success ? 'Completed' : 'Failed'}`;
+                    }
+                    
+                    const responseElement = detailsDiv.querySelector(`#${toolId}-response`);
+                    if (responseElement) {
+                        responseElement.textContent = response ? JSON.stringify(response, null, 2) : (success ? 'Completed successfully' : 'Failed');
+                    }
+                }
+                
+                // Update stored data
+                if (window.toolCallData && window.toolCallData.has(toolId)) {
+                    const data = window.toolCallData.get(toolId);
+                    data.status = success ? 'completed' : 'failed';
+                    data.response = response;
+                    data.endTime = Date.now();
+                    data.duration = data.endTime - data.startTime;
+                }
+            }
+        }
+        
+        // Update tool call arguments
+        function updateToolCallArguments(toolId, args) {
+            const argsElement = document.getElementById(`${toolId}-args`);
+            if (argsElement) {
+                argsElement.textContent = JSON.stringify(args, null, 2);
+            }
+            
+            // Update stored data
+            if (window.toolCallData && window.toolCallData.has(toolId)) {
+                const data = window.toolCallData.get(toolId);
+                data.arguments = args;
+            }
         }
         
         // Show/hide typing indicator
@@ -1259,8 +1518,10 @@
             const sendBtn = document.getElementById('explainer-send');
             const input = document.getElementById('explainer-input');
             
-            // Disable input and button
+            // Disable input and button with visual indicators
             sendBtn.disabled = true;
+            sendBtn.classList.add('processing');
+            sendBtn.textContent = '';
             input.disabled = true;
             
             // Add user message
@@ -1269,9 +1530,6 @@
             // Clear input
             input.value = '';
             input.style.height = 'auto';
-            
-            // Show typing indicator
-            showExplainerTyping();
             
             try {
                 // Send request to streaming endpoint with session ID
@@ -1297,9 +1555,6 @@
                 let assistantMessage = null;
                 let currentContent = '';
                 
-                // Hide typing indicator
-                hideExplainerTyping();
-                
                 while (true) {
                     const { done, value } = await reader.read();
                     
@@ -1308,11 +1563,11 @@
                     const chunk = decoder.decode(value);
                     const lines = chunk.split('\n');
                     
-                    
                     for (const line of lines) {
                         if (line.startsWith('data: ')) {
                             try {
                                 const data = JSON.parse(line.slice(6));
+                                console.log('Received SSE data:', data); // Debug log
                                 
                                 // Handle session ID from backend
                                 if (data.session_id && !explainerSessionId) {
@@ -1320,6 +1575,39 @@
                                     console.log('Received session ID:', explainerSessionId);
                                 }
                                 
+                                // Handle tool call start
+                                if (data.tool_call_start) {
+                                    console.log('Starting tool call:', data.tool_call_start);
+                                    const toolId = addToolCallMessage(data.tool_call_start, data.tool_id);
+                                    // Store tool ID for completion
+                                    if (!window.activeToolCalls) {
+                                        window.activeToolCalls = new Map();
+                                    }
+                                    window.activeToolCalls.set(data.tool_call_start, data.tool_id);
+                                    continue; // Don't process as content
+                                }
+                                
+                                // Handle tool call arguments
+                                if (data.tool_call_args) {
+                                    console.log('Tool call arguments:', data.tool_call_args, data.arguments);
+                                    updateToolCallArguments(data.tool_id, data.arguments);
+                                    continue; // Don't process as content
+                                }
+                                
+                                // Handle tool call completion
+                                if (data.tool_call_complete) {
+                                    console.log('Completing tool call:', data.tool_call_complete);
+                                    const toolId = window.activeToolCalls ? window.activeToolCalls.get(data.tool_call_complete) : data.tool_id;
+                                    if (toolId) {
+                                        completeToolCallMessage(toolId, data.success, data.response);
+                                        if (window.activeToolCalls) {
+                                            window.activeToolCalls.delete(data.tool_call_complete);
+                                        }
+                                    }
+                                    continue; // Don't process as content
+                                }
+                                
+                                // Handle content
                                 if (data.content) {
                                     currentContent += data.content;
                                     
@@ -1349,20 +1637,24 @@
                                     throw new Error(data.error);
                                 }
                             } catch (e) {
-                                console.error('Error parsing SSE data:', e);
+                                console.error('Error parsing SSE data:', e, 'Raw line:', line);
+                                // Don't display unparseable data - just log the error
                             }
                         }
+                        // Remove the else clause that was handling non-SSE content
+                        // All content should now come through the SSE format
                     }
                 }
                 
             } catch (error) {
-                hideExplainerTyping();
                 console.error('Error sending message to explainer:', error);
                 addExplainerMessage(`Sorry, I encountered an error: ${error.message}`, 'system', false);
             } finally {
                 // Re-enable input and button
                 isExplainerProcessing = false;
                 sendBtn.disabled = false;
+                sendBtn.classList.remove('processing');
+                sendBtn.textContent = 'Send';
                 input.disabled = false;
                 input.focus();
             }

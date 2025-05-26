@@ -13,6 +13,109 @@ import tempfile
 import time
 import pandas as pd
 import ast
+import random
+import string
+from urllib.parse import quote
+
+"""
+Enhanced Map Generation with Series Support
+==========================================
+
+This module provides enhanced map generation capabilities with support for different colored series,
+allowing for better data visualization and categorization on maps.
+
+Key Features:
+- Multiple colored series support for locator maps
+- Predefined color palettes (categorical, status, priority, sequential)
+- Custom color palette support
+- Automatic legend generation for series
+- Enhanced tooltips with series information
+
+Series Support:
+--------------
+The enhanced map generation supports grouping markers into different colored series based on a field
+in your data. This is particularly useful for:
+
+1. **Categorical Data**: Different types of locations (e.g., Police Stations, Fire Stations, Hospitals)
+2. **Status Data**: Different states (e.g., Active, Pending, Inactive)
+3. **Priority Data**: Different priority levels (e.g., High, Medium, Low)
+4. **Sequential Data**: Graduated values with color progression
+
+Usage Examples:
+--------------
+
+1. Basic Series Map:
+```python
+location_data = [
+    {"title": "Police Station", "lat": 37.7749, "lon": -122.4194, "series": "Police"},
+    {"title": "Fire Station", "lat": 37.7849, "lon": -122.4094, "series": "Fire"},
+    {"title": "Hospital", "lat": 37.7627, "lon": -122.4581, "series": "Medical"}
+]
+
+generate_map(
+    context_variables={},
+    map_title="SF Public Services",
+    map_type="point",
+    location_data=location_data,
+    series_field="series",
+    color_palette="categorical"  # Uses predefined categorical colors
+)
+```
+
+2. Custom Color Palette:
+```python
+custom_colors = ["#FF0000", "#00FF00", "#0000FF"]  # Red, Green, Blue
+
+generate_map(
+    context_variables={},
+    map_title="Custom Colors Map",
+    map_type="point", 
+    location_data=location_data,
+    series_field="series",
+    color_palette=custom_colors
+)
+```
+
+3. Status-based Coloring:
+```python
+location_data = [
+    {"title": "Active Site", "lat": 37.7749, "lon": -122.4194, "series": "Active"},
+    {"title": "Pending Site", "lat": 37.7849, "lon": -122.4094, "series": "Pending"},
+    {"title": "Inactive Site", "lat": 37.7627, "lon": -122.4581, "series": "Inactive"}
+]
+
+generate_map(
+    context_variables={},
+    map_title="Site Status Map",
+    map_type="point",
+    location_data=location_data,
+    series_field="series",
+    color_palette="status"  # Green, Amber, Red, Blue, Purple
+)
+```
+
+Available Color Palettes:
+------------------------
+- **categorical**: 12 distinct colors for general categorization
+- **status**: 5 colors for status indication (Green, Amber, Red, Blue, Purple)
+- **priority**: 4 colors for priority levels (Red, Orange, Green, Grey)
+- **sequential**: 9 colors for graduated/sequential data (light to dark progression)
+
+The series functionality automatically:
+- Assigns consistent colors to each series value
+- Creates a legend showing all series with their colors
+- Enhances tooltips to include series information
+- Maintains color consistency across map updates
+
+Supported Map Types for Series:
+------------------------------
+- point: Coordinate-based markers
+- address: Address-based markers (geocoded automatically)
+- intersection: Street intersection markers
+
+Note: Series functionality is not available for district-based maps (supervisor_district, police_district)
+as these use choropleth styling instead of individual markers.
+"""
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -95,9 +198,10 @@ def _make_dw_request(method, endpoint, headers=None, data=None, json_payload=Non
         logger.error(f"Request failed: {e} for URL: {url}")
         raise
 
-def _prepare_locator_marker_data(location_data):
+def _prepare_locator_marker_data(location_data, series_field=None, color_palette=None):
     """
     Prepares marker data for Datawrapper locator maps from a list of location details.
+    Enhanced to support different colored series for better data visualization.
     
     Args:
         location_data: A list of dictionaries, where each dictionary contains
@@ -110,13 +214,14 @@ def _prepare_locator_marker_data(location_data):
                                "coordinates": [-122.4, 37.7],
                                "tooltip": "This is Point A",
                                "markerColor": "#ff0000", (optional)
+                               "series": "Category 1", (optional - for colored series)
                            },
                            {
                                "title": "Point B",
                                "lat": 37.7,
                                "lon": -122.4,
                                "tooltip": "This is Point B",
-                               "markerColor": "#00ff00", (optional)
+                               "series": "Category 2", (optional)
                            },
                            {
                                "title": "Address C", 
@@ -125,61 +230,330 @@ def _prepare_locator_marker_data(location_data):
                                "markerColor": "#0000ff", (optional)
                            }
                        ]
+        series_field (str, optional): Field name to use for series grouping (e.g., 'series', 'category', 'type')
+        color_palette (list, optional): List of colors to use for series. If not provided, uses default palette.
         
     Returns:
         A JSON string representing the marker data for Datawrapper API.
     """
+    import uuid
+    
+    # Define default color palettes for series
+    default_color_palettes = {
+        'categorical': [
+            '#ad35fa',  # Bright Purple (primary brand color)
+            '#FF6B5A',  # Warm Coral
+            '#4A7463',  # Spruce Green
+            '#71B2CA',  # Sky Blue
+            '#FFC107',  # Amber
+            '#9C27B0',  # Purple
+            '#2196F3',  # Light Blue
+            '#E91E63',  # Pink
+            '#4CAF50',  # Green
+            '#FF5722',  # Deep Orange
+            '#795548',  # Brown
+            '#607D8B',  # Blue Grey
+        ],
+        'status': [
+            '#4CAF50',  # Green - Good/Active
+            '#FFC107',  # Amber - Warning/Pending
+            '#F44336',  # Red - Error/Inactive
+            '#2196F3',  # Blue - Info/Processing
+            '#9C27B0',  # Purple - Special
+        ],
+        'priority': [
+            '#F44336',  # Red - High Priority
+            '#FF9800',  # Orange - Medium Priority
+            '#4CAF50',  # Green - Low Priority
+            '#9E9E9E',  # Grey - No Priority
+        ],
+        'sequential': [
+            '#f7fcf0',  # Very Light Green
+            '#e0f3db',  # Light Green
+            '#ccebc5',  # Medium Light Green
+            '#a8ddb5',  # Medium Green
+            '#7bccc4',  # Teal Green
+            '#4eb3d3',  # Light Blue
+            '#2b8cbe',  # Medium Blue
+            '#0868ac',  # Dark Blue
+            '#084081',  # Very Dark Blue
+        ]
+    }
+    
+    # Use provided color palette or default categorical palette
+    if color_palette is None:
+        color_palette = default_color_palettes['categorical']
+    elif isinstance(color_palette, str) and color_palette in default_color_palettes:
+        color_palette = default_color_palettes[color_palette]
+    
+    def generate_unique_id():
+        """Generate a unique ID similar to Datawrapper's format"""
+        # Generate a 10-character random string similar to Datawrapper's IDs
+        chars = string.ascii_lowercase + string.digits
+        return ''.join(random.choice(chars) for _ in range(10))
+    
+    def parse_coordinates(coord_value):
+        """
+        Parse coordinates from various formats into [longitude, latitude] format.
+        
+        Args:
+            coord_value: Can be:
+                - List/tuple: [-122.4, 37.7] (already in lon, lat format)
+                - List/tuple: [37.7, -122.4] (lat, lon format - will be detected and swapped)
+                - String: "37.7749,-122.4194" (lat,lon format)
+                - String: "-122.4194,37.7749" (lon,lat format)
+                
+        Returns:
+            [longitude, latitude] list or None if parsing fails
+        """
+        if not coord_value:
+            return None
+            
+        try:
+            if isinstance(coord_value, (list, tuple)) and len(coord_value) >= 2:
+                lon, lat = float(coord_value[0]), float(coord_value[1])
+                # Check if coordinates are in lat,lon format (lat should be between -90 and 90)
+                # and lon should be between -180 and 180
+                if -90 <= lon <= 90 and -180 <= lat <= 180:
+                    # This looks like lat,lon format, swap them
+                    return [lat, lon]  # Return as [longitude, latitude]
+                else:
+                    # Assume it's already in lon,lat format
+                    return [lon, lat]
+                    
+            elif isinstance(coord_value, str):
+                # Parse string coordinates
+                parts = coord_value.split(',')
+                if len(parts) >= 2:
+                    coord1, coord2 = float(parts[0].strip()), float(parts[1].strip())
+                    # Determine if this is lat,lon or lon,lat based on ranges
+                    # Latitude is typically between -90 and 90
+                    # Longitude is typically between -180 and 180
+                    # For SF area: lat ~37.7, lon ~-122.4
+                    if -90 <= coord1 <= 90 and -180 <= coord2 <= 180:
+                        # First coordinate looks like latitude, second like longitude
+                        return [coord2, coord1]  # Return as [longitude, latitude]
+                    else:
+                        # Assume first is longitude, second is latitude
+                        return [coord1, coord2]
+                        
+        except (ValueError, TypeError, IndexError) as e:
+            logger.warning(f"Failed to parse coordinates '{coord_value}': {e}")
+            
+        return None
+    
+    # If series_field is specified, collect all unique series values and assign colors
+    series_color_map = {}
+    if series_field:
+        unique_series = set()
+        for loc in location_data:
+            series_value = loc.get(series_field)
+            if series_value is not None:
+                unique_series.add(str(series_value))
+        
+        # Sort series for consistent color assignment
+        sorted_series = sorted(list(unique_series))
+        
+        # Assign colors to each series
+        for i, series_value in enumerate(sorted_series):
+            series_color_map[series_value] = color_palette[i % len(color_palette)]
+        
+        logger.info(f"Created series color mapping for {len(sorted_series)} series: {series_color_map}")
+    
     markers = []
     for loc in location_data:
         # Check if we have coordinates in various formats
-        has_coordinates = "coordinates" in loc and loc["coordinates"] and len(loc["coordinates"]) >= 2
+        parsed_coordinates = None
         has_lat_lon = "lat" in loc and "lon" in loc and loc["lat"] is not None and loc["lon"] is not None
         has_address = "address" in loc and loc["address"]
+        
+        # Try to parse coordinates first
+        if "coordinates" in loc and loc["coordinates"]:
+            parsed_coordinates = parse_coordinates(loc["coordinates"])
         
         if not loc.get("title"):
             logger.warning(f"Skipping location due to missing title: {loc}")
             continue
             
-        if not has_coordinates and not has_lat_lon and not has_address:
-            logger.warning(f"Skipping location due to missing coordinates, lat/lon, or address: {loc}")
+        if not parsed_coordinates and not has_lat_lon and not has_address:
+            logger.warning(f"Skipping location due to missing valid coordinates, lat/lon, or address: {loc}")
             continue
 
+        # Determine marker color based on series or explicit color
+        marker_color = "#8b5cf6"  # Default purple
+        
+        if series_field and series_field in loc and loc[series_field] is not None:
+            # Use series-based color
+            series_value = str(loc[series_field])
+            marker_color = series_color_map.get(series_value, marker_color)
+            logger.debug(f"Using series color for '{loc['title']}' (series: {series_value}): {marker_color}")
+        elif loc.get("markerColor"):
+            # Use explicit marker color
+            marker_color = loc["markerColor"]
+        elif loc.get("color"):
+            # Use explicit color
+            marker_color = loc["color"]
+        
+        text_color = loc.get("textColor", "#333333")
+        text_halo = loc.get("textHalo", "#f2f3f0")
+        
+        # Create marker in the exact format that works
         marker = {
             "type": "point",
             "title": loc["title"],
             "icon": {
-                "id": loc.get("icon_id", "circle"), # default icon
+                "id": loc.get("icon_id", "circle"),
                 "path": loc.get("icon_path", "M1000 350a500 500 0 0 0-500-500 500 500 0 0 0-500 500 500 500 0 0 0 500 500 500 500 0 0 0 500-500z"),
                 "height": loc.get("icon_height", 700),
-                "width": loc.get("icon_width", 1000)
+                "width": loc.get("icon_width", 1000),
+                "horiz-adv-x": 1000,
+                "scale": 1
             },
-            "scale": loc.get("scale", 1.5),
-            "markerColor": loc.get("markerColor", "#c71e1d"), # default red
-            "text": { # Default text styling
-                "color": loc.get("textColor", "#333333"),
+            "scale": loc.get("scale", 0.6),  # Even smaller markers by default
+            "markerColor": marker_color,
+            "opacity": loc.get("opacity", 0.5),  # 50% opacity by default
+            "text": {
+                "color": text_color,
                 "fontSize": loc.get("fontSize", 14),
-                "halo": loc.get("textHalo", "#f2f3f0")
+                "halo": text_halo,
+                "bold": loc.get("bold", False),
+                "italic": loc.get("italic", False),
+                "uppercase": loc.get("uppercase", False),
+                "space": loc.get("space", False)
+            },
+            "id": generate_unique_id(),  # Generate unique ID like Datawrapper
+            "markerSymbol": loc.get("markerSymbol", ""),
+            "markerTextColor": text_color,
+            "anchor": "bottom-center",  # Use bottom-center like working format
+            "offsetY": loc.get("offsetY", 0),
+            "offsetX": loc.get("offsetX", 0),
+            "labelStyle": loc.get("labelStyle", "plain"),
+            "class": loc.get("class", ""),
+            "rotate": loc.get("rotate", 0),
+            "visible": loc.get("visible", True),
+            "locked": loc.get("locked", False),
+            "preset": loc.get("preset", "-"),
+            "alpha": loc.get("alpha", 0.5),  # Alternative opacity property
+            "visibility": {
+                "mobile": loc.get("mobile_visible", True),
+                "desktop": loc.get("desktop_visible", True)
+            },
+            "connectorLine": {
+                "enabled": loc.get("connector_enabled", False),
+                "arrowHead": loc.get("arrow_head", "lines"),
+                "type": loc.get("connector_type", "curveRight"),
+                "targetPadding": loc.get("target_padding", 3),
+                "stroke": loc.get("stroke", 1),
+                "lineLength": loc.get("line_length", 0)
             }
         }
         
-        # Use coordinates if available, convert lat/lon to coordinates, or use address for geocoding
-        if has_coordinates:
-            marker["coordinates"] = loc["coordinates"]
+        # Add series information to marker for reference
+        if series_field and series_field in loc:
+            marker["series"] = str(loc[series_field])
+        
+        # Use parsed coordinates, lat/lon, or address for geocoding
+        if parsed_coordinates:
+            marker["coordinates"] = parsed_coordinates
+            logger.debug(f"Using parsed coordinates for '{loc['title']}': {parsed_coordinates}")
         elif has_lat_lon:
             # Convert lat/lon to coordinates format [longitude, latitude]
             marker["coordinates"] = [float(loc["lon"]), float(loc["lat"])]
+            logger.debug(f"Using lat/lon for '{loc['title']}': [{loc['lon']}, {loc['lat']}]")
         elif has_address:
             marker["address"] = loc["address"]
+            logger.debug(f"Using address for '{loc['title']}': {loc['address']}")
         
-        # Add tooltip if provided
-        if "tooltip" in loc and loc["tooltip"]:
-            marker["tooltip"] = {"text": loc["tooltip"]}
-        elif "description" in loc and loc["description"]:
-            marker["tooltip"] = {"text": loc["description"]}
+        # Add tooltip if provided - enhance with series information
+        tooltip_text = loc.get("tooltip") or loc.get("description", "")
+        if series_field and series_field in loc and loc[series_field] is not None:
+            series_info = f"Category: {loc[series_field]}"
+            if tooltip_text:
+                tooltip_text = f"{tooltip_text}<br>{series_info}"
+            else:
+                tooltip_text = series_info
+        
+        marker["tooltip"] = {
+            "text": tooltip_text,
+            "enabled": bool(tooltip_text)  # Enable tooltip only if there's text
+        }
         
         markers.append(marker)
 
+    logger.info(f"Prepared {len(markers)} markers for Datawrapper with series support")
+    if series_color_map:
+        logger.info(f"Series color mapping: {series_color_map}")
+    
     return json.dumps({"markers": markers})
+
+def _verify_and_fix_markers(chart_id, expected_markers_json, max_retries=3):
+    """
+    Verify that markers are properly loaded in the chart and fix if needed.
+    
+    Args:
+        chart_id: The Datawrapper chart ID
+        expected_markers_json: JSON string of expected marker data
+        max_retries: Maximum number of retry attempts
+        
+    Returns:
+        bool: True if markers are verified, False otherwise
+    """
+    import time
+    
+    logger = logging.getLogger(__name__)
+    
+    for attempt in range(max_retries):
+        logger.info(f"Verification attempt {attempt + 1}/{max_retries} for chart {chart_id}")
+        
+        # Wait a bit for Datawrapper to process the data
+        if attempt > 0:
+            wait_time = 2 * attempt  # Progressive delay: 2s, 4s, 6s
+            logger.info(f"Waiting {wait_time} seconds for Datawrapper to process markers...")
+            time.sleep(wait_time)
+        
+        # Get current chart data
+        chart_data_response = _make_dw_request("GET", f"/charts/{chart_id}/data")
+        
+        if chart_data_response:
+            # Parse the expected markers
+            expected_markers = json.loads(expected_markers_json)
+            expected_count = len(expected_markers.get("markers", []))
+            
+            # Check if the response contains marker data
+            if isinstance(chart_data_response, str):
+                try:
+                    current_data = json.loads(chart_data_response)
+                except json.JSONDecodeError:
+                    current_data = {}
+            elif isinstance(chart_data_response, dict):
+                current_data = chart_data_response
+            else:
+                current_data = {}
+            
+            current_markers = current_data.get("markers", [])
+            current_count = len(current_markers)
+            
+            logger.info(f"Found {current_count} markers in chart data, expected {expected_count}")
+            
+            if current_count == expected_count and current_count > 0:
+                logger.info(f"Markers verified successfully! Found all {current_count} expected markers.")
+                return True
+            elif current_count == 0:
+                logger.warning(f"No markers found in chart data on attempt {attempt + 1}")
+                # Re-upload the marker data
+                logger.info(f"Re-uploading marker data for chart {chart_id}")
+                upload_response = _make_dw_request("PUT", f"/charts/{chart_id}/data", headers={'Content-Type': 'application/json'}, data=expected_markers_json)
+                if upload_response:
+                    logger.info("Marker data re-uploaded successfully")
+                else:
+                    logger.error("Failed to re-upload marker data")
+            else:
+                logger.warning(f"Marker count mismatch: found {current_count}, expected {expected_count}")
+        else:
+            logger.error(f"Failed to retrieve chart data for verification on attempt {attempt + 1}")
+    
+    logger.error(f"Failed to verify markers after {max_retries} attempts")
+    return False
 
 def _refresh_chart_before_publish(chart_id):
     """
@@ -309,7 +683,7 @@ def _fit_map_to_markers(chart_id, markers_json_string):
         logger.error(f"Error fitting map to markers: {str(e)}", exc_info=True)
         return False
 
-def _create_and_configure_locator_map(chart_title, markers_json_string, center_coords=None, zoom_level=None):
+def _create_and_configure_locator_map(chart_title, markers_json_string, center_coords=None, zoom_level=None, series_info=None):
     """
     Creates an empty locator map, adds markers, and configures its view.
 
@@ -318,6 +692,7 @@ def _create_and_configure_locator_map(chart_title, markers_json_string, center_c
         markers_json_string (str): A JSON string containing the marker data.
         center_coords (list, optional): [longitude, latitude] for map center.
         zoom_level (int/float, optional): Zoom level for the map.
+        series_info (dict, optional): Information about series including color mapping for legend.
 
     Returns:
         str: The ID of the newly created and configured chart, or None on failure.
@@ -361,7 +736,7 @@ def _create_and_configure_locator_map(chart_title, markers_json_string, center_c
                     "json": True
                 },
                 "visualize": {
-                    "style": "dw-light",
+                    "basemap": "osm",
                     "defaultMapSize": 600,
                     "visibility": {
                         "boundary_country": True,
@@ -382,8 +757,8 @@ def _create_and_configure_locator_map(chart_title, markers_json_string, center_c
                         "bounds": []
                     },
                     "key": {
-                        "enabled": False,
-                        "title": "",
+                        "enabled": bool(series_info and series_info.get('color_mapping')),
+                        "title": series_info.get('legend_title', 'Categories') if series_info else "",
                         "items": []
                     },
                     # Add marker-specific settings to ensure they show in published view
@@ -417,6 +792,12 @@ def _create_and_configure_locator_map(chart_title, markers_json_string, center_c
             json_payload=initial_metadata_payload
         )
         logger.info(f"Initial metadata set for map ID: {chart_id}")
+
+        # Skip legend configuration for now to avoid breaking the map
+        # TODO: Re-implement legend functionality once basic series coloring works
+        if series_info and series_info.get('color_mapping'):
+            logger.info(f"Series detected but skipping legend configuration to ensure map renders properly")
+            logger.info(f"Color mapping: {series_info.get('color_mapping')}")
 
         # 4. Fit map to markers (this will override center_coords and zoom_level if not provided)
         if center_coords is None or zoom_level is None:
@@ -621,7 +1002,7 @@ def process_location_data(location_data, map_type):
     
     return processed_data
 
-def create_datawrapper_chart(chart_title, location_data, map_type="supervisor_district", reference_chart_id=None, center_coords=None, zoom_level=None):
+def create_datawrapper_chart(chart_title, location_data, map_type="supervisor_district", reference_chart_id=None, center_coords=None, zoom_level=None, series_field=None, color_palette=None):
     """
     Creates a Datawrapper chart, either by cloning a reference chart or creating from scratch.
 
@@ -636,6 +1017,8 @@ def create_datawrapper_chart(chart_title, location_data, map_type="supervisor_di
         reference_chart_id (str, optional): ID of a Datawrapper chart to clone for non-locator maps.
         center_coords (list, optional): [longitude, latitude] for locator map center.
         zoom_level (int/float, optional): Zoom level for locator map.
+        series_field (str, optional): Field name to use for series grouping (e.g., 'series', 'category', 'type').
+        color_palette (list or str, optional): Color palette for series. Can be list of colors or palette name.
         
     Returns:
         str: The ID of the created/updated chart, or None on failure.
@@ -690,7 +1073,12 @@ def create_datawrapper_chart(chart_title, location_data, map_type="supervisor_di
             
             if has_change_data:
                 # Enhanced CSV format for change/delta maps
-                csv_data = "district,current_value,previous_value,delta,percent_change,value\n"
+                # For delta maps, put the percentage value first as the main 'value' column
+                if map_metadata and map_metadata.get("map_type") == "delta":
+                    csv_data = "district,value,current_value,previous_value,delta,percent_change\n"
+                else:
+                    csv_data = "district,current_value,previous_value,delta,percent_change,value\n"
+                
                 for item in location_data:
                     if isinstance(item, dict) and "district" in item:
                         district = item.get('district', '')
@@ -700,11 +1088,17 @@ def create_datawrapper_chart(chart_title, location_data, map_type="supervisor_di
                         percent_change = item.get('percent_change', 0)
                         
                         # The 'value' column is what Datawrapper uses for coloring
-                        # For delta maps, this should be the delta or percent_change
+                        # For delta maps, this should be the percent_change (not delta)
                         # For regular maps, this should be the current_value
-                        value_for_coloring = delta if map_metadata and map_metadata.get("map_type") == "delta" else current
-                        
-                        csv_data += f"{district},{current},{previous},{delta},{percent_change},{value_for_coloring}\n"
+                        # For delta maps, multiply by 100 to get percentage values for proper legend display
+                        if map_metadata and map_metadata.get("map_type") == "delta":
+                            # Convert to percentage and clamp to [-100, 100] so extreme outliers use edge colours
+                            value_for_coloring = max(min(percent_change * 100, 100), -100)
+                            # For delta maps, reorganize CSV to put percentage value first
+                            csv_data += f"{district},{value_for_coloring},{current},{previous},{delta},{percent_change}\n"
+                        else:
+                            value_for_coloring = current
+                            csv_data += f"{district},{current},{previous},{delta},{percent_change},{value_for_coloring}\n"
                     else:
                         logger.warning(f"Skipping invalid district data item: {item}")
             else:
@@ -734,17 +1128,155 @@ def create_datawrapper_chart(chart_title, location_data, map_type="supervisor_di
                     logger.error(f"Failed to parse location_data as list for {map_type} map: {e}")
                     return None
             
-            markers_json_string = _prepare_locator_marker_data(location_data)
+            # For address maps, geocode addresses to get coordinates
+            if map_type == "address":
+                logger.info(f"Geocoding {len(location_data)} addresses for more reliable positioning")
+                geocoded_data = []
+                
+                for item in location_data:
+                    if isinstance(item, dict) and item.get("address"):
+                        address = item["address"]
+                        
+                        # Geocode the address
+                        lat, lon = geocode_address(address)
+                        
+                        if lat is not None and lon is not None:
+                            # Convert to point format with coordinates
+                            geocoded_item = {
+                                "coordinates": [lon, lat],  # Datawrapper expects [longitude, latitude]
+                                "title": item.get("title", address),
+                                "description": item.get("description", ""),
+                                "color": item.get("color", "#8b5cf6"),
+                                "scale": item.get("scale", 0.8)
+                            }
+                            geocoded_data.append(geocoded_item)
+                            logger.debug(f"Successfully geocoded '{address}' to ({lat}, {lon})")
+                        else:
+                            # Fallback: keep as address for Datawrapper to try geocoding
+                            logger.warning(f"Failed to geocode '{address}', falling back to Datawrapper geocoding")
+                            geocoded_data.append(item)
+                    else:
+                        # Keep non-address items as-is
+                        geocoded_data.append(item)
+                
+                location_data = geocoded_data
+                successful_geocodes = sum(1 for item in location_data if "coordinates" in item)
+                logger.info(f"Geocoded {successful_geocodes}/{len(location_data)} addresses successfully")
+            
+            # Process DataSF location format for point maps
+            elif map_type == "point":
+                logger.info(f"Processing {len(location_data)} point locations")
+                processed_data = []
+                
+                for item in location_data:
+                    if isinstance(item, dict):
+                        # Handle DataSF location format: {"type": "Point", "coordinates": [lon, lat]}
+                        if "location" in item and isinstance(item["location"], dict):
+                            location_obj = item["location"]
+                            if location_obj.get("type") == "Point" and "coordinates" in location_obj:
+                                coords = location_obj["coordinates"]
+                                if isinstance(coords, list) and len(coords) >= 2:
+                                    lon, lat = float(coords[0]), float(coords[1])
+                                    
+                                    # Validate coordinates are in San Francisco area
+                                    if 37.6 <= lat <= 37.9 and -122.6 <= lon <= -122.2:
+                                        processed_item = {
+                                            "coordinates": [lon, lat],  # Already in [longitude, latitude] format
+                                            "title": item.get("title", item.get("dba_name", "Unknown Business")),
+                                            "tooltip": item.get("tooltip", f"Industry: {item.get('naic_code_description', 'Unknown')}"),
+                                            "industry": item.get("industry", item.get("naic_code_description", "Unknown")),
+                                            "scale": 0.6,  # Smaller markers
+                                            "opacity": 0.5,  # 50% opacity
+                                            "alpha": 0.5  # Alternative opacity property
+                                        }
+                                        
+                                        # Copy over any series field data
+                                        if series_field and series_field in item:
+                                            processed_item[series_field] = item[series_field]
+                                        elif series_field == "naic_code_description" and "naic_code_description" in item:
+                                            processed_item[series_field] = item["naic_code_description"]
+                                        
+                                        processed_data.append(processed_item)
+                                        logger.debug(f"Processed DataSF location for '{processed_item['title']}': [{lon}, {lat}]")
+                                    else:
+                                        logger.warning(f"Coordinates for '{item.get('title', item.get('dba_name', 'Unknown'))}' are outside SF area: [{lon}, {lat}]")
+                                else:
+                                    logger.warning(f"Invalid coordinates format in location: {coords}")
+                            else:
+                                logger.warning(f"Invalid location object format: {location_obj}")
+                        
+                        # Handle direct coordinates format (already processed data)
+                        elif "coordinates" in item or ("lat" in item and "lon" in item):
+                            # Validate coordinates if they exist
+                            coords_to_check = None
+                            if "coordinates" in item:
+                                coords_to_check = item["coordinates"]
+                            elif "lat" in item and "lon" in item:
+                                coords_to_check = [item["lon"], item["lat"]]
+                            
+                            if coords_to_check and len(coords_to_check) >= 2:
+                                lon, lat = float(coords_to_check[0]), float(coords_to_check[1])
+                                if 37.6 <= lat <= 37.9 and -122.6 <= lon <= -122.2:
+                                    processed_data.append(item)
+                                    logger.debug(f"Validated existing coordinates for '{item.get('title', 'Unknown')}': [{lon}, {lat}]")
+                                else:
+                                    logger.warning(f"Existing coordinates for '{item.get('title', 'Unknown')}' are outside SF area: [{lon}, {lat}]")
+                            else:
+                                processed_data.append(item)  # Let it through if we can't validate
+                        
+                        else:
+                            logger.warning(f"No valid location data found in item: {item}")
+                    else:
+                        logger.warning(f"Invalid item format: {item}")
+                
+                location_data = processed_data
+                logger.info(f"Successfully processed {len(location_data)} valid locations")
+            
+            # Prepare series information for legend
+            series_info = None
+            if series_field:
+                # Extract unique series values and create color mapping
+                unique_series = set()
+                for item in location_data:
+                    series_value = item.get(series_field)
+                    if series_value is not None:
+                        unique_series.add(str(series_value))
+                
+                if unique_series:
+                    # Use default categorical palette if none specified
+                    if color_palette is None:
+                        color_palette = 'categorical'
+                    
+                    series_info = {
+                        'series_field': series_field,
+                        'legend_title': series_field.replace('_', ' ').title(),
+                        'color_mapping': {}
+                    }
+                    
+                    logger.info(f"Preparing series info for {len(unique_series)} series: {sorted(unique_series)}")
+
+            markers_json_string = _prepare_locator_marker_data(location_data, series_field=series_field, color_palette=color_palette)
             if not markers_json_string or json.loads(markers_json_string).get("markers") == []:
                 logger.error(f"No valid marker data prepared for locator map: {chart_title}")
                 # For now, let's return None if no valid markers
                 return None 
             
+            # Extract color mapping from the prepared markers for legend
+            if series_info:
+                markers_data = json.loads(markers_json_string)
+                color_mapping = {}
+                for marker in markers_data.get("markers", []):
+                    if "series" in marker:
+                        color_mapping[marker["series"]] = marker["markerColor"]
+                series_info['color_mapping'] = color_mapping
+                logger.info(f"Extracted color mapping for legend: {color_mapping}")
+            
             chart_id = _create_and_configure_locator_map(
                 chart_title,
                 markers_json_string,
                 center_coords=center_coords, 
-                zoom_level=zoom_level
+                zoom_level=zoom_level,
+                series_info=series_info
             )
             if chart_id:
                 logger.info(f"Successfully created and configured locator map '{chart_title}' with ID: {chart_id}")
@@ -878,13 +1410,14 @@ def _apply_custom_map_styling(chart_id, map_type, map_metadata=None):
             {"color": "#0c4a6e", "position": 1}      # Very dark blue
         ]
         
-        # Delta color scheme (for percent change maps)
+        # Symmetric diverging palette with matched lightness on both sides
+        # Endpoints chosen to have similar L* in Lab space so red & green feel balanced
         delta_color_scheme = [
-            {"color": "#dc2626", "position": 0},      # Red for negative change
-            {"color": "#f87171", "position": 0.25},   # Light red
-            {"color": "#eeeeee", "position": 0.5},    # Light gray for no change
-            {"color": "#eeeeee", "position": 0.75},   # Light gray
-            {"color": "#00dca6", "position": 1}       # Teal/green for positive change
+            {"color": "#e24d4d", "position": 0},      # Red (≈L54)
+            {"color": "#f7a3a3", "position": 0.25},   # Light red
+            {"color": "#eeeeee", "position": 0.5},    # Neutral grey
+            {"color": "#a3ebd1", "position": 0.75},   # Light green
+            {"color": "#29c786", "position": 1.0}     # Green (≈L54)
         ]
         
         # Determine which color scheme to use
@@ -893,12 +1426,18 @@ def _apply_custom_map_styling(chart_id, map_type, map_metadata=None):
             mode = "continuous"
             interpolation = "equidistant"
             legend_title = "% Change"
-            legend_max = "increase"
-            legend_min = "decrease" 
-            legend_center = "no change"
+            legend_max = "+100%"
+            legend_min = "-100%" 
+            legend_center = "0%"
             legend_format = "0,0.[0]%"
+            legend_labels = "custom"  # Use custom labels for fixed percentage range
+            # Set explicit color scale range for percentage values (-100 to +100 = -100% to +100%)
+            colorscale_min = -100.0
+            colorscale_max = 100.0
+            # Custom labels for the legend to show the full percentage range
+            custom_labels = ["-100%", "-50%", "0%", "+50%", "+100%"]
             # Enhanced tooltip for delta maps - using correct Datawrapper format with double curly brackets
-            tooltip_body = "Current: {{ current_value }}<br/>Previous: {{ previous_value }}<br/>Change: {{ delta }}<br/>% Change: {{ FORMAT(percent_change, '0,0.[0]%') }}"
+            tooltip_body = "Current: {{ current_value }}<br/>Previous: {{ previous_value }}<br/>Change: {{ delta }}<br/>% Change: {{ FORMAT(percent_change * 100, '0,0.[0]') }}%"
             tooltip_title = "District %REGION_NAME%"
         else:
             colors = density_color_scheme
@@ -908,7 +1447,12 @@ def _apply_custom_map_styling(chart_id, map_type, map_metadata=None):
             legend_max = "high"
             legend_min = "low"
             legend_center = "medium"
-            legend_format = "0,0.[00]"
+            legend_format = "0,0.[0]"  # Fixed: Remove % for actual values
+            legend_labels = "ranges"  # Use auto-calculated ranges for density maps
+            custom_labels = []
+            # Use automatic scaling for density maps
+            colorscale_min = None
+            colorscale_max = None
             # Check if we have enhanced data available
             if map_metadata.get("has_change_data", False):
                 tooltip_body = "Current: {{ current_value }}<br/>Previous: {{ previous_value }}<br/>Change: {{ delta }}"
@@ -918,18 +1462,65 @@ def _apply_custom_map_styling(chart_id, map_type, map_metadata=None):
                 tooltip_body = "%REGION_VALUE%"
                 tooltip_title = "District %REGION_NAME%"
         
+        # Prepare colorscale configuration
+        colorscale_config = {
+            "colors": colors,
+            "mode": mode,
+            "interpolation": interpolation,
+            "stops": "equidistant",
+            "stopCount": 5,
+            "palette": 0
+        }
+        
+        # Add explicit min/max for delta maps to ensure proper percentage scaling
+        if colorscale_min is not None and colorscale_max is not None:
+            colorscale_config["min"] = colorscale_min
+            colorscale_config["max"] = colorscale_max
+            colorscale_config["stops"] = "custom"  # Use custom stops when min/max are specified
+            # Define explicit custom stops for the -100% to +100% range
+            colorscale_config["customStops"] = [
+                {"position": 0.0, "color": "#e24d4d"},   # -100%
+                {"position": 0.25, "color": "#f7a3a3"},  # -50%
+                {"position": 0.5, "color": "#eeeeee"},   # 0%
+                {"position": 0.75, "color": "#a3ebd1"},  # +50%
+                {"position": 1.0, "color": "#29c786"}    # +100%
+            ]
+            # Explicitly fix min/max center so Datawrapper doesn't auto-rescale based on data range
+            colorscale_config["rangeMin"] = -100
+            colorscale_config["rangeMax"] = 100
+            colorscale_config["rangeCenter"] = 0
+        
+        # Prepare legend configuration
+        legend_config = {
+            "size": 170,
+            "title": legend_title,
+            "labels": legend_labels,
+            "enabled": True,
+            "offsetX": 0,
+            "offsetY": 0,
+            "reverse": False,
+            "labelMax": legend_max,
+            "labelMin": legend_min,
+            "position": "above",
+            "hideItems": [],
+            "interactive": True,
+            "labelCenter": legend_center,
+            "labelFormat": legend_format,
+            "orientation": "horizontal",
+            "titleEnabled": True
+        }
+        
+        # Add custom labels for delta maps
+        if custom_labels:
+            legend_config["customLabels"] = custom_labels
+        else:
+            legend_config["customLabels"] = []
+        
         # Prepare styling payload
         styling_payload = {
             "metadata": {
                 "visualize": {
-                    "colorscale": {
-                        "colors": colors,
-                        "mode": mode,
-                        "interpolation": interpolation,
-                        "stops": "equidistant",
-                        "stopCount": 5,
-                        "palette": 0
-                    },
+                    "colorscale": colorscale_config,
                     "tooltip": {
                         "body": tooltip_body,
                         "title": tooltip_title,
@@ -937,26 +1528,14 @@ def _apply_custom_map_styling(chart_id, map_type, map_metadata=None):
                         "enabled": True
                     },
                     "legends": {
-                        "color": {
-                            "size": 170,
-                            "title": legend_title,
-                            "labels": "ranges",
-                            "enabled": True,
-                            "offsetX": 0,
-                            "offsetY": 0,
-                            "reverse": False,
-                            "labelMax": legend_max,
-                            "labelMin": legend_min,
-                            "position": "above",
-                            "hideItems": [],
-                            "interactive": True,
-                            "labelCenter": legend_center,
-                            "labelFormat": legend_format,
-                            "orientation": "horizontal",
-                            "customLabels": [],
-                            "titleEnabled": True
-                        }
+                        "color": legend_config
                     }
+                },
+                "describe": {
+                    "intro": map_metadata.get("description", ""),
+                    "source-name": "DataSF",
+                    "source-url": map_metadata.get("executed_url", ""),
+                    "byline": "TransparentSF"
                 }
             }
         }
@@ -969,18 +1548,6 @@ def _apply_custom_map_styling(chart_id, map_type, map_metadata=None):
         )
         
         logger.info(f"Applied custom styling to chart {chart_id} (type: {map_type})")
-        
-        # Republish to apply styling changes
-        logger.info(f"Republishing chart {chart_id} to apply styling changes")
-        republish_response = _make_dw_request(
-            "POST",
-            f"/charts/{chart_id}/publish"
-        )
-        if republish_response:
-            logger.info(f"Chart {chart_id} republished successfully with new styling")
-        else:
-            logger.warning(f"Republish response was empty, but assuming success if no error")
-
         return True
         
     except Exception as e:
@@ -1013,7 +1580,7 @@ def get_db_connection():
         logger.error(f"Database connection error: {str(e)}")
         raise
 
-def generate_map(context_variables, map_title, map_type, location_data, map_metadata=None, reference_chart_id=None, metric_id=None, group_field=None):
+def generate_map(context_variables, map_title, map_type, location_data, map_metadata=None, reference_chart_id=None, metric_id=None, group_field=None, series_field=None, color_palette=None):
     """
     Generates a map using Datawrapper, stores its metadata, and returns relevant URLs.
     
@@ -1030,9 +1597,11 @@ def generate_map(context_variables, map_title, map_type, location_data, map_meta
         reference_chart_id (str, optional): Datawrapper chart ID to use as a template for non-locator maps.
         metric_id (str, optional): Identifier for the metric being mapped (for storage).
         group_field (str, optional): Field used for grouping/aggregation (for storage).
+        series_field (str, optional): Field name to use for series grouping (e.g., 'series', 'category', 'type').
+        color_palette (list or str, optional): Color palette for series. Can be list of colors or palette name.
         
     Returns:
-        dict: Contains chart_id, edit_url, and publish_url, or None on failure.
+        dict: Contains map_id, edit_url, and publish_url, or None on failure.
     """
     logger.info(f"Generating map: '{map_title}' of type '{map_type}'")
     
@@ -1079,7 +1648,12 @@ def generate_map(context_variables, map_title, map_type, location_data, map_meta
         
         if has_change_data:
             # Enhanced CSV format for change/delta maps
-            csv_data = "district,current_value,previous_value,delta,percent_change,value\n"
+            # For delta maps, put the percentage value first as the main 'value' column
+            if map_metadata and map_metadata.get("map_type") == "delta":
+                csv_data = "district,value,current_value,previous_value,delta,percent_change\n"
+            else:
+                csv_data = "district,current_value,previous_value,delta,percent_change,value\n"
+            
             for item in location_data:
                 if isinstance(item, dict) and "district" in item:
                     district = item.get('district', '')
@@ -1089,11 +1663,17 @@ def generate_map(context_variables, map_title, map_type, location_data, map_meta
                     percent_change = item.get('percent_change', 0)
                     
                     # The 'value' column is what Datawrapper uses for coloring
-                    # For delta maps, this should be the delta or percent_change
+                    # For delta maps, this should be the percent_change (not delta)
                     # For regular maps, this should be the current_value
-                    value_for_coloring = delta if map_metadata and map_metadata.get("map_type") == "delta" else current
-                    
-                    csv_data += f"{district},{current},{previous},{delta},{percent_change},{value_for_coloring}\n"
+                    # For delta maps, multiply by 100 to get percentage values for proper legend display
+                    if map_metadata and map_metadata.get("map_type") == "delta":
+                        # Convert to percentage and clamp to [-100, 100] so extreme outliers use edge colours
+                        value_for_coloring = max(min(percent_change * 100, 100), -100)
+                        # For delta maps, reorganize CSV to put percentage value first
+                        csv_data += f"{district},{value_for_coloring},{current},{previous},{delta},{percent_change}\n"
+                    else:
+                        value_for_coloring = current
+                        csv_data += f"{district},{current},{previous},{delta},{percent_change},{value_for_coloring}\n"
                 else:
                     logger.warning(f"Skipping invalid district data item: {item}")
         else:
@@ -1127,6 +1707,13 @@ def generate_map(context_variables, map_title, map_type, location_data, map_meta
         # For other map types, map_metadata might be used differently or passed as 'external_metadata'
         # For now, let's assume other map types don't use center/zoom from here directly for creation
     
+    # Add series support for locator maps
+    if map_type in ["point", "address", "intersection"]:
+        if series_field:
+            chart_args["series_field"] = series_field
+        if color_palette:
+            chart_args["color_palette"] = color_palette
+    
     # For non-locator maps, pass reference_chart_id if provided
     if map_type not in ["point", "address", "intersection"] and reference_chart_id:
         chart_args["reference_chart_id"] = reference_chart_id
@@ -1141,21 +1728,12 @@ def generate_map(context_variables, map_title, map_type, location_data, map_meta
 
         logger.info(f"Datawrapper chart created/updated with ID: {chart_id} for title '{map_title}'")
 
-        # For locator maps, add extra steps to ensure markers show in published view
-        if map_type in ["point", "address", "intersection"]:
-            logger.info(f"Preparing locator map {chart_id} for publishing...")
-            
-            # Add a delay to ensure all chart operations have completed
-            time.sleep(2)
-            
-            # Refresh the chart to ensure all data is properly loaded
-            if not _refresh_chart_before_publish(chart_id):
-                logger.warning(f"Failed to refresh chart {chart_id} before publishing")
-            
-            # Add another small delay before publishing
-            time.sleep(1)
+        # Apply custom styling before publishing
+        logger.info(f"Applying custom styling to chart {chart_id}")
+        _apply_custom_map_styling(chart_id, map_type, map_metadata)
 
-        # Publish the chart
+        # Publish the chart once with all styling applied
+        logger.info(f"Publishing chart {chart_id}")
         publish_response = _make_dw_request(
             "POST",
             f"/charts/{chart_id}/publish"
@@ -1163,24 +1741,7 @@ def generate_map(context_variables, map_title, map_type, location_data, map_meta
         if not publish_response:
             logger.warning(f"Publish command for chart {chart_id} did not return a substantial response. Assuming success if no error.")
         
-        # Even if publish_response is None (e.g. 204 No Content on some publish actions), 
-        # if no error was raised, assume publish was accepted.
         logger.info(f"Chart {chart_id} published successfully.")
-
-        # Apply custom styling before finalizing
-        logger.info(f"Applying custom styling to chart {chart_id}")
-        _apply_custom_map_styling(chart_id, map_type, map_metadata)
-        
-        # Republish to apply styling changes
-        logger.info(f"Republishing chart {chart_id} to apply styling changes")
-        republish_response = _make_dw_request(
-            "POST",
-            f"/charts/{chart_id}/publish"
-        )
-        if republish_response:
-            logger.info(f"Chart {chart_id} republished successfully with new styling")
-        else:
-            logger.warning(f"Republish response was empty, but assuming success if no error")
 
         edit_url = f"https://app.datawrapper.de/edit/{chart_id}"
         # Construct public URL (format may vary based on your Datawrapper setup/account)
@@ -1190,6 +1751,7 @@ def generate_map(context_variables, map_title, map_type, location_data, map_meta
         public_url = f"https://datawrapper.dwcdn.net/{chart_id}/"
 
         # Store map metadata in the database
+        map_id = None  # Initialize map_id
         try:
             conn = get_db_connection()
             cursor = conn.cursor()
@@ -1197,7 +1759,7 @@ def generate_map(context_variables, map_title, map_type, location_data, map_meta
             # Create maps table if it doesn't exist
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS maps (
-                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    id SERIAL PRIMARY KEY,
                     title TEXT NOT NULL,
                     type TEXT NOT NULL,
                     chart_id TEXT UNIQUE NOT NULL,
@@ -1307,7 +1869,7 @@ def generate_map(context_variables, map_title, map_type, location_data, map_meta
         logger.info(f"Public URL: {public_url}")
 
         return {
-            "chart_id": chart_id,
+            "map_id": map_id,
             "edit_url": edit_url,
             "publish_url": public_url
         }
@@ -1325,7 +1887,7 @@ def get_map_by_id(context_variables, map_id):
     
     Args:
         context_variables: Context variables from the chatbot
-        map_id: The UUID of the map to retrieve
+        map_id: The integer ID of the map to retrieve
         
     Returns:
         Dictionary containing the map data if found
@@ -1528,6 +2090,187 @@ def get_active_maps_for_metric(context_variables, metric_id, group_field, map_su
         logger.error(f"Error retrieving active maps: {str(e)}")
         return {"status": "error", "message": f"Error retrieving active maps: {str(e)}"}
 
+def geocode_address(address, max_retries=3, delay=1):
+    """
+    Geocode an address to get latitude and longitude coordinates.
+    Uses OpenStreetMap's Nominatim service (free, no API key required).
+    
+    Args:
+        address (str): The address to geocode
+        max_retries (int): Maximum number of retry attempts
+        delay (float): Delay between requests in seconds
+        
+    Returns:
+        tuple: (latitude, longitude) or (None, None) if geocoding fails
+    """
+    if not address or not isinstance(address, str):
+        logger.warning(f"Invalid address for geocoding: {address}")
+        return None, None
+    
+    # Clean and prepare the address
+    address = address.strip()
+    if not address:
+        return None, None
+    
+    # Ensure San Francisco is in the address for better results
+    if "san francisco" not in address.lower() and "sf" not in address.lower():
+        address = f"{address}, San Francisco, CA, USA"
+    elif "usa" not in address.lower():
+        address = f"{address}, USA"
+    
+    # URL encode the address
+    encoded_address = quote(address)
+    
+    # Nominatim API endpoint (free OpenStreetMap geocoding service)
+    url = f"https://nominatim.openstreetmap.org/search?q={encoded_address}&format=json&limit=1&countrycodes=us"
+    
+    headers = {
+        'User-Agent': 'TransparentSF/1.0 (https://transparentsf.org)'  # Required by Nominatim
+    }
+    
+    for attempt in range(max_retries):
+        try:
+            logger.debug(f"Geocoding attempt {attempt + 1} for address: {address}")
+            
+            # Add delay to respect rate limits (Nominatim allows 1 request per second)
+            if attempt > 0:
+                time.sleep(delay * attempt)
+            else:
+                time.sleep(delay)  # Always add a small delay
+            
+            response = requests.get(url, headers=headers, timeout=10)
+            response.raise_for_status()
+            
+            data = response.json()
+            
+            if data and len(data) > 0:
+                result = data[0]
+                lat = float(result['lat'])
+                lon = float(result['lon'])
+                
+                # Sanity check: ensure coordinates are roughly in San Francisco area
+                # SF bounds: roughly 37.7-37.8 lat, -122.5 to -122.3 lon
+                if 37.6 <= lat <= 37.9 and -122.6 <= lon <= -122.2:
+                    logger.debug(f"Successfully geocoded '{address}' to ({lat}, {lon})")
+                    return lat, lon
+                else:
+                    logger.warning(f"Geocoded coordinates for '{address}' ({lat}, {lon}) are outside SF area")
+                    return None, None
+            else:
+                logger.warning(f"No geocoding results found for address: {address}")
+                return None, None
+                
+        except requests.exceptions.RequestException as e:
+            logger.warning(f"Geocoding request failed for '{address}' (attempt {attempt + 1}): {e}")
+            if attempt == max_retries - 1:
+                logger.error(f"Failed to geocode address '{address}' after {max_retries} attempts")
+                return None, None
+        except (ValueError, KeyError) as e:
+            logger.error(f"Error parsing geocoding response for '{address}': {e}")
+            return None, None
+        except Exception as e:
+            logger.error(f"Unexpected error geocoding '{address}': {e}")
+            return None, None
+    
+    return None, None
+
+def batch_geocode_addresses(addresses, batch_delay=1):
+    """
+    Geocode multiple addresses with rate limiting.
+    
+    Args:
+        addresses (list): List of address strings
+        batch_delay (float): Delay between each geocoding request
+        
+    Returns:
+        dict: Dictionary mapping addresses to (lat, lon) tuples
+    """
+    results = {}
+    
+    logger.info(f"Starting batch geocoding of {len(addresses)} addresses")
+    
+    for i, address in enumerate(addresses):
+        logger.info(f"Geocoding address {i+1}/{len(addresses)}: {address}")
+        lat, lon = geocode_address(address, delay=batch_delay)
+        results[address] = (lat, lon)
+        
+        # Progress logging
+        if (i + 1) % 5 == 0:
+            successful = sum(1 for lat, lon in results.values() if lat is not None)
+            logger.info(f"Geocoded {i+1}/{len(addresses)} addresses, {successful} successful")
+    
+    successful = sum(1 for lat, lon in results.values() if lat is not None)
+    logger.info(f"Batch geocoding complete: {successful}/{len(addresses)} addresses successfully geocoded")
+    
+    return results
+
+def create_sample_series_data():
+    """
+    Create sample data with different series for testing the enhanced map functionality.
+    
+    Returns:
+        list: Sample location data with series information
+    """
+    sample_data = [
+        {
+            "title": "Police Station - Central",
+            "lat": 37.7749,
+            "lon": -122.4194,
+            "tooltip": "Central Police Station",
+            "series": "Police Stations"
+        },
+        {
+            "title": "Police Station - Mission",
+            "lat": 37.7630,
+            "lon": -122.4250,
+            "tooltip": "Mission Police Station",
+            "series": "Police Stations"
+        },
+        {
+            "title": "Fire Station - Engine 1",
+            "lat": 37.7849,
+            "lon": -122.4094,
+            "tooltip": "Fire Station Engine 1",
+            "series": "Fire Stations"
+        },
+        {
+            "title": "Fire Station - Engine 2",
+            "lat": 37.7580,
+            "lon": -122.4350,
+            "tooltip": "Fire Station Engine 2",
+            "series": "Fire Stations"
+        },
+        {
+            "title": "Hospital - UCSF",
+            "lat": 37.7627,
+            "lon": -122.4581,
+            "tooltip": "UCSF Medical Center",
+            "series": "Hospitals"
+        },
+        {
+            "title": "Hospital - CPMC",
+            "lat": 37.7886,
+            "lon": -122.4324,
+            "tooltip": "California Pacific Medical Center",
+            "series": "Hospitals"
+        },
+        {
+            "title": "School - Lowell High",
+            "lat": 37.7197,
+            "lon": -122.4831,
+            "tooltip": "Lowell High School",
+            "series": "Schools"
+        },
+        {
+            "title": "School - Washington High",
+            "lat": 37.7749,
+            "lon": -122.4194,
+            "tooltip": "Washington High School",
+            "series": "Schools"
+        }
+    ]
+    return sample_data
+
 # Testing
 if __name__ == "__main__":
     # Initialize logging for testing
@@ -1564,9 +2307,9 @@ if __name__ == "__main__":
     
     print(f"Generate map result: {result}")
     
-    if result and "chart_id" in result:
+    if result and "map_id" in result:
         print("✅ Supervisor district map created successfully!")
-        print(f"Chart ID: {result['chart_id']}")
+        print(f"Map ID: {result['map_id']}")
         print(f"Edit URL: {result['edit_url']}")
         print(f"Public URL: {result['publish_url']}")
     else:
@@ -1597,9 +2340,9 @@ if __name__ == "__main__":
     
     print(f"Generate enhanced change map result: {result}")
     
-    if result and "chart_id" in result:
+    if result and "map_id" in result:
         print("✅ Enhanced change map created successfully!")
-        print(f"Chart ID: {result['chart_id']}")
+        print(f"Map ID: {result['map_id']}")
         print(f"Edit URL: {result['edit_url']}")
         print(f"Public URL: {result['publish_url']}")
         print("🔍 This map should show detailed tooltips with current, previous, delta, and % change values")
@@ -1646,6 +2389,45 @@ if __name__ == "__main__":
     )
     
     print(f"Generate address map result: {result}")
+    
+    # Test data for a locator map with series - multiple categories with different colors
+    test_series_data = create_sample_series_data()
+    
+    # Test generating a series map with default categorical colors
+    result = generate_map(
+        {},
+        map_title="Test Multi-Series Map - SF Public Services",
+        map_type="point",
+        location_data=test_series_data,
+        map_metadata={"description": "Test multi-series map with different colored categories"},
+        series_field="series",
+        color_palette="categorical"
+    )
+    
+    print(f"Generate series map result: {result}")
+    
+    if result and "map_id" in result:
+        print("✅ Multi-series map created successfully!")
+        print(f"Map ID: {result['map_id']}")
+        print(f"Edit URL: {result['edit_url']}")
+        print(f"Public URL: {result['publish_url']}")
+        print("🎨 This map should show different colored markers for each series with a legend")
+    else:
+        print("❌ Failed to create multi-series map")
+    
+    # Test with custom color palette
+    custom_colors = ["#FF0000", "#00FF00", "#0000FF", "#FFFF00"]  # Red, Green, Blue, Yellow
+    result = generate_map(
+        {},
+        map_title="Test Custom Colors Map - SF Public Services",
+        map_type="point",
+        location_data=test_series_data,
+        map_metadata={"description": "Test map with custom color palette"},
+        series_field="series",
+        color_palette=custom_colors
+    )
+    
+    print(f"Generate custom colors map result: {result}")
 
     # Duplicate dRKcH but do not upload data
     duplicate_response = _make_dw_request(

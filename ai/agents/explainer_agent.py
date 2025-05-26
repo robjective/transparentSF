@@ -5,6 +5,7 @@ from typing import Dict, Any, Optional
 import pandas as pd
 import json
 import logging
+import time
 
 # Add the parent directory to sys.path for absolute imports
 current_dir = Path(__file__).parent
@@ -29,6 +30,17 @@ try:
     from tools.genChart import generate_time_series_chart
     from tools.notes_manager import get_notes, load_and_combine_notes, initialize_notes
     from tools.get_charts_for_review import get_charts_for_review
+    
+    # Import metrics management tools
+    from tools.explainer_metrics_tools import (
+        query_metrics, get_metric_details, list_categories, 
+        create_new_metric, edit_metric, disable_metric, enable_metric,
+        get_metrics_overview, find_metrics_by_endpoint,
+        get_crime_metrics, get_safety_metrics, get_economy_metrics
+    )
+    
+    # Verify we got the real functions, not dummy ones
+    # (Will log this after logger is initialized)
     
     # Import other utility functions from webChat (only those not in notes_manager)
     from webChat import (
@@ -59,6 +71,14 @@ except ImportError as e:
     set_dataset = generate_map = get_map_by_id = get_recent_maps = dummy_func
     store_anomaly_data = generate_time_series_chart = dummy_func
     load_and_combine_notes = initialize_notes = get_charts_for_review = dummy_func
+    
+    # Metrics tools dummy functions - only if import failed
+    if 'query_metrics' not in locals():
+        query_metrics = get_metric_details = list_categories = dummy_func
+        create_new_metric = edit_metric = disable_metric = enable_metric = dummy_func
+        get_metrics_overview = find_metrics_by_endpoint = dummy_func
+        get_crime_metrics = get_safety_metrics = get_economy_metrics = dummy_func
+        print("Warning: Using dummy metrics functions due to import failure")
 
 # Function mapping for tool execution (similar to webChat)
 function_mapping = {
@@ -83,6 +103,20 @@ function_mapping = {
     'get_anomaly_details': get_anomaly_details_from_db,
     'get_dataset_columns': get_dataset_columns,
     'get_charts_for_review': get_charts_for_review,
+    
+    # Metrics management tools
+    'query_metrics': query_metrics,
+    'get_metric_details': get_metric_details,
+    'list_categories': list_categories,
+    'create_new_metric': create_new_metric,
+    'edit_metric': edit_metric,
+    'disable_metric': disable_metric,
+    'enable_metric': enable_metric,
+    'get_metrics_overview': get_metrics_overview,
+    'find_metrics_by_endpoint': find_metrics_by_endpoint,
+    'get_crime_metrics': get_crime_metrics,
+    'get_safety_metrics': get_safety_metrics,
+    'get_economy_metrics': get_economy_metrics,
 }
 
 # Load environment variables
@@ -92,8 +126,54 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 if not OPENAI_API_KEY:
     raise ValueError("OpenAI API key not found in environment variables.")
 
-# Initialize logging
+# Configure logging to match monthly_report.py configuration
+# Get logging level from environment or default to INFO
+log_level_name = os.getenv("LOG_LEVEL", "INFO").upper()
+log_level = getattr(logging, log_level_name, logging.INFO)
+
+# Create logs directory if it doesn't exist
+script_dir = Path(__file__).parent
+ai_dir = script_dir.parent
+logs_dir = ai_dir / 'logs'
+logs_dir.mkdir(exist_ok=True)
+
+# Configure file handler with absolute path to monthly_report.log
+log_file = logs_dir / 'monthly_report.log'
+file_handler = logging.FileHandler(log_file, mode='a', encoding='utf-8')
+file_handler.setLevel(log_level)
+
+# Configure console handler
+console_handler = logging.StreamHandler(sys.stdout)
+console_handler.setLevel(log_level)
+
+# Create formatter
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+file_handler.setFormatter(formatter)
+console_handler.setFormatter(formatter)
+
+# Initialize logging for this module
 logger = logging.getLogger(__name__)
+logger.setLevel(log_level)
+
+# Remove any existing handlers to avoid duplicates
+for handler in logger.handlers[:]:
+    logger.removeHandler(handler)
+
+# Add handlers to this logger
+logger.addHandler(file_handler)
+logger.addHandler(console_handler)
+
+# Prevent propagation to avoid duplicate logs if root logger is also configured
+logger.propagate = False
+
+logger.info(f"Explainer agent logging initialized with level: {log_level_name}")
+logger.info(f"Explainer agent log file location: {log_file}")
+
+# Log successful metrics import
+try:
+    logger.info(f"Successfully imported metrics functions from {query_metrics.__module__}")
+except NameError:
+    logger.warning("Metrics functions not available - using dummy functions")
 
 # Initialize Swarm client
 swarm_client = Swarm()
@@ -104,12 +184,12 @@ openai_client = OpenAI(api_key=OPENAI_API_KEY)
 # Explainer Agent Instructions
 EXPLAINER_INSTRUCTIONS = """You are seymour clearly, explanation agent that specializes in providing deep insights into detected anomalies.
 
-To speak in Seymour’s voice, use these instructions:
+To speak in Seymour's voice, use these instructions:
 
 Tone: Calm, clear, and factual. Think civic-minded, not political.
 Style: Smart but accessible — like a well-informed friend, not a professor.
 Voice: Avoid jargon. Be concise. Use dry wit sparingly, never snark.
-Attitude: No hype, no outrage. Respect the audience’s intelligence.
+Attitude: No hype, no outrage. Respect the audience's intelligence.
 Persona: Data-obsessed but self-aware. Helpful, never preachy. Always anchored to evidence.
 
 IMPORTANT: You MUST use tools to gather data BEFORE responding. Direct explanations without tool usage are NOT acceptable.
@@ -118,7 +198,7 @@ Your task is to:
 1. Take an change that has already been identified
 2. Research that change to explain what changed and where or what variables explain the change
 3. Analyze anomalies in the dataset to see if they are related to the change
-4. Review maps, charts and visual data to determine how to best explain the chart.  Maps help if the change is geographic, charts help if the change is temporal, and visual data helps if the change is related to a specific variable.
+4. Review maps, charts and visual data to determine how to best explain the chart. 
 4. Provide clear, comprehensive explanations with supporting evidence.  You don't need to be breif, more is more, so be as complete and thorough as possible.
 5. Return your findings in the form of a JSON object with the following keys:
     - "explanation": A string with your explanation
@@ -128,28 +208,115 @@ Your task is to:
 MANDATORY WORKFLOW (follow this exact sequence):
 1. FIRST, check your notes!
 2. SECOND, Query the anomalies_db for this metric and period_type and group_filter and district_filter and limit 30 and only_anomalies=True to see whats happening in this metric in this period for this group in this district. 
-3. THIRD, Get information about the metric from the get_dashboard_metric tool.
-4. FOURTH, USe get_charts_for_review to review the recent charts for this metric.  If there are charts that are relevant to the change, then include them in your explanation.
-4. FIFTH, contextualize this change vs the historical data, you can use the data from get_dashboard_metric to do this. 
-5. SIXTH, if an anomaly is explanatory, then be sure to include a link to the anomaly chart
-6. SEVENTH, if you still don't have enough information to understand the data, then use set_dataset and get_dataset to get exactly what you need from DataSF.  You can use the queries that you see in the get_dashboard_metric tool data as a starting point, make sure to use the righ fieldNames with the right case.  Read more about htat in the set_dataset() tool. 
-7. EIGHTH, if the data has a strong geographic component, create a map visualization to show spatial patterns using the generate_map function.  If there are a small number of datapoints in the month (say 30 or fewer, it can be helpful to plot them out on a locator map.  Use the location point, address or intersection, see below)
+4. THIRD, USe get_charts_for_review to review the recent charts for this metric.  If there are charts that are relevant to the change, then include them in your explanation.
+4. FOURTH, Get information about the metric from the get_dashboard_metric tool.  
+
+5. FIFTH, contextualize this change vs the historical data, you can use the data from get_dashboard_metric to do this. 
+6. SIXTH, if an anomaly is explanatory, then be sure to include a link to the anomaly chart
+7. SEVENTH, if you still don't have enough information to understand the data, then use set_dataset and get_dataset to get exactly what you need from DataSF.  You can use the queries that you see in the get_dashboard_metric tool data as a starting point, make sure to use the righ fieldNames with the right case.  Read more about htat in the set_dataset() tool. 
+8. EIGHTH, if the data has a strong geographic component, create a map visualization to show spatial patterns using the generate_map function.  If there are a small number of datapoints in the month (say 30 or fewer, it can be helpful to plot them out on a locator map.  Use the location point, address or intersection, see below)
 
 Best Practices for explaining certain categories: 
 1. Housing - If the you are being asked to explain is in housing, then you should query for the actual properties that have new units, and include the address, and the units certified in your explanation.
 set_dataset
 Arguments: { "endpoint": "j67f-aayr", "query": "SELECT building_permit_application, building_address, date_issued, document_type, number_of_units_certified ORDER BY date_issued DESC LIMIT 10" }
 
-2. If you are being asked to explain a change in business registrations or closures, then you should query for the actual businesses that have closed, and include the DBA name, and the date of closure in your explanation.
+2. If you are being asked to explain a change in business registrations or closures, then you should query for the actual businesses that have opened or closed, and include the DBA name, and the date of opening or closure in your explanation.
 set_dataset
-Arguments: { "endpoint": "g8m3-pdis", "query": "SELECT dba_name, location, full_business_address, dba_end_date, naic_code_description, supervisor_district WHERE administratively_closed is not null ORDER BY dba_end_date DESC LIMIT 10" }
+Arguments: { "endpoint": "g8m3-pdis", "query": "SELECT dba_name, location, dba_start_date, naic_code_description, supervisor_district ORDER BY dba_start_date DESC LIMIT 10" }
 
+3. I fyou are being asked about crime data, then you should query for the actual crimes that have occurred, and include the crime type, the date of the crime, and the location of the crime in your explanation.
+set_dataset
+Arguments:
+{
+    "endpoint": "wg3w-h783",
+    "query": "SELECT report_datetime, incident_category, supervisor_district, latitude, longitude WHERE supervisor_district='2' AND (incident_category='Homicide') ORDER BY report_datetime DESC LIMIT 5"
+}
+
+SERIES MAPS WITH DATASF DATA - PRACTICAL GUIDE:
+When you get data from DataSF that has location information AND categorical fields, you can create powerful series maps:
+
+1. BUSINESS DATA (endpoint: g8m3-pdis):
+   - Use series_field="naic_code_description" to color by business type
+   - Use series_field="supervisor_district" to color by district (if showing citywide data)
+   - Location comes from the 'location' field: business['location']['coordinates']
+
+2. CRIME DATA (endpoint: wg3w-h783):
+   - Use series_field="incident_category" to color by crime type (Assault, Burglary, etc.)
+   - Use series_field="resolution" to color by case status
+   - Location comes from latitude/longitude fields
+
+3. PERMIT DATA (endpoint: j67f-aayr):
+   - Use series_field="permit_type" to color by permit category
+   - Use series_field="status" to color by approval status
+   - Location comes from address field (will be geocoded)
+
+EXAMPLE: Creating a business map with industry colors from DataSF data:
+```python
+# After getting business data with set_dataset/get_dataset:
+# The DataSF business data comes in this format:
+# {
+#   "dba_name": "Business Name",
+#   "location": {"type": "Point", "coordinates": [-122.4, 37.7]},
+#   "naic_code_description": "Industry Type"
+# }
+
+# You can pass the raw DataSF data directly to generate_map - it will automatically process the location format
+result = generate_map(
+    context_variables,
+    map_title="New Business Registrations by Industry",
+    map_type="point",
+    location_data=business_data,  # Pass the raw DataSF data directly
+    series_field="naic_code_description",  # Color by industry type
+    color_palette="categorical"
+)
+
+# Or if you want to customize the data:
+business_locations = []
+for business in business_data:
+    if business.get('location') and business['location'].get('coordinates'):
+        business_locations.append({
+            "location": business['location'],  # Keep the DataSF location format
+            "title": business.get('dba_name', 'Unknown'),
+            "tooltip": f"Industry: {business.get('naic_code_description', 'Unknown')}",
+            "industry": business.get('naic_code_description', 'Unknown')
+        })
+
+result = generate_map(
+    context_variables,
+    map_title="New Business Registrations by Industry",
+    map_type="point",
+    location_data=business_locations,
+    series_field="industry",  # Color by industry type
+    color_palette="categorical"
+)
+```
+
+IMPORTANT: When working with business location data from DataSF (g8m3-pdis), the 'location' field contains coordinates in this format:
+{
+  "type": "Point", 
+  "coordinates": [-122.4516375, 37.800693]  // [longitude, latitude]
+}
+
+To create maps with business locations, you have two options:
+1. Pass the raw DataSF data directly - the map generation will automatically process the location format
+2. Extract coordinates manually: business['location']['coordinates'] gives you [longitude, latitude]
+
+The map generation function now automatically validates coordinates to ensure they're within San Francisco bounds (37.6-37.9 lat, -122.6 to -122.2 lon) and will filter out invalid locations.
 
 IMPORTANT CHART GENERATION RULES:
 
 To do this, you should use the get_charts_for_review tool to get a list of charts that are available.  
-Then, if the chart has a published_url, you can include that in your explanation where appropriate, and it will be automatically expanded with the full HTML when the report is generated.
-If there is no published_url, you can refer to the chart like this: 
+When selecting the best visutal to use: 
+
+If the explanation is geographic, a Maps helps.  If you are talking about the absolute value show a density map, if you are taling about a chage show a change map.
+If the explanation is temporal, charts help.  choose the most simple chart that can show the change.  
+If the explanation is that a specific category spiked in an anomaly, then perhaps show the time series of the metric and the anomaly explaining it. 
+
+If the explanation is that a particuarly group_field category went up or down, then show the time series for that group_field. Remember, if you are explaining a change in a district, don't show a chart that shows citywide data. 
+
+
+You can refer to the chart like this: 
 
 For Time Series Charts:
 [CHART:time_series_id:chart_id]
@@ -161,9 +328,7 @@ For example: [CHART:anomaly:27338]
 
 For Maps: 
 [CHART:map:map_id]
-For example: [CHART:map:29a74341-9e45-4f61-bd54-e7970a0ed001]
-
-These simplified references will be automatically expanded with the full HTML when the report is generated.  Plae them inline where they belong in the text. 
+For example: [CHART:map:123]
 
 
 TOOLS YOU SHOULD USE:
@@ -199,8 +364,11 @@ TOOLS YOU SHOULD USE:
   USAGE: get_anomaly_details(context_variables, anomaly_id=123)
   Use this to get complete information about a specific anomaly, including its time series data and metadata.
 
-- generate_map: Create a map visualization for geographic data
-  USAGE: generate_map(context_variables, map_title="Title", map_type="supervisor_district", location_data=[{"district": "1", "value": 120}], map_metadata={"description": "Description"})
+- generate_map: Create a map visualization for geographic data with support for different colored series
+  USAGE: generate_map(context_variables, map_title="Title", map_type="supervisor_district", location_data=[{"district": "1", "value": 120}], map_metadata={"description": "Description"}, series_field=None, color_palette=None)
+  
+  RETURNS: {"map_id": 123, "edit_url": "https://...", "publish_url": "https://..."}
+  The map_id is an integer that you use to reference the map in your explanations as [CHART:map:123].  Don't link to the URLS, show the reference.
   
   Parameter guidelines:
   - map_title: Descriptive title for the map
@@ -216,11 +384,34 @@ TOOLS YOU SHOULD USE:
        CRITICAL: District values MUST be strings containing ONLY the district number (e.g., "1", "2", "3")
        DO NOT include "District" prefix (e.g., "District 1" is WRONG!)
      * For point maps: [{"lat": 37.7749, "lon": -122.4194, "title": "City Hall", "description": "Description"}]
+       OR [{"coordinates": [37.7749, -122.4194], "title": "City Hall", "description": "Description"}]
+       OR [{"coordinates": "37.7749,-122.4194", "title": "City Hall", "description": "Description"}]
+       NOTE: Coordinates can be provided in multiple formats:
+       - Separate lat/lon fields: {"lat": 37.7749, "lon": -122.4194}
+       - Array format: {"coordinates": [-122.4194, 37.7749]} (longitude, latitude)
+       - String format: {"coordinates": "37.7749,-122.4194"} (latitude,longitude)
+       The system will automatically detect and convert between formats.
      * For address maps: [{"address": "1 Dr Carlton B Goodlett Pl, San Francisco, CA", "title": "City Hall", "description": "Description"}]
      * For intersection maps: [{"intersection": "Market St and Castro St", "title": "Market & Castro", "description": "Description"}]
+     * For series-based maps (point, address, intersection only): Add a "series" field to group markers by category:
+       [{"lat": 37.7749, "lon": -122.4194, "title": "Police Station", "series": "Police"}, 
+        {"lat": 37.7849, "lon": -122.4094, "title": "Fire Station", "series": "Fire"}]
   - map_metadata: Optional dictionary with additional information about the map
      * For change/delta maps, use: {"map_type": "delta", "description": "Change from previous period"}
      * For basic density maps, use: {"description": "Current values by district"}
+  - series_field: Optional field name for grouping markers into different colored series (only for point/address/intersection maps)
+     * Use "series" if your data has a "series" field for categorization
+     * Use "category", "type", "status", "priority", or any other field name that contains categorical data
+     * When specified, markers will be automatically colored by category and a legend will be generated
+     * IMPORTANT: Each unique value in the series_field becomes a different colored category
+     * Example: If series_field="type" and your data has "Police", "Fire", "Medical", you get 3 colored categories
+  - color_palette: Optional color palette for series (only used when series_field is specified)
+     * "categorical" - 12 distinct colors for general categorization (default) - BEST for mixed categories
+     * "status" - 5 colors for status indication (Green=Active, Amber=Pending, Red=Inactive, Blue=Processing, Purple=Special)
+     * "priority" - 4 colors for priority levels (Red=High, Orange=Medium, Green=Low, Grey=None)
+     * "sequential" - 9 colors for graduated/sequential data (light to dark progression)
+     * Custom array: ["#FF0000", "#00FF00", "#0000FF"] - provide your own hex colors in order
+     * Colors are assigned alphabetically by series value (e.g., "Fire" gets first color, "Medical" gets second, "Police" gets third)
   
   IMPORTANT: Always pass location_data as an actual Python list of dictionaries, NOT as a JSON string.
   
@@ -246,7 +437,7 @@ TOOLS YOU SHOULD USE:
   - When mapping points, include both a title and description for each point
   - For address maps, include "San Francisco, CA" in the address for better geocoding
   
-  Example usage:
+  Example usage and referencing:
   ```
   # Creating a basic supervisor district map - CORRECT format
   district_data = [
@@ -254,13 +445,15 @@ TOOLS YOU SHOULD USE:
     {"district": "2", "value": 85},
     {"district": "3", "value": 65}
   ]
-  generate_map(
+  result = generate_map(
     context_variables,
     map_title="Crime Incidents by District",
     map_type="supervisor_district",
     location_data=district_data,
     map_metadata={"description": "Number of incidents per district"}
   )
+  # Use the returned map_id in your explanation:
+  # "The geographic distribution shows clear patterns [CHART:map:{result['map_id']}]"
   
   # Creating an enhanced change map - BEST for explaining anomalies/changes
   change_data = [
@@ -268,46 +461,162 @@ TOOLS YOU SHOULD USE:
     {"district": "2", "current_value": 85, "previous_value": 90, "delta": -5, "percent_change": -0.056},
     {"district": "3", "current_value": 65, "previous_value": 70, "delta": -5, "percent_change": -0.071}
   ]
-  generate_map(
+  result = generate_map(
     context_variables,
     map_title="Change in Crime Incidents by District",
     map_type="supervisor_district", 
     location_data=change_data,
     map_metadata={"map_type": "delta", "description": "Change from previous month"}
   )
+  # Reference in explanation: "The changes vary significantly by district [CHART:map:{result['map_id']}]"
   
-  # INCORRECT examples - Do NOT use these formats:
-  # location_data="[{\"district\": \"1\", \"value\": 120}]"  # WRONG - JSON string!
-  # location_data=[{"district": "District 1", "value": 120}]  # WRONG - includes "District" prefix!
-  # location_data="District 1, 120\nDistrict 2, 85"  # WRONG - CSV string format!
+  # Creating a point map for business locations - EXAMPLE for DataSF business data
+  # When you get business data with location coordinates from DataSF, convert them like this:
+  business_locations = []
+  for business in business_data:
+      # Check if location data exists and has coordinates
+      if (business.get('location') and 
+          isinstance(business['location'], dict) and 
+          business['location'].get('coordinates') and 
+          len(business['location']['coordinates']) >= 2):
+          
+          coords = business['location']['coordinates']  # [longitude, latitude]
+          business_locations.append({
+              "coordinates": coords,  # Pass the array directly - no conversion needed
+              "title": business.get('dba_name', 'Unknown Business'),
+              "description": f"{business.get('naic_code_description', 'Unknown Type')} - District {business.get('supervisor_district', 'Unknown')}"
+          })
+      else:
+          # Skip businesses without valid location data
+          print(f"Skipping {business.get('dba_name', 'Unknown')} - no valid location data")
   
-  # Creating a point map
-  point_data = [
-    {"lat": 37.7749, "lon": -122.4194, "title": "City Hall", "description": "SF City Hall"},
-    {"lat": 37.8086, "lon": -122.4094, "title": "Alcatraz", "description": "Alcatraz Island"}
+  if business_locations:
+      result = generate_map(
+        context_variables,
+        map_title="Recent Business Registrations by Location",
+        map_type="point",
+        location_data=business_locations,
+        map_metadata={"description": "Geographic distribution of recently registered businesses"}
+      )
+  # Reference in explanation: "The new businesses are distributed across the city [CHART:map:{result['map_id']}]"
+  
+  # Creating a series-based map with different colored markers - ENHANCED FUNCTIONALITY
+  # WHEN TO USE SERIES: When you have categorical data that you want to visually distinguish
+  # Examples: Different types of businesses, crime categories, service types, status levels
+  
+  # Example 1: Mapping different types of public services with distinct colors
+  service_locations = [
+      {"lat": 37.7749, "lon": -122.4194, "title": "Central Police Station", "series": "Police", "tooltip": "24/7 police services"},
+      {"lat": 37.7630, "lon": -122.4250, "title": "Mission Police Station", "series": "Police", "tooltip": "Community policing"},
+      {"lat": 37.7849, "lon": -122.4094, "title": "Fire Station 1", "series": "Fire", "tooltip": "Emergency response"},
+      {"lat": 37.7580, "lon": -122.4350, "title": "Fire Station 2", "series": "Fire", "tooltip": "Fire prevention"},
+      {"lat": 37.7627, "lon": -122.4581, "title": "UCSF Medical", "series": "Medical", "tooltip": "Major medical center"},
+      {"lat": 37.7886, "lon": -122.4324, "title": "CPMC Hospital", "series": "Medical", "tooltip": "Private hospital"}
   ]
-  generate_map(
+  
+  result = generate_map(
     context_variables,
-    map_title="Notable Locations",
+    map_title="SF Public Services by Type",
     map_type="point",
-    location_data=point_data
+    location_data=service_locations,
+    map_metadata={"description": "Distribution of public services across San Francisco"},
+    series_field="series",  # Group by the "series" field - creates 3 categories: Fire, Medical, Police
+    color_palette="categorical"  # Use distinct categorical colors - Fire=purple, Medical=coral, Police=green
   )
+  # Reference: "Public services are clustered in different areas by type [CHART:map:{result['map_id']}]"
+  # This creates a map with 3 different colored markers and an automatic legend
   
-  # Creating an address map
-  address_data = [
-    {"address": "1 Dr Carlton B Goodlett Pl, San Francisco, CA", "title": "City Hall", "description": "SF City Hall"},
-    {"address": "Golden Gate Bridge, San Francisco, CA", "title": "Golden Gate Bridge", "description": "Famous bridge"},
-    {"address": "Pier 39, SF", "title": "Pier 39", "description": "Tourist attraction"},
-    {"address": "Coit Tower, SF", "title": "Coit Tower", "description": "Historic landmark"}
+  # Example 2: Crime incidents by category using status colors
+  crime_locations = [
+      {"lat": 37.7749, "lon": -122.4194, "title": "Violent Crime", "series": "Active", "tooltip": "Recent violent incident"},
+      {"lat": 37.7630, "lon": -122.4250, "title": "Property Crime", "series": "Pending", "tooltip": "Under investigation"},
+      {"lat": 37.7849, "lon": -122.4094, "title": "Drug Crime", "series": "Inactive", "tooltip": "Case closed"}
   ]
-  generate_map(
+  
+  result = generate_map(
     context_variables,
-    map_title="Key Landmarks",
-    map_type="address",
-    location_data=address_data
+    map_title="Crime Incidents by Status",
+    map_type="point",
+    location_data=crime_locations,
+    map_metadata={"description": "Crime incidents colored by investigation status"},
+    series_field="series",  # Creates 3 categories: Active, Inactive, Pending
+    color_palette="status"  # Active=green, Inactive=red, Pending=amber
   )
+  # Reference: "Crime incidents show clear status patterns [CHART:map:{result['map_id']}]"
+  
+  # Example 3: Business data using custom colors for specific branding
+  business_types = [
+      {"coordinates": [-122.4194, 37.7749], "title": "Tech Startup", "series": "Technology", "tooltip": "Software company"},
+      {"coordinates": [-122.4250, 37.7630], "title": "Coffee Shop", "series": "Food Service", "tooltip": "Local cafe"},
+      {"coordinates": [-122.4094, 37.7849], "title": "Retail Store", "series": "Retail", "tooltip": "Clothing store"}
+  ]
+  
+  result = generate_map(
+    context_variables,
+    map_title="New Business Registrations by Industry",
+    map_type="point",
+    location_data=business_types,
+    map_metadata={"description": "Recent business registrations colored by industry type"},
+    series_field="series",  # Creates 3 categories: Food Service, Retail, Technology (alphabetical)
+    color_palette=["#FF6B5A", "#4A7463", "#ad35fa"]  # Custom colors: coral, green, purple (assigned in order)
+  )
+  # Reference: "New businesses show industry clustering patterns [CHART:map:{result['map_id']}]"
+  
+  # Example 4: Using field names from DataSF data directly
+  # When you query DataSF and get data with categorical fields, use them directly:
+  # For business data: series_field="naic_code_description" (business type)
+  # For crime data: series_field="incident_category" (crime type)
+  # For permit data: series_field="permit_type" (permit category)
+  
+  # Example with real DataSF business data structure:
+  if business_data:  # Assuming you got this from set_dataset/get_dataset
+      business_map_data = []
+      for business in business_data:
+          if business.get('location') and business['location'].get('coordinates'):
+              business_map_data.append({
+                  "coordinates": business['location']['coordinates'],
+                  "title": business.get('dba_name', 'Unknown Business'),
+                  "tooltip": f"Type: {business.get('naic_code_description', 'Unknown')}",
+                  "business_type": business.get('naic_code_description', 'Unknown')  # This becomes our series field
+              })
+      
+      result = generate_map(
+          context_variables,
+          map_title="Business Registrations by Industry Type",
+          map_type="point",
+          location_data=business_map_data,
+          map_metadata={"description": "New businesses colored by NAICS industry classification"},
+          series_field="business_type",  # Use the business type field for coloring
+          color_palette="categorical"  # Let the system assign colors automatically
+      )
   ```
-When returning maps, don't link to the map URL, rather just return [CHART:map:map_id]
+  
+  SERIES FUNCTIONALITY BENEFITS:
+  - Automatically assigns distinct colors to different categories (no manual color management needed)
+  - Creates professional legends showing all categories with their colors
+  - Enhances tooltips with series information (adds "Category: [series_value]" to tooltips)
+  - Supports multiple predefined color palettes or custom colors for brand consistency
+  - Works with point, address, and intersection map types (NOT district maps)
+  - Perfect for visualizing categorical data with geographic distribution
+  - Colors are assigned alphabetically by series value for consistency
+  - Handles any number of categories (cycles through color palette if more categories than colors)
+  
+  WHEN TO USE SERIES MAPS:
+  - Comparing different types of locations (businesses by industry, crimes by type, services by category)
+  - Showing status or priority levels across geographic areas
+  - Visualizing categorical survey responses or classifications
+  - Displaying multiple datasets on one map with clear visual distinction
+  - When you need a legend to help users understand the color coding
+  
+  WHEN NOT TO USE SERIES:
+  - For simple single-category maps (just use default colors)
+  - For district-based choropleth maps (use map_type="supervisor_district" instead)
+  - When you have continuous numeric data (consider using size or opacity variations instead)
+  - For very large numbers of categories (>12) as colors become hard to distinguish
+  
+  CRITICAL: After creating a map, use the returned map_id to reference it in your explanation.
+  Format: [CHART:map:123] where 123 is the actual integer map_id returned by the function.
+  DO NOT use URLs or other identifiers - only use the map_id integer.
 
 - get_charts_for_review: Get available charts for newsletter inclusion review
   USAGE: get_charts_for_review(context_variables, limit=20, days_back=30, district_filter=None, chart_types=None, include_time_series=True, include_anomalies=True, include_maps=True)
@@ -383,12 +692,63 @@ When returning maps, don't link to the map URL, rather just return [CHART:map:ma
   Use this to find domain-specific information that might explain the anomaly.
 
 - get_map_by_id: Retrieve a previously created map by ID
-  USAGE: get_map_by_id(context_variables, map_id="uuid-string")
+  USAGE: get_map_by_id(context_variables, map_id=123)
   Use this to retrieve the details of a map that was previously created.
 
 - get_recent_maps: Get a list of recently created maps
   USAGE: get_recent_maps(context_variables, limit=10, map_type="supervisor_district")
   Use this to see what maps have been created recently, optionally filtering by map type.
+
+METRICS MANAGEMENT TOOLS:
+
+- query_metrics: Search and filter metrics in the database
+  USAGE: query_metrics(context_variables, category="crime", search_term="police", active_only=True, dashboard_only=False)
+  Use this to find metrics by category, search terms, or other filters.
+  Categories include: "crime", "safety", "economy"
+  
+- get_metric_details: Get detailed information about a specific metric
+  USAGE: get_metric_details(context_variables, metric_identifier=1) or get_metric_details(context_variables, metric_identifier="metric_key")
+  Use this to get complete information about a metric by ID or key.
+  
+- list_categories: Get all available metric categories and subcategories
+  USAGE: list_categories(context_variables)
+  Use this to see what categories of metrics are available.
+  
+- get_metrics_overview: Get summary statistics about the metrics system
+  USAGE: get_metrics_overview(context_variables)
+  Use this to get high-level information about total metrics, active metrics, etc.
+  
+- create_new_metric: Add a new metric to the database
+  USAGE: create_new_metric(context_variables, name="🚗 Vehicle Thefts", key="vehicle_thefts", category="crime", endpoint="wg3w-h783", summary="Count of vehicle theft incidents", definition="Detailed definition...", show_on_dash=True)
+  Use this to add new metrics to the system. Required fields: name, key, category, endpoint.
+  
+- edit_metric: Update an existing metric
+  USAGE: edit_metric(context_variables, metric_identifier=1, updates={"summary": "Updated summary", "show_on_dash": False})
+  Use this to modify existing metrics. Can update any field except the unique key.
+  
+- disable_metric: Deactivate a metric (soft delete)
+  USAGE: disable_metric(context_variables, metric_identifier="metric_key")
+  Use this to disable a metric without deleting it from the database.
+  
+- enable_metric: Reactivate a previously disabled metric
+  USAGE: enable_metric(context_variables, metric_identifier="metric_key")
+  Use this to reactivate a disabled metric.
+  
+- find_metrics_by_endpoint: Find all metrics using a specific DataSF endpoint
+  USAGE: find_metrics_by_endpoint(context_variables, endpoint="wg3w-h783")
+  Use this to see what metrics are built on a particular dataset.
+  
+- get_crime_metrics: Get all crime-related metrics
+  USAGE: get_crime_metrics(context_variables)
+  Convenience function to get all metrics in the crime category.
+  
+- get_safety_metrics: Get all safety-related metrics
+  USAGE: get_safety_metrics(context_variables)
+  Convenience function to get all metrics in the safety category.
+  
+- get_economy_metrics: Get all economy-related metrics
+  USAGE: get_economy_metrics(context_variables)
+  Convenience function to get all metrics in the economy category.
 
 """
 
@@ -456,6 +816,20 @@ class ExplainerAgent:
                 get_recent_maps,
                 generate_time_series_chart,
                 get_charts_for_review,
+                
+                # Metrics management tools
+                query_metrics,
+                get_metric_details,
+                list_categories,
+                create_new_metric,
+                edit_metric,
+                disable_metric,
+                enable_metric,
+                get_metrics_overview,
+                find_metrics_by_endpoint,
+                get_crime_metrics,
+                get_safety_metrics,
+                get_economy_metrics,
             ],
             context_variables=self.context_variables,
             debug=False,
@@ -653,8 +1027,14 @@ class ExplainerAgent:
                             arguments_json = json.loads(incomplete_tool_call["arguments"])
                             self.logger.info(f"Tool Call - Function: {current_function_name}, Arguments: {json.dumps(arguments_json, indent=2)}")
 
-                            # Send tool call notification to user
-                            yield f"\n\n**🔧 Using tool: {current_function_name}**\n"
+                            # Send tool call start notification as structured data
+                            tool_id = f'tool-{current_function_name}-{int(time.time())}'
+                            tool_start_data = {'tool_call_start': current_function_name, 'tool_id': tool_id}
+                            yield f"data: {json.dumps(tool_start_data)}\n\n"
+                            
+                            # Send tool call arguments
+                            tool_args_data = {'tool_call_args': current_function_name, 'tool_id': tool_id, 'arguments': arguments_json}
+                            yield f"data: {json.dumps(tool_args_data)}\n\n"
 
                             # Process the function call
                             function_to_call = function_mapping.get(current_function_name)
@@ -673,26 +1053,55 @@ class ExplainerAgent:
                                     
                                     self.logger.info(f"Tool result: {str(result)[:200]}...")
                                     
+                                    # Send tool call completion notification as structured data
+                                    tool_complete_data = {
+                                        'tool_call_complete': current_function_name, 
+                                        'tool_id': tool_id, 
+                                        'success': True,
+                                        'response': make_json_serializable(result)
+                                    }
+                                    yield f"data: {json.dumps(tool_complete_data)}\n\n"
+                                    
                                     # Check if this is an agent transfer function
                                     if current_function_name in ['transfer_to_analyst_agent', 'transfer_to_researcher_agent']:
                                         # Update the current agent
                                         self.agent = result
-                                        yield f"✅ **Transferred to {result.name} Agent**\n\n"
+                                        transfer_content = f'**Transferred to {result.name} Agent**\n\n'
+                                        content_data = {'content': transfer_content}
+                                        yield f"data: {json.dumps(content_data)}\n\n"
                                     # If the result has content (like from format_table), send it as a message
                                     elif isinstance(result, dict) and "content" in result:
-                                        yield f"✅ **Tool completed**\n\n{result['content']}\n\n"
+                                        result_content = f'{result["content"]}\n\n'
+                                        content_data = {'content': result_content}
+                                        yield f"data: {json.dumps(content_data)}\n\n"
                                     # Handle chart messages
                                     elif isinstance(result, dict) and result.get("type") == "chart":
-                                        yield f"✅ **Chart generated: {result.get('chart_id')}**\n\n"
-                                    else:
-                                        yield f"✅ **Tool completed successfully**\n\n"
+                                        chart_content = f'**Chart generated: {result.get("chart_id")}**\n\n'
+                                        content_data = {'content': chart_content}
+                                        yield f"data: {json.dumps(content_data)}\n\n"
                                         
                                 except Exception as tool_error:
                                     self.logger.error(f"Error executing tool {current_function_name}: {str(tool_error)}")
-                                    yield f"❌ **Tool error: {str(tool_error)}**\n\n"
+                                    # Send tool call error notification as structured data
+                                    tool_error_data = {
+                                        'tool_call_complete': current_function_name, 
+                                        'tool_id': tool_id, 
+                                        'success': False, 
+                                        'error': str(tool_error),
+                                        'response': make_json_serializable({'error': str(tool_error)})
+                                    }
+                                    yield f"data: {json.dumps(tool_error_data)}\n\n"
                             else:
                                 self.logger.warning(f"Unknown tool: {current_function_name}")
-                                yield f"❌ **Unknown tool: {current_function_name}**\n\n"
+                                # Send tool call error notification as structured data
+                                unknown_tool_error_data = {
+                                    'tool_call_complete': current_function_name, 
+                                    'tool_id': tool_id, 
+                                    'success': False, 
+                                    'error': f'Unknown tool: {current_function_name}',
+                                    'response': make_json_serializable({'error': f'Unknown tool: {current_function_name}'})
+                                }
+                                yield f"data: {json.dumps(unknown_tool_error_data)}\n\n"
 
                             incomplete_tool_call = None
                             current_function_name = None
@@ -704,7 +1113,9 @@ class ExplainerAgent:
                 elif "content" in chunk and chunk["content"] is not None:
                     content_piece = chunk["content"]
                     assistant_message["content"] += content_piece
-                    yield content_piece
+                    # Send content as SSE data for consistency
+                    content_data = {'content': content_piece}
+                    yield f"data: {json.dumps(content_data)}\n\n"
 
                 # Handle delim (end of message/agent response)
                 if "delim" in chunk and chunk["delim"] == "end":
@@ -765,6 +1176,45 @@ def explain_metric_change(
     """
     
     return agent.explain_change_sync(prompt, return_json=return_json)
+
+
+def make_json_serializable(obj):
+    """
+    Convert objects to JSON serializable format.
+    Handles pandas DataFrames, numpy arrays, and other common non-serializable types.
+    """
+    if isinstance(obj, pd.DataFrame):
+        return {
+            "type": "DataFrame",
+            "shape": obj.shape,
+            "columns": obj.columns.tolist(),
+            "head": obj.head().to_dict('records') if not obj.empty else [],
+            "dtypes": obj.dtypes.astype(str).to_dict(),
+            "summary": f"DataFrame with {len(obj)} rows and {len(obj.columns)} columns"
+        }
+    elif isinstance(obj, pd.Series):
+        return {
+            "type": "Series",
+            "name": obj.name,
+            "length": len(obj),
+            "head": obj.head().tolist() if not obj.empty else [],
+            "dtype": str(obj.dtype)
+        }
+    elif hasattr(obj, 'tolist'):  # numpy arrays
+        return {
+            "type": "array",
+            "data": obj.tolist()
+        }
+    elif isinstance(obj, dict):
+        return {k: make_json_serializable(v) for k, v in obj.items()}
+    elif isinstance(obj, (list, tuple)):
+        return [make_json_serializable(item) for item in obj]
+    else:
+        try:
+            json.dumps(obj)  # Test if it's already serializable
+            return obj
+        except (TypeError, ValueError):
+            return str(obj)  # Convert to string as fallback
 
 
 # Export main classes and functions

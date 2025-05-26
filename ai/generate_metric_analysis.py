@@ -818,17 +818,23 @@ def process_metric_analysis(metric_info, period_type='month', process_districts=
                                     current_value = row[f"{value_field}_current"]
                                     previous_value = row[f"{value_field}_previous"]
                                     
-                                    # Calculate percent change
+                                    # Calculate absolute delta and percent change
+                                    delta = current_value - previous_value
                                     if previous_value != 0:
-                                        pct_change = ((current_value - previous_value) / previous_value) * 100
+                                        percent_change = ((current_value - previous_value) / previous_value)
                                     else:
-                                        pct_change = 0 if current_value == 0 else 100
+                                        percent_change = 0 if current_value == 0 else 1.0
                                     
+                                    # Store enhanced data format for delta maps
                                     delta_map_data.append({
                                         "district": district,
-                                        "value": round(pct_change, 1)  # Round to 1 decimal place
+                                        "current_value": current_value,
+                                        "previous_value": previous_value,
+                                        "delta": delta,
+                                        "percent_change": percent_change,
+                                        "value": percent_change  # For backward compatibility and coloring
                                     })
-                                    logging.info(f"District {district}: Current={current_value}, Previous={previous_value}, Change={pct_change:.1f}%")
+                                    logging.info(f"District {district}: Current={current_value}, Previous={previous_value}, Delta={delta}, Change={percent_change:.1%}")
                                 except (ValueError, TypeError) as e:
                                     logging.warning(f"Skipping invalid district for percent change: {row['supervisor_district']} - {e}")
                             
@@ -839,16 +845,13 @@ def process_metric_analysis(metric_info, period_type='month', process_districts=
                             if delta_map_data:
                                 map_title = f"{query_name} - Changes by District from {second_last_month_display} to {last_month_display}"
                                 
-                                # Convert delta_map_data to CSV format for supervisor_district maps  
-                                csv_data = "district,value\n"
-                                for item in delta_map_data:
-                                    csv_data += f"{item['district']},{item['value']}\n"
-                                
+                                # Use enhanced data format for delta maps (not CSV conversion)
+                                # This will trigger the enhanced tooltip format with current_value, previous_value, delta, percent_change
                                 map_result = generate_map(
                                     context_variables={},
                                     map_title=map_title,
                                     map_type="supervisor_district",
-                                    location_data=csv_data,
+                                    location_data=delta_map_data,  # Pass the enhanced list format directly
                                     map_metadata={
                                         "period": f"{second_last_month_display} to {last_month_display}",
                                         "description": f"Percent change in {query_name} by supervisor district",

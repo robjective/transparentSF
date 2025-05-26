@@ -304,7 +304,7 @@ def get_charts_for_review(
                 if maps_result['status'] == 'success':
                     for row in maps_result['result']:
                         chart_info = {
-                            'chart_id': row[0],  # id (uuid)
+                            'chart_id': row[0],  # id (integer)
                             'title': row[1] or f"Map {row[0]}",  # title
                             'caption': "No description available",  # Default since no description column
                             'map_type': row[2],  # type

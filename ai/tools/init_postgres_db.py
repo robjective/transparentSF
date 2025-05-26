@@ -33,6 +33,7 @@ def init_database():
             DROP TABLE IF EXISTS reports CASCADE;
             DROP TABLE IF EXISTS charts CASCADE;
             DROP TABLE IF EXISTS anomalies CASCADE;
+            DROP TABLE IF EXISTS metrics CASCADE;
         """)
 
         # Create trigger function for updating timestamps
@@ -44,6 +45,55 @@ def init_database():
                 RETURN NEW;
             END;
             $$ language 'plpgsql';
+        """)
+
+        # Create metrics table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS metrics (
+                id SERIAL PRIMARY KEY,
+                metric_name TEXT NOT NULL,
+                metric_key TEXT UNIQUE NOT NULL,
+                category TEXT NOT NULL,
+                subcategory TEXT,
+                endpoint TEXT NOT NULL,
+                summary TEXT,
+                definition TEXT,
+                data_sf_url TEXT,
+                ytd_query TEXT,
+                metric_query TEXT,
+                dataset_title TEXT,
+                dataset_category TEXT,
+                show_on_dash BOOLEAN DEFAULT TRUE,
+                item_noun TEXT DEFAULT 'Items',
+                greendirection TEXT DEFAULT 'up',
+                location_fields JSONB DEFAULT '[]'::jsonb,
+                category_fields JSONB DEFAULT '[]'::jsonb,
+                metadata JSONB DEFAULT '{}'::jsonb,
+                is_active BOOLEAN DEFAULT TRUE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+        # Create indexes for metrics table
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS metrics_category_idx ON metrics (category)
+        """)
+        
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS metrics_subcategory_idx ON metrics (subcategory)
+        """)
+        
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS metrics_endpoint_idx ON metrics (endpoint)
+        """)
+        
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS metrics_active_idx ON metrics (is_active)
+        """)
+        
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS metrics_show_on_dash_idx ON metrics (show_on_dash)
         """)
 
         cursor.execute("""
@@ -234,6 +284,14 @@ def init_database():
         cursor.execute("""
             CREATE TRIGGER update_monthly_reporting_updated_at
                 BEFORE UPDATE ON monthly_reporting
+                FOR EACH ROW
+                EXECUTE FUNCTION update_updated_at_column()
+        """)
+
+        # Create trigger for metrics table
+        cursor.execute("""
+            CREATE TRIGGER update_metrics_updated_at
+                BEFORE UPDATE ON metrics
                 FOR EACH ROW
                 EXECUTE FUNCTION update_updated_at_column()
         """)

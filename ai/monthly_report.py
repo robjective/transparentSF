@@ -1306,48 +1306,48 @@ def generate_monthly_report(report_date=None, district="0"):
             # Initialize chart placeholders as a list instead of a single string
             chart_placeholders = []
             
-            # Add anomaly chart if available
-            if anomaly_id:
-                try:
-                    # Validate anomaly_id is an integer
-                    int(anomaly_id)
-                    anomaly_placeholder = f"[CHART:anomaly:{anomaly_id}]"
+            # # Add anomaly chart if available
+            # if anomaly_id:
+            #     try:
+            #         # Validate anomaly_id is an integer
+            #         int(anomaly_id)
+            #         anomaly_placeholder = f"[CHART:anomaly:{anomaly_id}]"
                     
-                    # Try to get the caption from anomaly details
-                    try:
-                        # Import the get_anomaly_details function from anomalyAnalyzer
-                        from ai.anomalyAnalyzer import get_anomaly_details
+            #         # Try to get the caption from anomaly details
+            #         try:
+            #             # Import the get_anomaly_details function from anomalyAnalyzer
+            #             from ai.anomalyAnalyzer import get_anomaly_details
                         
-                        # Get anomaly details
-                        context_variables = {}
-                        anomaly_details = get_anomaly_details(context_variables, int(anomaly_id))
+            #             # Get anomaly details
+            #             context_variables = {}
+            #             anomaly_details = get_anomaly_details(context_variables, int(anomaly_id))
                         
-                        # Check if successful and extract caption from metadata
-                        if anomaly_details.get("status") == "success" and anomaly_details.get("anomaly"):
-                            metadata = anomaly_details.get("anomaly", {}).get("metadata", {})
-                            caption = metadata.get("caption", "")
+            #             # Check if successful and extract caption from metadata
+            #             if anomaly_details.get("status") == "success" and anomaly_details.get("anomaly"):
+            #                 metadata = anomaly_details.get("anomaly", {}).get("metadata", {})
+            #                 caption = metadata.get("caption", "")
                             
-                            # Append caption to the chart placeholder if available
-                            if caption:
-                                anomaly_placeholder = f"{anomaly_placeholder}\n{caption}"
-                                logger.info(f"Added caption to anomaly chart {anomaly_id}: {caption}")
-                    except Exception as e:
-                        logger.error(f"Error getting anomaly details for caption: {e}")
+            #                 # Append caption to the chart placeholder if available
+            #                 if caption:
+            #                     anomaly_placeholder = f"{anomaly_placeholder}\n{caption}"
+            #                     logger.info(f"Added caption to anomaly chart {anomaly_id}: {caption}")
+            #         except Exception as e:
+            #             logger.error(f"Error getting anomaly details for caption: {e}")
                     
-                    chart_placeholders.append(anomaly_placeholder)
-                except (ValueError, TypeError):
-                    anomaly_id = None # Invalid anomaly_id
+            #         chart_placeholders.append(anomaly_placeholder)
+            #     except (ValueError, TypeError):
+            #         anomaly_id = None # Invalid anomaly_id
             
-            # Add time series chart if available
-            if not anomaly_id and metric_id is not None:
-                try:
-                    # Validate metric_id, district, period_type
-                    int(metric_id)
-                    str(item["district"])
-                    str(item["period_type"])
-                    chart_placeholders.append(f"[CHART:time_series:{metric_id}:{item['district']}:{item['period_type']}]")
-                except (ValueError, TypeError, KeyError):
-                    metric_id = None # Invalid data
+            # # Add time series chart if available
+            # if not anomaly_id and metric_id is not None:
+            #     try:
+            #         # Validate metric_id, district, period_type
+            #         int(metric_id)
+            #         str(item["district"])
+            #         str(item["period_type"])
+            #         chart_placeholders.append(f"[CHART:time_series:{metric_id}:{item['district']}:{item['period_type']}]")
+            #     except (ValueError, TypeError, KeyError):
+            #         metric_id = None # Invalid data
                     
             # Add charts from explainer response
             charts_from_metadata = item.get("charts")
@@ -1693,9 +1693,8 @@ def generate_monthly_report(report_date=None, district="0"):
                                 seen.add(mp['pos'])
                         mention_positions = sorted(deduped, key=lambda x: x['pos'])
                     else:
-                        # If no mentions found, append the chart at the end of the report
-                        report_text += f"\n\n{chart_placeholder}\n"
-                        logger.info(f"Appended chart placeholder '{chart_placeholder}' at the end of the report for '{item['metric']}'")
+                        # If no mentions found, DO NOT append the chart at the end of the report
+                        logger.warning(f"No suitable mention found for '{item['metric']}' to insert chart placeholder '{chart_placeholder}'. Placeholder NOT inserted.")
             
             # Also insert chart_html if it exists and wasn't already part of the placeholders
             # This maintains backward compatibility with existing reports
@@ -1746,9 +1745,8 @@ def generate_monthly_report(report_date=None, district="0"):
                     report_text = report_text[:insertion_point] + f"\n{chart_content_to_insert}\n\n" + report_text[insertion_point:]
                     logger.info(f"Inserted chart HTML for '{item['metric']}' after its mention.")
                 else:
-                    # If we couldn't find a suitable mention, append the chart at the end
-                    report_text += f"\n\n{chart_content_to_insert}\n"
-                    logger.info(f"Appended chart HTML for '{item['metric']}' at the end of the report.")
+                    # If we couldn't find a suitable mention, DO NOT append the chart at the end
+                    logger.warning(f"No suitable mention found for '{item['metric']}' to insert chart HTML. Chart HTML NOT inserted.")
         
         # Create directory for reports if it doesn't exist
         reports_dir = Path(__file__).parent / 'output' / 'reports'
@@ -2813,15 +2811,25 @@ def generate_chart_data_url(chart_type, params):
             map_id = params.get('id', params.get('map_id'))
             if map_id:
                 try:
-                    from tools.gen_map_dw import create_datawrapper_map
-                    logger.info(f"Generating Datawrapper map for data URL: {map_id}")
+                    # First try to get the existing map URL from the database
+                    logger.info(f"Getting existing map URL for data URL: {map_id}")
                     
-                    map_url = create_datawrapper_map(map_id)
+                    map_url = get_existing_map_url(map_id)
                     
                     if map_url:
-                        logger.info(f"Successfully generated Datawrapper map for data URL: {map_url}")
+                        logger.info(f"Successfully found existing map URL for data URL: {map_url}")
                         # Return the map URL directly
                         return map_url
+                    else:
+                        # If no existing map URL found, try to create/publish the map
+                        logger.info(f"No existing map URL found for data URL {map_id}, attempting to create it")
+                        from tools.gen_map_dw import create_datawrapper_map
+                        map_url = create_datawrapper_map(map_id)
+                        
+                        if map_url:
+                            logger.info(f"Successfully created Datawrapper map for data URL: {map_url}")
+                            # Return the map URL directly
+                            return map_url
                 except Exception as e:
                     logger.error(f"Error using Datawrapper for map data URL: {str(e)}", exc_info=True)
                     logger.info("Falling back to traditional map approach for data URL")
@@ -3314,14 +3322,13 @@ def expand_chart_references(report_path):
             map_id = match.group(1)
             
             try:
-                # Try to use Datawrapper for the map
-                from tools.gen_map_dw import create_datawrapper_map
-                logger.info(f"Generating Datawrapper map for map ID: {map_id}")
+                # First try to get the existing map URL from the database
+                logger.info(f"Getting existing map URL for map ID: {map_id}")
                 
-                map_url = create_datawrapper_map(map_id)
+                map_url = get_existing_map_url(map_id)
                 
                 if map_url:
-                    logger.info(f"Successfully generated Datawrapper map for map {map_id}: {map_url}")
+                    logger.info(f"Successfully found existing map URL for map {map_id}: {map_url}")
                     # Use Datawrapper's responsive iframe embedding approach
                     iframe_html = (
                         f'<div class="chart-container">\n'
@@ -3339,13 +3346,40 @@ def expand_chart_references(report_path):
                         f'</div>'
                     )
                     return iframe_html
+                else:
+                    # If no existing map URL found, try to create/publish the map
+                    logger.info(f"No existing map URL found for map {map_id}, attempting to create it")
+                    try:
+                        from tools.gen_map_dw import create_datawrapper_map
+                        map_url = create_datawrapper_map(map_id)
+                        
+                        if map_url:
+                            logger.info(f"Successfully created Datawrapper map for map {map_id}: {map_url}")
+                            # Use Datawrapper's responsive iframe embedding approach
+                            iframe_html = (
+                                f'<div class="chart-container">\n'
+                                f'    <div class="datawrapper-chart-embed">\n'
+                                f'        <iframe src="{map_url}"\n'
+                                f'                title="Map {map_id}"\n'
+                                f'                style="width: 100%; border: none;" \n'
+                                f'                height="600"\n'
+                                f'                frameborder="0" \n'
+                                f'                scrolling="no"\n'
+                                f'                aria-label="Map {map_id}"\n'
+                                f'                allowfullscreen="true">\n'
+                                f'        </iframe>\n'
+                                f'    </div>\n'
+                                f'</div>'
+                            )
+                            return iframe_html
+                    except Exception as create_error:
+                        logger.error(f"Error creating Datawrapper map for map {map_id}: {str(create_error)}")
             except Exception as e:
-                logger.error(f"Error generating Datawrapper map for map {map_id}: {str(e)}")
+                logger.error(f"Error getting existing map URL for map {map_id}: {str(e)}")
             
-            # Fallback to the backend map chart endpoint if Datawrapper fails
+            # Fallback to the backend map chart endpoint if both existing URL and creation fail
             logger.info(f"Using fallback iframe for map ID: {map_id}")
-            return f"""
-<div class="chart-container">
+            return f"""<div class="chart-container">
     <div style="position: relative; width: 100%; padding-bottom: 75%;">
         <iframe src="/backend/map-chart?id={map_id}" 
                 style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: none;" 
@@ -3560,18 +3594,26 @@ def request_chart_image(chart_type, params, output_path=None):
                 logger.error("No map ID provided for map chart request")
                 return None
             
-            # Try to generate a Datawrapper map first
+            # Try to get the existing map URL from the database first
             try:
-                from tools.gen_map_dw import create_datawrapper_map
-                logger.info(f"Attempting to create Datawrapper map for map_id: {map_id}")
+                logger.info(f"Getting existing map URL for map_id: {map_id}")
                 
-                map_url = create_datawrapper_map(map_id)
+                map_url = get_existing_map_url(map_id)
                 
                 if map_url:
-                    logger.info(f"Successfully generated Datawrapper map: {map_url}")
+                    logger.info(f"Successfully found existing map URL: {map_url}")
                     return map_url
+                else:
+                    # If no existing map URL found, try to create/publish the map
+                    logger.info(f"No existing map URL found for map_id {map_id}, attempting to create it")
+                    from tools.gen_map_dw import create_datawrapper_map
+                    map_url = create_datawrapper_map(map_id)
+                    
+                    if map_url:
+                        logger.info(f"Successfully created Datawrapper map: {map_url}")
+                        return map_url
             except Exception as e:
-                logger.error(f"Error creating Datawrapper map: {str(e)}", exc_info=True)
+                logger.error(f"Error getting/creating Datawrapper map: {str(e)}", exc_info=True)
             
             # Fallback to backend map chart endpoint
             landing_page_url = f"{API_BASE_URL}/backend/map-chart?id={map_id}"
@@ -3721,7 +3763,7 @@ def generate_narrated_report(report_path, output_path=None):
         
         data = {
             "text": audio_script,
-            "model_id": "eleven_monolingual_v1",
+            "model_id": "eleven_multilingual_v2",
             "voice_settings": {
                 "stability": 0.5,
                 "similarity_boost": 0.5
@@ -3746,6 +3788,453 @@ def generate_narrated_report(report_path, output_path=None):
     except Exception as e:
         logger.error(f"Error generating narrated report: {str(e)}", exc_info=True)
         return None
+
+# Add this new function after the existing functions and before expand_chart_references
+
+def get_existing_map_url(map_id):
+    """
+    Get the published URL of an existing map from the database instead of creating a new one.
+    
+    Args:
+        map_id: The ID of the map to retrieve
+        
+    Returns:
+        The published URL of the existing map, or None if not found
+    """
+    logger.info(f"Getting existing map URL for map_id: {map_id}")
+    
+    def get_map_operation(connection):
+        cursor = connection.cursor(cursor_factory=psycopg2.extras.DictCursor)
+        
+        # Query the map by ID
+        cursor.execute("""
+            SELECT id, title, published_url, chart_id, edit_url, type, metadata
+            FROM maps 
+            WHERE id = %s AND active = TRUE
+        """, (map_id,))
+        
+        map_record = cursor.fetchone()
+        cursor.close()
+        
+        if not map_record:
+            logger.warning(f"Map with ID {map_id} not found in database")
+            return None
+        
+        # Check if we have a published URL
+        if map_record['published_url']:
+            logger.info(f"Found existing published URL for map {map_id}: {map_record['published_url']}")
+            return map_record['published_url']
+        else:
+            logger.warning(f"Map {map_id} exists but has no published URL")
+            return None
+    
+    # Execute the operation with proper connection handling
+    result = execute_with_connection(
+        operation=get_map_operation,
+        db_host=DB_HOST,
+        db_port=DB_PORT,
+        db_name=DB_NAME,
+        db_user=DB_USER,
+        db_password=DB_PASSWORD
+    )
+    
+    if result["status"] == "success":
+        return result["result"]
+    else:
+        logger.error(f"Error getting existing map URL: {result['message']}")
+        return None
+
+def expand_chart_references(report_path):
+    """
+    Process a report file and replace simplified chart references with full HTML.
+    
+    Args:
+        report_path: Path to the report file to process
+        
+    Returns:
+        Path to the processed report file
+    """
+    logger.info(f"Expanding chart references in report: {report_path}")
+    
+    try:
+        # Read the report file
+        with open(report_path, 'r', encoding='utf-8') as f:
+            report_html = f.read()
+        
+        # Define patterns for simplified chart references
+        time_series_pattern = r'\[CHART:time_series:(\d+):(\d+):(\w+)\]'
+        time_series_id_pattern = r'\[CHART:time_series_id:(\d+)\]'  # New pattern for time_series_id
+        anomaly_pattern = r'\[CHART:anomaly:([a-zA-Z0-9]+)\]'  # Changed to support alphanumeric IDs
+        map_pattern = r'\[CHART:map:([a-zA-Z0-9\-]+)\]'  # Add pattern for map references
+        
+        # Define pattern for direct image references
+        image_pattern_with_alt = r'<img[^>]*src="([^"]+)"[^>]*alt="([^"]+)"[^>]*>'
+        image_pattern_without_alt = r'<img[^>]*src="([^"]+)"[^>]*>'
+        
+        # Replace time series chart references
+        def replace_time_series(match):
+            metric_id = match.group(1)
+            district = match.group(2)
+            period_type = match.group(3)
+            
+            logger.info(f"Attempting to generate Datawrapper chart for metric_id: {metric_id}, district: {district}, period: {period_type}")
+            
+            dw_chart_url = create_datawrapper_chart(
+                metric_id=metric_id,
+                district=district,
+                period_type=period_type
+            )
+            
+            if dw_chart_url:
+                logger.info(f"Successfully generated Datawrapper chart: {dw_chart_url}")
+                # Use Datawrapper's responsive iframe embedding approach
+                iframe_html = (
+                    f'<div class="chart-container">\n'
+                    f'    <div class="datawrapper-chart-embed">\n'
+                    f'        <iframe src="{dw_chart_url}"\n'
+                    f'                style="width: 100%; border: none;" \n'
+                    f'                height="600"\n'
+                    f'                frameborder="0" \n'
+                    f'                scrolling="no"\n'
+                    f'                allowfullscreen="true">\n'
+                    f'        </iframe>\n'
+                    f'    </div>\n'
+                    f'</div>'
+                )
+                return iframe_html
+            else:
+                logger.warning(f"Failed to generate Datawrapper chart for metric_id: {metric_id}. Using placeholder.")
+                return f"<!-- Datawrapper chart generation failed for metric_id: {metric_id}, district: {district}, period: {period_type} -->"
+        
+        # Replace anomaly chart references
+        def replace_anomaly(match):
+            anomaly_id = match.group(1)
+            
+            try:
+                # Use the new helper function to generate a chart directly from the anomaly ID
+                from tools.gen_anomaly_chart_dw import generate_anomaly_chart_from_id
+                logger.info(f"Generating chart for anomaly ID: {anomaly_id} using direct ID function")
+                
+                chart_url = generate_anomaly_chart_from_id(anomaly_id)
+                
+                if chart_url:
+                    logger.info(f"Successfully generated Datawrapper chart for anomaly {anomaly_id}: {chart_url}")
+                    # Use Datawrapper's responsive iframe embedding approach
+                    iframe_html = (
+                        f'<div class="chart-container">\n'
+                        f'    <div class="datawrapper-chart-embed">\n'
+                        f'        <iframe src="{chart_url}"\n'
+                        f'                title="Anomaly {anomaly_id}: Trend Analysis"\n'
+                        f'                style="width: 100%; border: none;" \n'
+                        f'                height="600"\n'
+                        f'                frameborder="0" \n'
+                        f'                scrolling="no"\n'
+                        f'                aria-label="Anomaly {anomaly_id}: Trend Analysis"\n'
+                        f'                allowfullscreen="true">\n'
+                        f'        </iframe>\n'
+                        f'    </div>\n'
+                        f'</div>'
+                    )
+                    return iframe_html
+            except Exception as e:
+                logger.error(f"Error generating Datawrapper chart for anomaly {anomaly_id}: {str(e)}")
+            
+            # Fallback to the original iframe method if Datawrapper generation fails
+            logger.info(f"Using fallback iframe for anomaly ID: {anomaly_id}")
+            return f"""
+<div class="chart-container">
+    <div style="position: relative; width: 100%; padding-bottom: 100%;">
+        <iframe src="/anomaly-analyzer/anomaly-chart?id={anomaly_id}#chart-section" 
+                style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: none;" 
+                frameborder="0" 
+                scrolling="no">
+        </iframe>
+    </div>
+</div>"""
+        
+        # Replace direct image references with iframes
+        def replace_image_with_alt(match):
+            img_tag = match.group(0)
+            img_src = match.group(1)
+            img_alt = match.group(2)
+            
+            # Check if it's an anomaly chart image
+            if img_src.startswith("anomaly_"):
+                # Extract anomaly ID from the filename
+                parts = img_src.split("_")
+                if len(parts) >= 2:
+                    anomaly_id = parts[1].split(".")[0]  # Remove file extension
+                    
+                    # Try to use Datawrapper for this anomaly image
+                    try:
+                        # Use the new helper function to generate a chart directly from the anomaly ID
+                        from tools.gen_anomaly_chart_dw import generate_anomaly_chart_from_id
+                        logger.info(f"Generating chart for anomaly image ID: {anomaly_id} using direct ID function")
+                        
+                        chart_url = generate_anomaly_chart_from_id(anomaly_id)
+                        
+                        if chart_url:
+                            logger.info(f"Successfully generated Datawrapper chart for anomaly image {anomaly_id}: {chart_url}")
+                            # Use Datawrapper's responsive iframe embedding approach
+                            iframe_html = (
+                                f'<div class="chart-container">\n'
+                                f'    <div class="datawrapper-chart-embed">\n'
+                                f'        <iframe src="{chart_url}"\n'
+                                f'                title="Anomaly {anomaly_id}: {img_alt}"\n'
+                                f'                style="width: 100%; border: none;" \n'
+                                f'                height="600"\n'
+                                f'                frameborder="0" \n'
+                                f'                scrolling="no"\n'
+                                f'                aria-label="Anomaly {anomaly_id}: {img_alt}"\n'
+                                f'                allowfullscreen="true">\n'
+                                f'        </iframe>\n'
+                                f'    </div>\n'
+                                f'</div>'
+                            )
+                            return iframe_html
+                    except Exception as e:
+                        logger.error(f"Error generating Datawrapper chart for anomaly image {anomaly_id}: {str(e)}")
+                    
+                    # Fallback to the original iframe method
+                    logger.info(f"Using fallback iframe for anomaly image ID: {anomaly_id}")
+                    return f"""
+<div class="chart-container">
+    <div style="position: relative; width: 100%; padding-bottom: 100%;">
+        <iframe src="/anomaly-analyzer/anomaly-chart?id={anomaly_id}#chart-section" 
+                style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: none;" 
+                frameborder="0" 
+                scrolling="no">
+        </iframe>
+    </div>
+</div>"""
+            
+            # If we can't determine the chart type, keep the original image
+            return img_tag
+        
+        def replace_image_without_alt(match):
+            img_tag = match.group(0)
+            img_src = match.group(1)
+            
+            # Check if it's an anomaly chart image
+            if img_src.startswith("anomaly_"):
+                # Extract anomaly ID from the filename
+                parts = img_src.split("_")
+                if len(parts) >= 2:
+                    anomaly_id = parts[1].split(".")[0]  # Remove file extension
+                    
+                    # Try to use Datawrapper for this anomaly image
+                    try:
+                        # Use the new helper function to generate a chart directly from the anomaly ID
+                        from tools.gen_anomaly_chart_dw import generate_anomaly_chart_from_id
+                        logger.info(f"Generating chart for anomaly image ID (no alt): {anomaly_id} using direct ID function")
+                        
+                        chart_url = generate_anomaly_chart_from_id(anomaly_id)
+                        
+                        if chart_url:
+                            logger.info(f"Successfully generated Datawrapper chart for anomaly image {anomaly_id}: {chart_url}")
+                            # Use Datawrapper's responsive iframe embedding approach
+                            iframe_html = (
+                                f'<div class="chart-container">\n'
+                                f'    <div class="datawrapper-chart-embed">\n'
+                                f'        <iframe src="{chart_url}"\n'
+                                f'                title="Anomaly {anomaly_id}: Trend Analysis"\n'
+                                f'                style="width: 100%; border: none;" \n'
+                                f'                height="600"\n'
+                                f'                frameborder="0" \n'
+                                f'                scrolling="no"\n'
+                                f'                aria-label="Anomaly {anomaly_id}: Trend Analysis"\n'
+                                f'                allowfullscreen="true">\n'
+                                f'        </iframe>\n'
+                                f'    </div>\n'
+                                f'</div>'
+                            )
+                            return iframe_html
+                    except Exception as e:
+                        logger.error(f"Error generating Datawrapper chart for anomaly image (no alt) {anomaly_id}: {str(e)}")
+                    
+                    # Fallback to the original iframe method
+                    logger.info(f"Using fallback iframe for anomaly image ID (no alt): {anomaly_id}")
+                    return f"""
+<div class="chart-container">
+    <div style="position: relative; width: 100%; padding-bottom: 100%;">
+        <iframe src="/anomaly-analyzer/anomaly-chart?id={anomaly_id}#chart-section" 
+                style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: none;" 
+                frameborder="0" 
+                scrolling="no">
+        </iframe>
+    </div>
+</div>"""
+            
+            # If we can't determine the chart type, keep the original image
+            return img_tag
+        
+        # Replace map references
+        def replace_map(match):
+            map_id = match.group(1)
+            
+            try:
+                # Try to use Datawrapper for the map
+                from tools.gen_map_dw import create_datawrapper_map
+                logger.info(f"Generating Datawrapper map for map ID: {map_id}")
+                
+                map_url = create_datawrapper_map(map_id)
+                
+                if map_url:
+                    logger.info(f"Successfully generated Datawrapper map for map {map_id}: {map_url}")
+                    # Use Datawrapper's responsive iframe embedding approach
+                    iframe_html = (
+                        f'<div class="chart-container">\n'
+                        f'    <div class="datawrapper-chart-embed">\n'
+                        f'        <iframe src="{map_url}"\n'
+                        f'                title="Map {map_id}"\n'
+                        f'                style="width: 100%; border: none;" \n'
+                        f'                height="600"\n'
+                        f'                frameborder="0" \n'
+                        f'                scrolling="no"\n'
+                        f'                aria-label="Map {map_id}"\n'
+                        f'                allowfullscreen="true">\n'
+                        f'        </iframe>\n'
+                        f'    </div>\n'
+                        f'</div>'
+                    )
+                    return iframe_html
+            except Exception as e:
+                logger.error(f"Error generating Datawrapper map for map {map_id}: {str(e)}")
+            
+            # Fallback to the backend map chart endpoint if Datawrapper fails
+            logger.info(f"Using fallback iframe for map ID: {map_id}")
+            return f"""<div class="chart-container">
+    <div style="position: relative; width: 100%; padding-bottom: 75%;">
+        <iframe src="/backend/map-chart?id={map_id}" 
+                style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: none;" 
+                frameborder="0" 
+                scrolling="no"
+                title="Map {map_id}">
+        </iframe>
+    </div>
+</div>"""
+        
+        # Replace time series chart references by chart_id
+        def replace_time_series_id(match):
+            chart_id = match.group(1)
+            
+            logger.info(f"Attempting to generate Datawrapper chart for time_series_id: {chart_id}")
+            
+            try:
+                # Import the tools we need
+                from tools.store_time_series import get_time_series_metadata, get_time_series_data
+                from tools.genChartdw import create_time_series_chart_from_data
+                
+                # Get the metadata for this chart
+                metadata_df = get_time_series_metadata(chart_id=int(chart_id))
+                if metadata_df.empty:
+                    logger.error(f"No metadata found for time_series_id: {chart_id}")
+                    return f"<!-- No metadata found for time_series_id: {chart_id} -->"
+                
+                metadata_row = metadata_df.iloc[0]
+                
+                # Get the time series data
+                data_df = get_time_series_data(chart_id=int(chart_id))
+                if data_df.empty:
+                    logger.error(f"No data found for time_series_id: {chart_id}")
+                    return f"<!-- No data found for time_series_id: {chart_id} -->"
+                
+                # Extract metadata information
+                # First check if there's additional metadata in the metadata JSONB field
+                metadata_json = metadata_row.get('metadata', {})
+                if isinstance(metadata_json, str):
+                    try:
+                        metadata_json = json.loads(metadata_json)
+                    except json.JSONDecodeError:
+                        metadata_json = {}
+                
+                # Try multiple sources for the chart title with proper fallback
+                chart_title = (
+                    metadata_json.get('title') or         # First: title from metadata JSONB
+                    metadata_json.get('chart_title') or   # Second: chart_title from metadata JSONB  
+                    metadata_row.get('object_name') or    # Third: object_name from table
+                    f"Time Series Chart {chart_id}"       # Fallback
+                )
+                
+                object_name = metadata_row.get('object_name', 'Unknown')
+                field_name = metadata_row.get('field_name', 'Value')
+                period_type = metadata_row.get('period_type', 'month')
+                district = metadata_row.get('district', 0)
+                
+                # Prepare chart data in the format expected by create_time_series_chart_from_data
+                chart_data = []
+                for _, row in data_df.iterrows():
+                    chart_data.append({
+                        'time_period': row['time_period'],
+                        'value': row['numeric_value'],
+                        'group_value': row.get('group_value')
+                    })
+                
+                # Create chart metadata
+                chart_metadata = {
+                    'title': chart_title,
+                    'object_name': object_name,
+                    'field_name': field_name,
+                    'period_type': period_type,
+                    'district': district,
+                    'chart_id': chart_id
+                }
+                
+                # Generate the Datawrapper chart
+                dw_chart_url = create_time_series_chart_from_data(
+                    chart_data=chart_data,
+                    metadata=chart_metadata
+                )
+                
+                if dw_chart_url:
+                    logger.info(f"Successfully generated Datawrapper chart for time_series_id {chart_id}: {dw_chart_url}")
+                    # Use Datawrapper's responsive iframe embedding approach
+                    iframe_html = (
+                        f'<div class="chart-container">\n'
+                        f'    <div class="datawrapper-chart-embed">\n'
+                        f'        <iframe src="{dw_chart_url}"\n'
+                        f'                title="{chart_title}"\n'
+                        f'                style="width: 100%; border: none;" \n'
+                        f'                height="600"\n'
+                        f'                frameborder="0" \n'
+                        f'                scrolling="no"\n'
+                        f'                aria-label="{chart_title}"\n'
+                        f'                allowfullscreen="true">\n'
+                        f'        </iframe>\n'
+                        f'    </div>\n'
+                        f'</div>'
+                    )
+                    return iframe_html
+                else:
+                    logger.warning(f"Failed to generate Datawrapper chart for time_series_id: {chart_id}")
+                    return f"<!-- Datawrapper chart generation failed for time_series_id: {chart_id} -->"
+                    
+            except ImportError as e:
+                logger.error(f"Missing required tools for time_series_id processing: {str(e)}")
+                return f"<!-- Missing tools for time_series_id: {chart_id} - {str(e)} -->"
+            except Exception as e:
+                logger.error(f"Error generating Datawrapper chart for time_series_id {chart_id}: {str(e)}")
+                return f"<!-- Error generating chart for time_series_id: {chart_id} - {str(e)} -->"
+        
+        # Apply replacements
+        report_html = re.sub(time_series_pattern, replace_time_series, report_html)
+        report_html = re.sub(time_series_id_pattern, replace_time_series_id, report_html)  # Add time_series_id support
+        report_html = re.sub(anomaly_pattern, replace_anomaly, report_html)
+        report_html = re.sub(map_pattern, replace_map, report_html)
+        report_html = re.sub(image_pattern_with_alt, replace_image_with_alt, report_html)
+        report_html = re.sub(image_pattern_without_alt, replace_image_without_alt, report_html)
+        
+        # Write the processed report
+        with open(report_path, 'w', encoding='utf-8') as f:
+            f.write(report_html)
+        
+        logger.info(f"Expanded chart references in report: {report_path}")
+        return report_path
+        
+    except Exception as e:
+        error_msg = f"Error in expand_chart_references: {str(e)}"
+        logger.error(error_msg, exc_info=True)
+        return report_path
 
 if __name__ == "__main__":
     # Run the monthly report process

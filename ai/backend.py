@@ -5664,7 +5664,8 @@ async def explain_change_streaming_api(request: Request):
                 
                 async for chunk in agent.explain_change_streaming(prompt, session_data):
                     if chunk:
-                        yield f"data: {json.dumps({'content': chunk})}\n\n"
+                        # The agent already yields properly formatted SSE data, so pass it through directly
+                        yield chunk
                 
                 # Send completion signal
                 yield f"data: {json.dumps({'completed': True})}\n\n"
