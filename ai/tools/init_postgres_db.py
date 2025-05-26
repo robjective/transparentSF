@@ -122,6 +122,7 @@ def init_database():
             district TEXT,
             executed_query_url TEXT,
             caption TEXT,
+            is_active BOOLEAN DEFAULT TRUE,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
         """)
@@ -134,6 +135,11 @@ def init_database():
         # Create an index on the out_of_bounds column for faster filtering
         cursor.execute("""
             CREATE INDEX IF NOT EXISTS anomalies_out_of_bounds_idx ON anomalies (out_of_bounds)
+        """)
+        
+        # Create an index on the is_active column for faster filtering
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS anomalies_is_active_idx ON anomalies (is_active)
         """)
         
         # Create an index on the district column for faster filtering
@@ -217,6 +223,7 @@ def init_database():
                 proofread_feedback TEXT,
                 published_url TEXT,
                 headlines JSONB,
+                audio_file TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 CONSTRAINT valid_period_type CHECK (period_type IN ('month', 'quarter', 'year')),

@@ -1413,11 +1413,11 @@ def _apply_custom_map_styling(chart_id, map_type, map_metadata=None):
         # Symmetric diverging palette with matched lightness on both sides
         # Endpoints chosen to have similar L* in Lab space so red & green feel balanced
         delta_color_scheme = [
-            {"color": "#e24d4d", "position": 0},      # Red (≈L54)
-            {"color": "#f7a3a3", "position": 0.25},   # Light red
+            {"color": "#29c786", "position": 0},      # Green (≈L54)
+            {"color": "#a3ebd1", "position": 0.25},   # Light green
             {"color": "#eeeeee", "position": 0.5},    # Neutral grey
-            {"color": "#a3ebd1", "position": 0.75},   # Light green
-            {"color": "#29c786", "position": 1.0}     # Green (≈L54)
+            {"color": "#f7a3a3", "position": 0.75},   # Light red
+            {"color": "#e24d4d", "position": 1.0}     # Red (≈L54)
         ]
         
         # Determine which color scheme to use
@@ -1479,11 +1479,11 @@ def _apply_custom_map_styling(chart_id, map_type, map_metadata=None):
             colorscale_config["stops"] = "custom"  # Use custom stops when min/max are specified
             # Define explicit custom stops for the -100% to +100% range
             colorscale_config["customStops"] = [
-                {"position": 0.0, "color": "#e24d4d"},   # -100%
-                {"position": 0.25, "color": "#f7a3a3"},  # -50%
+                {"position": 0.0, "color": "#29c786"},   # -100%
+                {"position": 0.25, "color": "#a3ebd1"},  # -50%
                 {"position": 0.5, "color": "#eeeeee"},   # 0%
-                {"position": 0.75, "color": "#a3ebd1"},  # +50%
-                {"position": 1.0, "color": "#29c786"}    # +100%
+                {"position": 0.75, "color": "#f7a3a3"},  # +50%
+                {"position": 1.0, "color": "#e24d4d"}    # +100%
             ]
             # Explicitly fix min/max center so Datawrapper doesn't auto-rescale based on data range
             colorscale_config["rangeMin"] = -100
