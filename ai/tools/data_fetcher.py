@@ -188,6 +188,10 @@ def set_dataset(context_variables, *args, **kwargs):
             if data:
                 df = pd.DataFrame(data)
                 context_variables['dataset'] = df
+                # Store the query URL in context variables if available
+                if 'queryURL' in result:
+                    context_variables['executed_query_url'] = result['queryURL']
+                    logger.info(f"Stored executed_query_url in context: {result['queryURL']}")
                 logger.info(f"Dataset successfully created with shape: {df.shape}")
                 return {'status': 'success', 'queryURL': result.get('queryURL')}
             else:

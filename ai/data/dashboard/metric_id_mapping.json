@@ -45,17 +45,17 @@
         "subcategory": "fire"
     },
     "10": {
-        "name": "\ud83d\ude91 911 Response Time (mins) - Danger to life",
+        "name": "\ud83d\ude91 911 Response (minutes) - Danger to life",
         "category": "safety",
         "subcategory": "emergency_response"
     },
     "11": {
-        "name": "\ud83d\ude91 911 Response Time (mins) - Danger to property ",
+        "name": "\ud83d\ude91 911 Response (minutes) - Danger to property ",
         "category": "safety",
         "subcategory": "emergency_response"
     },
     "12": {
-        "name": "\ud83d\ude91 911 Response Time (mins) - No danger to life or property",
+        "name": "\ud83d\ude91 911 Response (minutes) - No danger to life or property",
         "category": "safety",
         "subcategory": "emergency_response"
     },
@@ -83,15 +83,5 @@
         "name": "\ud83c\udfea Retail Closures",
         "category": "economy",
         "subcategory": "business"
-    },
-    "18": {
-        "name": "\ud83d\udcde 311 Cases",
-        "category": "safety",
-        "subcategory": "311_cases"
-    },
-    "19": {
-        "name": "\u26fa Encampment Calls",
-        "category": "safety",
-        "subcategory": "311_cases"
     }
 }

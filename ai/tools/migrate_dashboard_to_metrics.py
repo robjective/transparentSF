@@ -80,43 +80,76 @@ def flatten_queries(data):
     """Flatten the nested query structure into a list of metrics."""
     metrics = []
     
+    def process_queries(queries_dict, category, subcategory, subsubcategory=None):
+        """Process a queries dictionary and extract metrics."""
+        for metric_name, metric_data in queries_dict.items():
+            # Create a unique key from the metric name
+            metric_key = metric_name.lower().replace(' ', '_').replace('(', '').replace(')', '').replace('-', '_').replace(':', '').replace('🚨', 'violent_').replace('🏠', 'property_').replace('💊', 'drug_').replace('🔒', 'jail_').replace('🚓', 'arrests_').replace('⚖️', 'convictions_').replace('🚒', 'fire_').replace('💔', 'fatalities_').replace('🚑', 'response_').replace('📞', 'cases_').replace('⛺', 'encampment_').replace('🏠', 'housing_').replace('🏢', 'business_').replace('🛍️', 'retail_').replace('🏪', 'retail_closures_').replace('👮', 'police_').replace('🚫', 'closures_')
+            
+            # Clean up the key further
+            import re
+            metric_key = re.sub(r'[^\w_]', '', metric_key)
+            metric_key = re.sub(r'_+', '_', metric_key).strip('_')
+            
+            # If there's an ID in the metric data, use it to make the key unique
+            if 'id' in metric_data and metric_data['id'] is not None:
+                metric_key = f"{metric_key}_{metric_data['id']}"
+            else:
+                # If no ID, make it unique by including category info
+                effective_subcategory = subsubcategory if subsubcategory else subcategory
+                if effective_subcategory != category:
+                    metric_key = f"{category}_{effective_subcategory}_{metric_key}"
+                else:
+                    metric_key = f"{category}_{metric_key}"
+            
+            # Use subsubcategory if available, otherwise subcategory
+            effective_subcategory = subsubcategory if subsubcategory else subcategory
+            
+            metric = {
+                'metric_name': metric_name,
+                'metric_key': metric_key,
+                'category': category,
+                'subcategory': effective_subcategory,
+                'endpoint': metric_data.get('endpoint', ''),
+                'summary': metric_data.get('summary', ''),
+                'definition': metric_data.get('definition', ''),
+                'data_sf_url': metric_data.get('data_sf_url', ''),
+                'ytd_query': metric_data.get('ytd_query', ''),
+                'metric_query': metric_data.get('metric_query', ''),
+                'dataset_title': metric_data.get('dataset_title', ''),
+                'dataset_category': metric_data.get('dataset_category', ''),
+                'show_on_dash': metric_data.get('show_on_dash', 'yes') == 'yes',
+                'item_noun': metric_data.get('item_noun', 'Items'),
+                'location_fields': metric_data.get('location_fields', []),
+                'category_fields': metric_data.get('category_fields', []),
+                'metadata': {
+                    'id': metric_data.get('id'),
+                    'original_category': category,
+                    'original_subcategory': subcategory,
+                    'original_subsubcategory': subsubcategory
+                },
+                'greendirection': determine_greendirection(metric_name, category, effective_subcategory)
+            }
+            metrics.append(metric)
+    
     for category, category_data in data.items():
-        for subcategory, subcategory_data in category_data.items():
-            if 'queries' in subcategory_data:
-                for metric_name, metric_data in subcategory_data['queries'].items():
-                    # Create a unique key from the metric name
-                    metric_key = metric_name.lower().replace(' ', '_').replace('(', '').replace(')', '').replace('-', '_').replace(':', '').replace('🚨', 'violent_').replace('🏠', 'property_').replace('💊', 'drug_').replace('🔒', 'jail_').replace('🚓', 'arrests_').replace('⚖️', 'convictions_').replace('🚒', 'fire_').replace('💔', 'fatalities_').replace('🚑', 'response_').replace('📞', 'cases_').replace('⛺', 'encampment_').replace('🏠', 'housing_').replace('🏢', 'business_').replace('🛍️', 'retail_').replace('🏪', 'retail_closures_').replace('👮', 'police_').replace('🚫', 'closures_')
+        # Check if this is a top-level category with direct queries
+        if isinstance(category_data, dict) and 'queries' in category_data:
+            # This is a top-level category with direct queries (like the top-level 311_cases)
+            process_queries(category_data['queries'], category, category)
+        else:
+            # This is a nested category structure
+            for subcategory, subcategory_data in category_data.items():
+                if isinstance(subcategory_data, dict):
+                    # Check if this subcategory has direct queries
+                    if 'queries' in subcategory_data:
+                        process_queries(subcategory_data['queries'], category, subcategory)
                     
-                    # Clean up the key further
-                    import re
-                    metric_key = re.sub(r'[^\w_]', '', metric_key)
-                    metric_key = re.sub(r'_+', '_', metric_key).strip('_')
-                    
-                    metric = {
-                        'metric_name': metric_name,
-                        'metric_key': metric_key,
-                        'category': category,
-                        'subcategory': subcategory,
-                        'endpoint': metric_data.get('endpoint', ''),
-                        'summary': metric_data.get('summary', ''),
-                        'definition': metric_data.get('definition', ''),
-                        'data_sf_url': metric_data.get('data_sf_url', ''),
-                        'ytd_query': metric_data.get('ytd_query', ''),
-                        'metric_query': metric_data.get('metric_query', ''),
-                        'dataset_title': metric_data.get('dataset_title', ''),
-                        'dataset_category': metric_data.get('dataset_category', ''),
-                        'show_on_dash': metric_data.get('show_on_dash', 'yes') == 'yes',
-                        'item_noun': metric_data.get('item_noun', 'Items'),
-                        'location_fields': metric_data.get('location_fields', []),
-                        'category_fields': metric_data.get('category_fields', []),
-                        'metadata': {
-                            'id': metric_data.get('id'),
-                            'original_category': category,
-                            'original_subcategory': subcategory
-                        },
-                        'greendirection': determine_greendirection(metric_name, category, subcategory)
-                    }
-                    metrics.append(metric)
+                    # Check if this subcategory has sub-subcategories with queries
+                    for key, value in subcategory_data.items():
+                        if key != 'queries' and isinstance(value, dict) and 'queries' in value:
+                            # This is a sub-subcategory with queries (like 311_cases under emergency_response)
+                            process_queries(value['queries'], category, subcategory, key)
     
     return metrics
 

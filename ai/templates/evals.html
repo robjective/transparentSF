@@ -313,8 +313,14 @@
             
             <div class="button-container">
                 <button id="run-eval-btn">Run Eval</button>
+                <button id="run-all-evals-btn">Run All Evals</button>
                 <button id="clear-results-btn">Clear Results</button>
             </div>
+        </div>
+        
+        <div id="eval-summary" class="results-container" style="display: none;">
+            <h2>Latest Eval Run Summary</h2>
+            <div id="summary-content"></div>
         </div>
         
         <div id="results-section" class="results-container" style="display: none;">
@@ -352,6 +358,7 @@
             // Get DOM elements
             const queryInput = document.getElementById('query');
             const runEvalBtn = document.getElementById('run-eval-btn');
+            const runAllEvalsBtn = document.getElementById('run-all-evals-btn');
             const clearResultsBtn = document.getElementById('clear-results-btn');
             const refreshLogsBtn = document.getElementById('refresh-logs-btn');
             const resultsSection = document.getElementById('results-section');
@@ -363,9 +370,11 @@
             
             // Initialize evals
             loadEvalLogs();
+            loadLatestEvalSummary();
             
             // Event listeners
             runEvalBtn.addEventListener('click', runEval);
+            runAllEvalsBtn.addEventListener('click', runAllEvals);
             clearResultsBtn.addEventListener('click', clearResults);
             refreshLogsBtn.addEventListener('click', loadEvalLogs);
             
@@ -448,6 +457,96 @@
                     // Re-enable button
                     runEvalBtn.disabled = false;
                     runEvalBtn.textContent = 'Run Eval';
+                }
+            }
+            
+            async function runAllEvals() {
+                // Disable button and show loading
+                runAllEvalsBtn.disabled = true;
+                runAllEvalsBtn.textContent = 'Running All Evals...';
+                
+                // Show and clear the summary section
+                const evalSummary = document.getElementById('eval-summary');
+                const summaryContent = document.getElementById('summary-content');
+                evalSummary.style.display = 'block';
+                summaryContent.innerHTML = `
+                    <div class="loading">
+                        <div class="spinner"></div>
+                        <span>Running all eval test cases...</span>
+                    </div>
+                `;
+                
+                try {
+                    const response = await fetch('/backend/run-all-evals');
+                    const data = await response.json();
+                    
+                    if (data.status === 'success') {
+                        const results = data.results;
+                        const successRate = results.total > 0 ? 
+                            Math.round((results.successful / results.total) * 100) : 0;
+                        
+                        // Display the summary
+                        summaryContent.innerHTML = `
+                            <div class="${results.failed === 0 ? 'success' : 'error'}">
+                                <h3>Eval Run Complete</h3>
+                                <p><strong>${results.successful}/${results.total}</strong> tests passed (${successRate}%)</p>
+                                ${results.failed > 0 ? `<p><strong>${results.failed}</strong> tests failed</p>` : ''}
+                            </div>
+                            
+                            <h3>Test Results:</h3>
+                            <table style="width: 100%; border-collapse: collapse; margin-top: 10px;">
+                                <thead>
+                                    <tr style="background-color: #f0f0f0;">
+                                        <th style="padding: 8px; text-align: left; border: 1px solid #ddd;">Test Name</th>
+                                        <th style="padding: 8px; text-align: left; border: 1px solid #ddd;">Query</th>
+                                        <th style="padding: 8px; text-align: center; border: 1px solid #ddd;">Status</th>
+                                        <th style="padding: 8px; text-align: left; border: 1px solid #ddd;">Error</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${results.test_results.map(test => `
+                                        <tr>
+                                            <td style="padding: 8px; border: 1px solid #ddd;">${test.test_name}</td>
+                                            <td style="padding: 8px; border: 1px solid #ddd; font-size: 12px;">${test.query}</td>
+                                            <td style="padding: 8px; text-align: center; border: 1px solid #ddd;">
+                                                <span style="color: ${test.status === 'success' ? 'green' : 'red'}; font-weight: bold;">
+                                                    ${test.status === 'success' ? '✓' : '✗'}
+                                                </span>
+                                            </td>
+                                            <td style="padding: 8px; border: 1px solid #ddd; font-size: 12px; color: red;">
+                                                ${test.error_message || '-'}
+                                            </td>
+                                        </tr>
+                                    `).join('')}
+                                </tbody>
+                            </table>
+                            
+                            ${results.summary_log_filename ? `
+                                <p style="margin-top: 15px;">
+                                    <small>Full log: ${results.summary_log_filename}</small>
+                                </p>
+                            ` : ''}
+                        `;
+                        
+                        // Refresh logs list to include the new summary log
+                        loadEvalLogs();
+                    } else {
+                        summaryContent.innerHTML = `
+                            <div class="error">
+                                <strong>Error:</strong> ${data.message}
+                            </div>
+                        `;
+                    }
+                } catch (error) {
+                    summaryContent.innerHTML = `
+                        <div class="error">
+                            <strong>Error:</strong> ${error.message}
+                        </div>
+                    `;
+                } finally {
+                    // Re-enable button
+                    runAllEvalsBtn.disabled = false;
+                    runAllEvalsBtn.textContent = 'Run All Evals';
                 }
             }
             
@@ -656,6 +755,35 @@
                 } catch (error) {
                     console.error('Error processing log content:', error);
                     toolCallsSummary.innerHTML = `<div class="error">Error processing log: ${error.message}</div>`;
+                }
+            }
+            
+            // Load latest eval summary on page load
+            async function loadLatestEvalSummary() {
+                try {
+                    const response = await fetch('/backend/get-latest-eval-summary');
+                    const data = await response.json();
+                    
+                    if (data.status === 'success' && data.summary) {
+                        const evalSummary = document.getElementById('eval-summary');
+                        const summaryContent = document.getElementById('summary-content');
+                        evalSummary.style.display = 'block';
+                        
+                        const summary = data.summary;
+                        const successRate = summary.total > 0 ? 
+                            Math.round((summary.successful / summary.total) * 100) : 0;
+                        
+                        summaryContent.innerHTML = `
+                            <div class="${summary.failed === 0 ? 'success' : 'error'}">
+                                <h3>Last Eval Run Summary</h3>
+                                <p><strong>${summary.successful}/${summary.total}</strong> tests passed (${successRate}%)</p>
+                                ${summary.failed > 0 ? `<p><strong>${summary.failed}</strong> tests failed</p>` : ''}
+                                <p><small>Run at: ${new Date(summary.timestamp).toLocaleString()}</small></p>
+                            </div>
+                        `;
+                    }
+                } catch (error) {
+                    console.error('Error loading latest eval summary:', error);
                 }
             }
         });

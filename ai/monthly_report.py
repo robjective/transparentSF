@@ -3687,7 +3687,7 @@ def generate_narrated_report(report_path, output_path=None):
         output_path: Path to save the audio file (defaults to same name with .mp3 extension)
         
     Returns:
-        Path to the generated audio file or None if failed
+        Dictionary containing paths to the generated audio file and script HTML file, or None if failed
     """
     from webChat import client, AGENT_MODEL
     
@@ -3707,6 +3707,13 @@ def generate_narrated_report(report_path, output_path=None):
             narration_dir = Path(__file__).parent / 'output' / 'narration'
             narration_dir.mkdir(parents=True, exist_ok=True)
             output_path = narration_dir / f"{report_path_obj.stem}.mp3"
+        
+        # Create reports directory if it doesn't exist
+        reports_dir = Path(__file__).parent / 'output' / 'reports'
+        reports_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Set up audio script HTML file path
+        script_html_path = reports_dir / f"{Path(report_path).stem}_audio_script.html"
         
         # Read the email-compatible report
         with open(report_path, 'r', encoding='utf-8') as f:
@@ -3736,6 +3743,59 @@ def generate_narrated_report(report_path, output_path=None):
         logger.info(f"Generated audio script: {len(audio_script)} characters")
         logger.info(f"Sample audio script: {audio_script[:200]}...")
         
+        # Save the audio script as HTML
+        try:
+            script_html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Audio Script - {Path(report_path).stem}</title>
+    <style>
+        body {{ 
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            line-height: 1.6;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            color: #333;
+        }}
+        .script-container {{
+            background: #f9f9f9;
+            padding: 20px;
+            border-radius: 8px;
+            margin-top: 20px;
+        }}
+        .metadata {{
+            color: #666;
+            font-size: 0.9em;
+            margin-bottom: 20px;
+        }}
+        .script-content {{
+            white-space: pre-wrap;
+            font-size: 1.1em;
+        }}
+    </style>
+</head>
+<body>
+    <h1>Audio Script</h1>
+    <div class="metadata">
+        <p>Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
+        <p>Report: {Path(report_path).name}</p>
+        <p>Characters: {len(audio_script)}</p>
+    </div>
+    <div class="script-container">
+        <div class="script-content">{audio_script}</div>
+    </div>
+</body>
+</html>"""
+            
+            with open(script_html_path, 'w', encoding='utf-8') as f:
+                f.write(script_html)
+            logger.info(f"Successfully saved audio script to {script_html_path}")
+        except Exception as script_err:
+            logger.error(f"Failed to save audio script HTML: {script_err}")
+            script_html_path = None
+        
         # Limit text length for ElevenLabs (API has character limits)
         max_chars = 2500  # Conservative limit for ElevenLabs
         if len(audio_script) > max_chars:
@@ -3750,7 +3810,7 @@ def generate_narrated_report(report_path, output_path=None):
         
         # ElevenLabs API configuration
         # Using a default voice ID - this could be made configurable
-        voice_id = os.getenv("ELEVENLABS_VOICE_ID", "21m00Tcm4TlvDq8ikWAM")  # Default to Rachel voice
+        voice_id = os.getenv("ELEVENLABS_VOICE_ID", "pNInz6obpgDQGcFmaJgB")  # Default to Reverend voice
         
         # ElevenLabs API endpoint
         url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
@@ -3780,7 +3840,10 @@ def generate_narrated_report(report_path, output_path=None):
                 f.write(response.content)
             
             logger.info(f"Successfully generated narrated report at {output_path}")
-            return str(output_path)
+            return {
+                "audio_path": str(output_path),
+                "script_path": str(script_html_path) if script_html_path else None
+            }
         else:
             logger.error(f"ElevenLabs API error: {response.status_code} - {response.text}")
             return None

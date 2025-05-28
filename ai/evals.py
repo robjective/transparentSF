@@ -20,11 +20,23 @@ if not os.path.exists(log_folder):
 # Global log_filename variable, will be updated when run_and_get_tool_calls is called
 log_filename = None
 
+# Define all test cases
+TEST_CASES = {
+    "sets_data_when_asked": [
+        "Please search for a dataset about Police Misconduct and then set the dataset to select everything from that endpoint for the period of Septmeber 2024 to October 2024.",
+        "What are the names of the last 5 Retail businesses locations registered in SF?",
+    ],
+    "does_not_call_set_dataset_when_not_asked": [
+        "Hi, who is the mayor of SF?",
+        "What is happening with the weather in SF?",
+    ]
+}
+
 def run_and_get_tool_calls(agent, initial_query, max_turns=5):
     global log_filename
     
     # Generate a unique log filename for the session
-    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S_%f')[:-3]  # Include milliseconds for uniqueness
     log_filename = f"{log_folder}/session_{timestamp}.log"
     
     messages = []
@@ -119,12 +131,148 @@ def run_and_get_tool_calls(agent, initial_query, max_turns=5):
     print(f"Total tool calls collected: {len(collected_tool_calls)}")
     return collected_tool_calls
 
+def run_all_evals():
+    """Run all eval test cases and return success/failure counts with details."""
+    results = {
+        "total": 0,
+        "successful": 0,
+        "failed": 0,
+        "test_results": [],
+        "timestamp": datetime.now().isoformat(),
+        "summary_log_filename": None
+    }
+    
+    # Generate a summary log filename
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    summary_log_filename = f"{log_folder}/eval_summary_{timestamp}.log"
+    results["summary_log_filename"] = summary_log_filename
+    
+    # Log the start of the eval run
+    with open(summary_log_filename, 'a') as log_file:
+        log_entry = {
+            "timestamp": datetime.now().isoformat(),
+            "type": "eval_run_start",
+            "message": "Starting eval run for all test cases"
+        }
+        json.dump(log_entry, log_file, indent=2)
+        log_file.write("\n\n")
+    
+    # Run each test case
+    for test_name, queries in TEST_CASES.items():
+        for query in queries:
+            results["total"] += 1
+            test_result = {
+                "test_name": test_name,
+                "query": query,
+                "status": "unknown",
+                "error_message": None,
+                "log_filename": None
+            }
+            
+            try:
+                print(f"\n\nRunning test: {test_name} with query: {query}")
+                
+                # Create a new explainer agent for this test
+                test_agent = create_explainer_agent()
+                
+                # Run the test based on test type
+                if test_name == "sets_data_when_asked":
+                    success, error_msg = test_sets_data_when_asked_impl(test_agent, query)
+                elif test_name == "does_not_call_set_dataset_when_not_asked":
+                    success, error_msg = test_does_not_call_set_dataset_when_not_asked_impl(test_agent, query)
+                else:
+                    success = False
+                    error_msg = f"Unknown test type: {test_name}"
+                
+                test_result["status"] = "success" if success else "failed"
+                test_result["error_message"] = error_msg
+                test_result["log_filename"] = os.path.basename(log_filename) if log_filename else None
+                
+                if success:
+                    results["successful"] += 1
+                    print(f"✓ Test passed: {test_name} - {query}")
+                else:
+                    results["failed"] += 1
+                    print(f"✗ Test failed: {test_name} - {query}: {error_msg}")
+                    
+            except Exception as e:
+                results["failed"] += 1
+                test_result["status"] = "failed"
+                test_result["error_message"] = str(e)
+                print(f"✗ Test error: {test_name} - {query}: {str(e)}")
+            
+            results["test_results"].append(test_result)
+            
+            # Log the test result
+            with open(summary_log_filename, 'a') as log_file:
+                log_entry = {
+                    "timestamp": datetime.now().isoformat(),
+                    "type": "test_result",
+                    "test_result": test_result
+                }
+                json.dump(log_entry, log_file, indent=2)
+                log_file.write("\n\n")
+    
+    # Log the final summary
+    with open(summary_log_filename, 'a') as log_file:
+        log_entry = {
+            "timestamp": datetime.now().isoformat(),
+            "type": "eval_run_complete",
+            "summary": {
+                "total": results["total"],
+                "successful": results["successful"],
+                "failed": results["failed"]
+            }
+        }
+        json.dump(log_entry, log_file, indent=2)
+        log_file.write("\n\n")
+    
+    print(f"\n\nEval run complete: {results['successful']}/{results['total']} tests passed")
+    return results
+
+def test_sets_data_when_asked_impl(test_agent, query):
+    """Implementation of the set_dataset test that returns success/failure instead of asserting."""
+    try:
+        # Run the agent with the query
+        run_and_get_tool_calls(test_agent, query)
+        
+        # Check the log file for tool calls
+        with open(log_filename, 'r') as log_file:
+            log_content = log_file.read()
+            
+        # Check if set_dataset was called
+        if "set_dataset" not in log_content:
+            return False, f"Expected to find 'set_dataset' in log for query: {query}"
+        
+        # Check if the set_dataset call was successful (handle escaped JSON)
+        success_patterns = ['"status": "success"', '\\"status\\": \\"success\\"']
+        if not any(pattern in log_content for pattern in success_patterns):
+            return False, f"Expected to find successful set_dataset response in log for query: {query}"
+        
+        return True, None
+        
+    except Exception as e:
+        return False, str(e)
+
+def test_does_not_call_set_dataset_when_not_asked_impl(test_agent, query):
+    """Implementation of the no set_dataset test that returns success/failure instead of asserting."""
+    try:
+        tool_calls = run_and_get_tool_calls(test_agent, query)
+        
+        # Check that set_dataset specifically was not called, even though other tools may be called
+        set_dataset_calls = [call for call in tool_calls if call.get('function', {}).get('name') == 'set_dataset']
+        if len(set_dataset_calls) > 0:
+            return False, f"Expected no set_dataset calls, but found {len(set_dataset_calls)} for query: {query}"
+        
+        return True, None
+        
+    except Exception as e:
+        return False, str(e)
+
+# Keep the original pytest functions for backward compatibility
 @pytest.mark.parametrize(
     "query",
-    [
-        "Please search for a dataset about Police Misconduct and then set the dataset to select everything from that endpoint for the period of Septmeber 2024 to October 2024.",
-        "What are the names of the last 5 Retail businesses locations registered in SF?",
-    ],
+    TEST_CASES["sets_data_when_asked"],
 )
 def test_sets_data_when_asked(query):
     print(f"\n\nTesting with query: {query}")
@@ -132,32 +280,13 @@ def test_sets_data_when_asked(query):
     # Create a new explainer agent for this test
     test_agent = create_explainer_agent()
     
-    # Run the agent with the query
-    run_and_get_tool_calls(test_agent, query)
-    
-    # Check the log file for tool calls
-    with open(log_filename, 'r') as log_file:
-        log_content = log_file.read()
-        
-    # Check if set_dataset was called
-    assert "set_dataset" in log_content, f"Expected to find 'set_dataset' in log for query: {query}"
-    
-    # Check if the set_dataset call was successful (handle escaped JSON)
-    success_patterns = ['"status": "success"', '\\"status\\": \\"success\\"']
-    assert any(pattern in log_content for pattern in success_patterns), f"Expected to find successful set_dataset response in log for query: {query}"
-    
-    # Print the relevant parts of the log for debugging
-    print(f"Log content for query '{query}':")
-    for line in log_content.split('\n'):
-        if "set_dataset" in line or any(pattern in line for pattern in success_patterns):
-            print(f"  {line}")
+    success, error_msg = test_sets_data_when_asked_impl(test_agent, query)
+    if not success:
+        pytest.fail(error_msg)
 
 @pytest.mark.parametrize(
     "query",
-    [
-        "Hi, who is the mayor of SF?",
-        "What is happening with the weather in SF?",
-    ],
+    TEST_CASES["does_not_call_set_dataset_when_not_asked"],
 )
 def test_does_not_call_set_dataset_when_not_asked(query):
     print(f"\n\nTesting with query: {query}")
@@ -165,9 +294,6 @@ def test_does_not_call_set_dataset_when_not_asked(query):
     # Create a new explainer agent for this test
     test_agent = create_explainer_agent()
     
-    tool_calls = run_and_get_tool_calls(test_agent, query)
-    print(f"Tool Calls for query '{query}': {tool_calls}")
-    
-    # Check that set_dataset specifically was not called, even though other tools may be called
-    set_dataset_calls = [call for call in tool_calls if call.get('function', {}).get('name') == 'set_dataset']
-    assert len(set_dataset_calls) == 0, f"Expected no set_dataset calls, but found {len(set_dataset_calls)} for query: {query}"
+    success, error_msg = test_does_not_call_set_dataset_when_not_asked_impl(test_agent, query)
+    if not success:
+        pytest.fail(error_msg)

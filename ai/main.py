@@ -13,6 +13,11 @@ from dotenv import load_dotenv
 import re
 import glob
 from typing import List, Optional
+import uvicorn
+from pathlib import Path
+import psycopg2
+from psycopg2.extras import RealDictCursor
+from tools.db_utils import get_postgres_connection
 
 # --- Logging Configuration Moved Up ---
 # Get the absolute path to the current directory
@@ -113,7 +118,10 @@ logger = logging.getLogger(__name__)
 # Import routers
 from webChat import router as webchat_router
 from backend import router as backend_router, set_templates, get_chart_by_metric, get_chart_data
+from metrics_manager import router as metrics_router
 from anomalyAnalyzer import router as anomaly_analyzer_router, set_templates as set_anomaly_templates
+from routes.dw_charts import router as dw_charts_router
+from evals_routes import router as evals_router, set_templates as set_evals_templates
 
 app = FastAPI()
 
@@ -246,25 +254,167 @@ async def get_metrics(filename: str):
         logger.error(f"Metric file not found in any district folder: {filename}")
         raise HTTPException(status_code=404, detail=f"Metric file '{filename}' not found")
 
-@app.get("/api/enhanced-queries")
-async def get_enhanced_queries():
-    """Serve the enhanced dashboard queries file."""
-    file_path = os.path.join(current_dir, "data", "dashboard", "dashboard_queries_enhanced.json")
-    logger.debug(f"Attempting to read enhanced queries from: {file_path}")
-    
+def build_enhanced_queries_from_db():
+    """Build enhanced dashboard queries from the database and existing JSON files."""
     try:
-        with open(file_path, 'r') as f:
-            data = json.load(f)
-            return JSONResponse(content=data)
-    except FileNotFoundError:
-        logger.error(f"Enhanced queries file not found: {file_path}")
-        raise HTTPException(status_code=404, detail="Enhanced queries file not found")
-    except json.JSONDecodeError:
-        logger.error(f"Invalid JSON in enhanced queries file: {file_path}")
-        raise HTTPException(status_code=500, detail="Invalid JSON in enhanced queries file")
+        # First load the base dashboard queries structure
+        queries_file = os.path.join(current_dir, "data", "dashboard", "dashboard_queries.json")
+        if not os.path.exists(queries_file):
+            logger.error(f"Base dashboard queries file not found: {queries_file}")
+            return None
+        
+        with open(queries_file, 'r') as f:
+            dashboard_queries = json.load(f)
+        
+        # Load existing enhanced queries to preserve custom settings
+        enhanced_queries_file = os.path.join(current_dir, "data", "dashboard", "dashboard_queries_enhanced.json")
+        existing_enhanced_queries = {}
+        if os.path.exists(enhanced_queries_file):
+            try:
+                with open(enhanced_queries_file, 'r') as f:
+                    existing_enhanced_queries = json.load(f)
+                logger.info("Loaded existing enhanced queries to preserve custom settings")
+            except Exception as e:
+                logger.warning(f"Could not load existing enhanced queries: {str(e)}")
+        
+        # Get database connection
+        connection = get_postgres_connection()
+        if not connection:
+            logger.error("Failed to connect to database for enhanced queries")
+            # Fallback to file-based approach
+            if existing_enhanced_queries:
+                return existing_enhanced_queries
+            return None
+        
+        cursor = connection.cursor(cursor_factory=RealDictCursor)
+        
+        # Get all datasets from database
+        cursor.execute("""
+            SELECT endpoint, title, category, description, columns
+            FROM datasets 
+            WHERE is_active = true
+        """)
+        
+        datasets_by_endpoint = {}
+        for row in cursor.fetchall():
+            datasets_by_endpoint[row['endpoint']] = row
+        
+        cursor.close()
+        connection.close()
+        
+        # Build enhanced queries structure
+        enhanced_queries = {}
+        id_counter = 1
+        
+        # Process each category
+        for category, subcategories in dashboard_queries.items():
+            enhanced_queries[category] = {}
+            
+            # Process each subcategory
+            for subcategory, subcategory_data in subcategories.items():
+                enhanced_queries[category][subcategory] = {}
+                
+                # Copy existing subcategory data
+                for key, value in subcategory_data.items():
+                    if key != "queries":
+                        enhanced_queries[category][subcategory][key] = value
+                
+                # Add queries with enhancements
+                enhanced_queries[category][subcategory]["queries"] = {}
+                
+                # Process each query
+                if "queries" in subcategory_data:
+                    for metric_name, metric_data in subcategory_data["queries"].items():
+                        # Assign a numeric ID
+                        metric_id = id_counter
+                        id_counter += 1
+                        
+                        # Create enhanced metric data
+                        enhanced_metric = {
+                            "id": metric_id,
+                            **metric_data  # Copy all existing metric data
+                        }
+                        
+                        # Get endpoint
+                        endpoint_id = metric_data.get("endpoint")
+                        
+                        # Check if we already have custom category_fields in existing enhanced queries
+                        existing_category_fields = None
+                        if existing_enhanced_queries:
+                            # Try to find the metric with this name or endpoint in existing enhanced queries
+                            for ex_category in existing_enhanced_queries.values():
+                                for ex_subcategory in ex_category.values():
+                                    for ex_metric_name, ex_metric_data in ex_subcategory.get("queries", {}).items():
+                                        if (ex_metric_name == metric_name or 
+                                            (endpoint_id and ex_metric_data.get("endpoint") == endpoint_id)):
+                                            existing_category_fields = ex_metric_data.get("category_fields")
+                                            if existing_category_fields:
+                                                logger.debug(f"Found existing category_fields for metric {metric_name}")
+                                            break
+                        
+                        # If we have existing custom category_fields, use them
+                        if existing_category_fields:
+                            enhanced_metric["category_fields"] = existing_category_fields
+                            logger.debug(f"Using existing category_fields for metric {metric_name}")
+                        else:
+                            # Otherwise, get dataset info from database if endpoint is available
+                            if endpoint_id and endpoint_id in datasets_by_endpoint:
+                                dataset_row = datasets_by_endpoint[endpoint_id]
+                                
+                                # Extract location and category fields from database
+                                location_fields = []
+                                category_fields = []
+                                
+                                columns = dataset_row['columns'] or []
+                                
+                                for column in columns:
+                                    field_name = column.get("fieldName", "").lower() if column.get("fieldName") else ""
+                                    description = column.get("description", "").lower() if column.get("description") else ""
+                                    name = column.get("name", "")
+                                    
+                                    # Only include supervisor_district as a location field
+                                    if field_name == "supervisor_district":
+                                        location_fields.append({
+                                            "name": name,
+                                            "fieldName": column.get("fieldName", ""),
+                                            "description": column.get("description", "")
+                                        })
+                                    
+                                    # Identify category fields, excluding neighborhood/district fields
+                                    if (any(term in field_name for term in ["category", "type", "class", "group", "status", "subcategory"]) or \
+                                        "categor" in description or "classif" in description or "type of" in description) and \
+                                        not any(term in field_name for term in ["neighborhood", "district"]):
+                                        category_fields.append({
+                                            "name": name,
+                                            "fieldName": column.get("fieldName", ""),
+                                            "description": column.get("description", "")
+                                        })
+                                
+                                # Add dataset info from database
+                                enhanced_metric["dataset_title"] = dataset_row['title'] or ""
+                                enhanced_metric["dataset_category"] = dataset_row['category'] or ""
+                                enhanced_metric["location_fields"] = location_fields
+                                enhanced_metric["category_fields"] = category_fields
+                                
+                                logger.debug(f"Added database dataset info to metric {metric_name}")
+                            else:
+                                logger.warning(f"No dataset info available in database for metric {metric_name} with endpoint {endpoint_id}")
+                        
+                        # Add to enhanced queries
+                        enhanced_queries[category][subcategory]["queries"][metric_name] = enhanced_metric
+        
+        logger.info("Successfully built enhanced queries from database")
+        return enhanced_queries
+        
     except Exception as e:
-        logger.error(f"Error reading enhanced queries file {file_path}: {str(e)}")
-        raise HTTPException(status_code=500, detail="Internal server error")
+        logger.error(f"Error building enhanced queries from database: {str(e)}")
+        # Fallback to existing file if available
+        if existing_enhanced_queries:
+            logger.info("Falling back to existing enhanced queries file")
+            return existing_enhanced_queries
+        return None
+
+# Removed - now handled by metrics_manager.py
 
 @app.get("/api/metric-id-mapping")
 async def get_metric_id_mapping():
@@ -454,6 +604,14 @@ logger.debug("Set templates for backend router")
 set_anomaly_templates(templates)
 logger.debug("Set templates for anomaly analyzer router")
 
+# Mount anomaly analyzer router
+app.include_router(anomaly_analyzer_router, prefix="/anomaly-analyzer", tags=["anomaly-analyzer"])
+logger.debug("Included anomaly analyzer router at /anomaly-analyzer")
+
+# Mount DW charts router
+app.include_router(dw_charts_router, prefix="/backend", tags=["dw-charts"])
+logger.debug("Included DW charts router at /backend")
+
 # Include routers
 app.include_router(webchat_router, prefix="/chat")  # Chat router at /chat
 logger.debug("Included chat router at /chat")
@@ -462,9 +620,14 @@ logger.debug("Included chat router at /chat")
 app.include_router(backend_router, prefix="/backend", tags=["backend"])
 logger.debug("Included backend router at /backend")
 
-# Mount anomaly analyzer router
-app.include_router(anomaly_analyzer_router, prefix="/anomaly-analyzer", tags=["anomaly-analyzer"])
-logger.debug("Included anomaly analyzer router at /anomaly-analyzer")
+# Mount metrics router (routes define their own paths)
+app.include_router(metrics_router, tags=["metrics"])
+logger.debug("Included metrics router")
+
+# Mount evals router
+set_evals_templates(templates)
+app.include_router(evals_router, prefix="/backend", tags=["evals"])
+logger.debug("Included evals router at /backend")
 
 # Add redirect for anomaly analyzer without trailing slash
 @app.get("/anomaly-analyzer")
@@ -791,7 +954,6 @@ async def startup_event():
     logger.info("Started log cleanup scheduler")
 
 if __name__ == "__main__":
-    import uvicorn
     # Use the temporary logger for this final startup message
     temp_logger.info("Starting server with Uvicorn...") 
     # Pass the config dictionary to uvicorn.run, remove log_level argument

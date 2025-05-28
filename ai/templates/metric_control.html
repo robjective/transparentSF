@@ -406,7 +406,7 @@
         .chart-card {
             min-width: 400px;
             max-width: 550px;
-            height: 600px;
+            height: 700px;
             border: 1px solid #eee;
             border-radius: 4px;
             overflow: hidden;
@@ -432,12 +432,155 @@
             height: 100%;
             border: none;
         }
+        .chart-card-footer {
+            padding: 10px;
+            border-top: 1px solid #eee;
+            background-color: #f8f9fa;
+            text-align: center;
+        }
+        .chart-dw-btn {
+            background-color: #ad35fa;
+            color: white;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 500;
+            transition: background-color 0.3s ease;
+            position: relative;
+        }
+        .chart-dw-btn:hover {
+            background-color: #9625e0;
+        }
+        .chart-dw-btn:disabled {
+            background-color: #6c757d;
+            cursor: not-allowed;
+        }
+        .chart-dw-btn.loading {
+            padding-right: 30px;
+        }
+        .chart-dw-btn .btn-spinner {
+            position: absolute;
+            right: 8px;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 12px;
+            height: 12px;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top-color: white;
+            animation: spin 1s linear infinite;
+            display: none;
+        }
+        .chart-dw-btn.loading .btn-spinner {
+            display: block;
+        }
         .no-charts-message {
             text-align: center;
             padding: 20px;
             background-color: #f8f9fa;
             border-radius: 4px;
             width: 100%;
+        }
+        .chart-actions {
+            margin-top: 10px;
+            text-align: center;
+        }
+        .btn-subtle-primary {
+            background-color: #6c757d;
+            color: white;
+            border: 1px solid #6c757d;
+        }
+        .btn-subtle-primary:hover {
+            background-color: #5a6268;
+            border-color: #545b62;
+        }
+        .btn-subtle-danger {
+            background-color: #6c757d;
+            color: white;
+            border: 1px solid #6c757d;
+        }
+        .btn-subtle-danger:hover {
+            background-color: #dc3545;
+            border-color: #dc3545;
+        }
+        .btn-subtle-danger:disabled {
+            background-color: #e9ecef;
+            color: #6c757d;
+            border-color: #dee2e6;
+            cursor: not-allowed;
+        }
+        .metric-actions {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        .btn-small {
+            padding: 6px 12px;
+            font-size: 12px;
+            line-height: 1.4;
+        }
+        
+        /* Chart tabs styles */
+        .chart-tabs {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .chart-tab-buttons {
+            display: flex;
+            border-bottom: 1px solid #ddd;
+            background-color: #f8f9fa;
+        }
+        
+        .chart-tab-btn {
+            flex: 1;
+            padding: 8px 12px;
+            border: none;
+            background-color: transparent;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 500;
+            color: #6c757d;
+            transition: all 0.3s ease;
+        }
+        
+        .chart-tab-btn:hover {
+            background-color: #e9ecef;
+            color: #495057;
+        }
+        
+        .chart-tab-btn.active {
+            background-color: #ad35fa;
+            color: white;
+            border-bottom: 2px solid #ad35fa;
+        }
+        
+        .chart-tab-content {
+            flex: 1;
+            position: relative;
+        }
+        
+        .chart-tab-pane {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: none;
+        }
+        
+        .chart-tab-pane.active {
+            display: block;
+        }
+        
+        .chart-tab-pane iframe {
+            width: 100%;
+            height: 100%;
+            border: none;
         }
     </style>
 </head>
@@ -487,10 +630,16 @@
                 </button>
             </div>
             
+            <!-- Metric action buttons row -->
             <div class="form-group">
-                <button id="define-metric-btn" class="btn btn-primary">
-                    Define New Metric
-                </button>
+                <div class="metric-actions">
+                    <button id="delete-metric-btn" class="btn btn-subtle-danger btn-small" disabled>
+                        Delete Metric
+                    </button>
+                    <button id="define-metric-btn" class="btn btn-subtle-primary btn-small">
+                        Create New Metric
+                    </button>
+                </div>
             </div>
         </div>
         
@@ -1234,12 +1383,91 @@
             }
 
             // Add event listener for metric selection
-            metricSelect.addEventListener('change', () => {
+            metricSelect.addEventListener('change', function() {
+                loadOutputs();
+                loadAllCharts(metricSelect.value, districtSelect.value);
+                
+                // Enable/disable delete button based on selection
+                const deleteBtn = document.getElementById('delete-metric-btn');
                 const metricId = metricSelect.value;
-                if (metricId) {
+                
+                // Enable delete button only if a specific metric is selected (not "all" or empty)
+                deleteBtn.disabled = !metricId || metricId === 'all' || metricId === '';
+                
+                // Load columns for the selected metric
+                if (metricId && metricId !== 'all') {
                     loadColumns(metricId);
                 } else {
                     document.getElementById('column-selection').style.display = 'none';
+                }
+            });
+            
+            // Add event listener for the delete metric button
+            document.getElementById('delete-metric-btn').addEventListener('click', async function() {
+                const metricId = metricSelect.value;
+                
+                if (!metricId || metricId === 'all' || metricId === '') {
+                    alert('Please select a specific metric to delete.');
+                    return;
+                }
+                
+                // Get the metric name for confirmation
+                const selectedOption = metricSelect.options[metricSelect.selectedIndex];
+                const metricName = selectedOption.text;
+                
+                // Confirm deletion
+                const confirmDelete = confirm(`Are you sure you want to delete the metric:\n\n${metricName}\n\nThis action cannot be undone. The metric will be marked as inactive and will no longer appear in the metrics list.`);
+                
+                if (!confirmDelete) {
+                    return;
+                }
+                
+                try {
+                    const deleteBtn = document.getElementById('delete-metric-btn');
+                    
+                    // Show loading state
+                    deleteBtn.disabled = true;
+                    deleteBtn.textContent = 'Deleting...';
+                    
+                    // Call the delete API
+                    const response = await fetch(`/api/metrics/${metricId}`, {
+                        method: 'DELETE',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        }
+                    });
+                    
+                    if (response.ok) {
+                        const result = await response.json();
+                        alert(`Successfully deleted metric: ${result.metric_name}`);
+                        
+                        // Refresh the metrics list
+                        await loadMetrics();
+                        
+                        // Reset selection to "All Metrics"
+                        metricSelect.value = 'all';
+                        
+                        // Clear outputs
+                        document.getElementById('dashboard-output').textContent = 'Select a metric to view dashboard output';
+                        document.getElementById('annual-output').textContent = 'Select a metric to view annual output';
+                        document.getElementById('monthly-output').textContent = 'Select a metric to view monthly output';
+                        document.getElementById('weekly-output').textContent = 'Select a metric to view weekly output';
+                        
+                        // Clear charts
+                        loadAllCharts('all', districtSelect.value);
+                        
+                    } else {
+                        const error = await response.json();
+                        alert(`Error deleting metric: ${error.detail || 'Unknown error'}`);
+                    }
+                } catch (error) {
+                    console.error('Error deleting metric:', error);
+                    alert(`Error deleting metric: ${error.message}`);
+                } finally {
+                    // Reset button state
+                    const deleteBtn = document.getElementById('delete-metric-btn');
+                    deleteBtn.disabled = true; // Keep disabled since we reset to "all"
+                    deleteBtn.textContent = 'Delete Metric';
                 }
             });
             
@@ -1278,9 +1506,21 @@
                         let chartHtml = '';
                         
                         // Add a chart for each chart_id returned by the API
-                        charts.forEach(chart => {
+                        for (const chart of charts) {
                             const chartId = chart.chart_id;
                             const groupField = chart.group_field;
+                            
+                            // Check if this chart has a DW URL in metadata
+                            let dwUrl = null;
+                            try {
+                                const metadataResponse = await fetch(`/backend/api/chart-metadata/${chartId}`);
+                                if (metadataResponse.ok) {
+                                    const metadataData = await metadataResponse.json();
+                                    dwUrl = metadataData.metadata?.dw_url;
+                                }
+                            } catch (error) {
+                                console.warn(`Could not fetch metadata for chart ${chartId}:`, error);
+                            }
                             
                             // If the chart has a group field, include it in the URL
                             let iframeSrc = `/backend/time-series-chart?chart_id=${chartId}#chart-section`;
@@ -1288,11 +1528,40 @@
                             chartHtml += `
                                 <div class="chart-card">
                                     <div class="chart-card-body">
-                                        <iframe src="${iframeSrc}"></iframe>
+                                        ${dwUrl ? `
+                                            <div class="chart-tabs">
+                                                <div class="chart-tab-buttons">
+                                                    <button class="chart-tab-btn active" onclick="showChartTab(${chartId}, 'original')">Original</button>
+                                                    <button class="chart-tab-btn" onclick="showChartTab(${chartId}, 'dw')">Datawrapper</button>
+                                                </div>
+                                                <div class="chart-tab-content">
+                                                    <div id="chart-original-${chartId}" class="chart-tab-pane active">
+                                                        <iframe src="${iframeSrc}"></iframe>
+                                                    </div>
+                                                    <div id="chart-dw-${chartId}" class="chart-tab-pane">
+                                                        <iframe src="${dwUrl}"></iframe>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        ` : `
+                                            <iframe src="${iframeSrc}"></iframe>
+                                        `}
+                                    </div>
+                                    <div class="chart-card-footer">
+                                        ${dwUrl ? `
+                                            <button class="chart-dw-btn" onclick="window.open('${dwUrl}', '_blank')" style="background-color: #28a745;">
+                                                View DW Chart
+                                            </button>
+                                        ` : `
+                                            <button class="chart-dw-btn" onclick="generateDWTimeSeriesChart(${chartId})">
+                                                Generate DW Version
+                                                <span class="btn-spinner"></span>
+                                            </button>
+                                        `}
                                     </div>
                                 </div>
                             `;
-                        });
+                        }
                         
                         timeSeriesChartsContainer.innerHTML = chartHtml;
                     } else {
@@ -1337,15 +1606,57 @@
                         
                         // Add chart for each anomaly
                         for (const anomaly of anomalies) {
+                            const anomalyId = anomaly.id;
                             const groupValue = anomaly.group_value || 'Total';
                             const fieldName = anomaly.group_field_name || 'Group';
                             const deltaStr = anomaly.percent_change > 0 ? `+${anomaly.percent_change.toFixed(1)}%` : `${anomaly.percent_change.toFixed(1)}%`;
                             const deltaClass = anomaly.percent_change > 0 ? 'text-danger' : 'text-success';
                             
+                            // Check if this anomaly has a DW URL in metadata
+                            let dwUrl = null;
+                            try {
+                                const metadataResponse = await fetch(`/backend/api/anomaly-metadata/${anomalyId}`);
+                                if (metadataResponse.ok) {
+                                    const metadataData = await metadataResponse.json();
+                                    dwUrl = metadataData.metadata?.dw_url;
+                                }
+                            } catch (error) {
+                                console.warn(`Could not fetch metadata for anomaly ${anomalyId}:`, error);
+                            }
+                            
                             chartHtml += `
                                 <div class="chart-card">
                                     <div class="chart-card-body">
-                                        <iframe src="/anomaly-analyzer/anomaly-chart?id=${anomaly.id}"></iframe>
+                                        ${dwUrl ? `
+                                            <div class="chart-tabs">
+                                                <div class="chart-tab-buttons">
+                                                    <button class="chart-tab-btn active" onclick="showChartTab('anomaly-${anomalyId}', 'original')">Original</button>
+                                                    <button class="chart-tab-btn" onclick="showChartTab('anomaly-${anomalyId}', 'dw')">Datawrapper</button>
+                                                </div>
+                                                <div class="chart-tab-content">
+                                                    <div id="chart-original-anomaly-${anomalyId}" class="chart-tab-pane active">
+                                                        <iframe src="/anomaly-analyzer/anomaly-chart?id=${anomalyId}"></iframe>
+                                                    </div>
+                                                    <div id="chart-dw-anomaly-${anomalyId}" class="chart-tab-pane">
+                                                        <iframe src="${dwUrl}"></iframe>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        ` : `
+                                            <iframe src="/anomaly-analyzer/anomaly-chart?id=${anomalyId}"></iframe>
+                                        `}
+                                    </div>
+                                    <div class="chart-card-footer">
+                                        ${dwUrl ? `
+                                            <button class="chart-dw-btn" onclick="window.open('${dwUrl}', '_blank')" style="background-color: #28a745;">
+                                                View DW Chart
+                                            </button>
+                                        ` : `
+                                            <button class="chart-dw-btn" onclick="generateDWAnomalyChart(${anomalyId})">
+                                                Generate DW Version
+                                                <span class="btn-spinner"></span>
+                                            </button>
+                                        `}
                                     </div>
                                 </div>
                             `;
@@ -1555,7 +1866,168 @@
 
             // Add event listener for the define metric button
             document.getElementById('define-metric-btn').addEventListener('click', openMetricDefinitionModal);
+            
+            // Function to generate DW time series chart for individual chart
+            window.generateDWTimeSeriesChart = async function(chartId) {
+                const button = event.target;
+                
+                try {
+                    // Show loading state
+                    button.classList.add('loading');
+                    button.disabled = true;
+                    
+                    // Call the backend endpoint to generate DW chart
+                    const dwResponse = await fetch(`/backend/generate-dw-time-series?chart_id=${chartId}`, {
+                        method: 'POST'
+                    });
+                    
+                    if (!dwResponse.ok) {
+                        throw new Error(`Failed to generate DW chart: ${dwResponse.status} ${dwResponse.statusText}`);
+                    }
+                    
+                    const dwData = await dwResponse.json();
+                    
+                    if (dwData.status === 'success' && dwData.chart_url) {
+                        // Update chart metadata with DW URL
+                        await updateChartMetadata(chartId, 'time_series', dwData.chart_url);
+                        
+                        // Refresh the charts to show the new DW version
+                        loadAllCharts(metricSelect.value, districtSelect.value);
+                        
+                        alert(`Successfully generated DW chart! Chart URL: ${dwData.chart_url}`);
+                    } else {
+                        throw new Error(dwData.message || 'Unknown error');
+                    }
+                    
+                } catch (error) {
+                    console.error('Error generating DW chart:', error);
+                    alert(`Error generating DW chart: ${error.message}`);
+                } finally {
+                    button.classList.remove('loading');
+                    button.disabled = false;
+                }
+            };
+            
+            // Function to generate DW anomaly chart for individual anomaly
+            window.generateDWAnomalyChart = async function(anomalyId) {
+                const button = event.target;
+                
+                try {
+                    // Show loading state
+                    button.classList.add('loading');
+                    button.disabled = true;
+                    
+                    // Call the backend endpoint to generate DW anomaly chart
+                    const dwResponse = await fetch(`/backend/generate-dw-anomaly?anomaly_id=${anomalyId}`, {
+                        method: 'POST'
+                    });
+                    
+                    if (!dwResponse.ok) {
+                        throw new Error(`Failed to generate DW chart: ${dwResponse.status} ${dwResponse.statusText}`);
+                    }
+                    
+                    const dwData = await dwResponse.json();
+                    
+                    if (dwData.status === 'success' && dwData.chart_url) {
+                        // Update anomaly metadata with DW URL
+                        await updateAnomalyMetadata(anomalyId, dwData.chart_url);
+                        
+                        // Refresh the charts to show the new DW version
+                        loadAllCharts(metricSelect.value, districtSelect.value);
+                        
+                        alert(`Successfully generated DW anomaly chart! Chart URL: ${dwData.chart_url}`);
+                    } else {
+                        throw new Error(dwData.message || 'Unknown error');
+                    }
+                    
+                } catch (error) {
+                    console.error('Error generating DW anomaly chart:', error);
+                    alert(`Error generating DW anomaly chart: ${error.message}`);
+                } finally {
+                    button.classList.remove('loading');
+                    button.disabled = false;
+                }
+            };
+            
+            // Function to update chart metadata with DW URL
+            async function updateChartMetadata(chartId, chartType, dwUrl) {
+                try {
+                    const response = await fetch('/backend/update-chart-metadata', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            chart_id: chartId,
+                            chart_type: chartType,
+                            dw_url: dwUrl
+                        })
+                    });
+                    
+                    if (!response.ok) {
+                        throw new Error(`Failed to update chart metadata: ${response.status}`);
+                    }
+                    
+                    const result = await response.json();
+                    console.log('Chart metadata updated:', result);
+                } catch (error) {
+                    console.error('Error updating chart metadata:', error);
+                }
+            }
+            
+            // Function to update anomaly metadata with DW URL
+            async function updateAnomalyMetadata(anomalyId, dwUrl) {
+                try {
+                    const response = await fetch('/backend/update-anomaly-metadata', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            anomaly_id: anomalyId,
+                            dw_url: dwUrl
+                        })
+                    });
+                    
+                    if (!response.ok) {
+                        throw new Error(`Failed to update anomaly metadata: ${response.status}`);
+                    }
+                    
+                    const result = await response.json();
+                    console.log('Anomaly metadata updated:', result);
+                } catch (error) {
+                    console.error('Error updating anomaly metadata:', error);
+                }
+            }
+            
+            // Function to switch between chart tabs
+            window.showChartTab = function(chartId, tabType) {
+                // Remove active class from all tab buttons for this chart
+                const tabButtons = document.querySelectorAll(`[onclick*="${chartId}"]`);
+                tabButtons.forEach(btn => {
+                    if (btn.classList.contains('chart-tab-btn')) {
+                        btn.classList.remove('active');
+                    }
+                });
+                
+                // Add active class to clicked button
+                event.target.classList.add('active');
+                
+                // Hide all tab panes for this chart
+                const originalPane = document.getElementById(`chart-original-${chartId}`);
+                const dwPane = document.getElementById(`chart-dw-${chartId}`);
+                
+                if (originalPane) originalPane.classList.remove('active');
+                if (dwPane) dwPane.classList.remove('active');
+                
+                // Show the selected tab pane
+                if (tabType === 'original' && originalPane) {
+                    originalPane.classList.add('active');
+                } else if (tabType === 'dw' && dwPane) {
+                    dwPane.classList.add('active');
+                }
+            };
         });
     </script>
 </body>
-</html> 
+</html>

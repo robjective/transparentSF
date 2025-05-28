@@ -303,6 +303,71 @@ def init_database():
                 EXECUTE FUNCTION update_updated_at_column()
         """)
 
+        # Create cities table for census data
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS cities (
+                id SERIAL PRIMARY KEY,
+                city TEXT NOT NULL,
+                state_code TEXT NOT NULL,
+                place_code TEXT NOT NULL,
+                full_name TEXT NOT NULL,
+                population INTEGER NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        # Create index for fast lookup by city and state
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS cities_city_state_idx ON cities (city, state_code)
+        """)
+
+        # Create datasets table for storing dataset metadata
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS datasets (
+                id SERIAL PRIMARY KEY,
+                endpoint TEXT UNIQUE NOT NULL,
+                url TEXT NOT NULL,
+                title TEXT NOT NULL,
+                category TEXT,
+                description TEXT,
+                publishing_department TEXT,
+                rows_updated_at TIMESTAMP,
+                columns JSONB DEFAULT '[]'::jsonb,
+                metadata JSONB DEFAULT '{}'::jsonb,
+                is_active BOOLEAN DEFAULT TRUE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        
+        # Create indexes for datasets table
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS datasets_endpoint_idx ON datasets (endpoint)
+        """)
+        
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS datasets_category_idx ON datasets (category)
+        """)
+        
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS datasets_title_idx ON datasets (title)
+        """)
+        
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS datasets_active_idx ON datasets (is_active)
+        """)
+        
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS datasets_updated_at_idx ON datasets (rows_updated_at)
+        """)
+
+        # Create trigger for datasets table
+        cursor.execute("""
+            CREATE TRIGGER update_datasets_updated_at
+                BEFORE UPDATE ON datasets
+                FOR EACH ROW
+                EXECUTE FUNCTION update_updated_at_column()
+        """)
+
         connection.commit()
         cursor.close()
         logger.info("Successfully initialized database tables")

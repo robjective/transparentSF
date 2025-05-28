@@ -16,6 +16,9 @@
             --bright-purple: #ad35fa;
             --soft-sand: #F6F1EA;
             --sky-tint: #B8D8E3;
+            
+            /* Layout Variables */
+            --explainer-width: 400px;
         }
         
         body { 
@@ -49,15 +52,18 @@
             display: flex;
             align-items: center;
             justify-content: space-between;
-            padding: 0 20px;
+            padding: 0 20px 0 0;
         }
         
         /* Wordmark in top left */
         .top-wordmark {
             display: flex;
+            flex-direction: column;
             align-items: center;
-            gap: 10px;
+            gap: 4px;
             cursor: pointer;
+            width: 220px; /* Match sidebar width */
+            justify-content: center;
         }
         
         #wordmark-logo {
@@ -276,7 +282,7 @@
         }
         
         .main-content.with-explainer {
-            margin-right: 400px;
+            margin-right: var(--explainer-width);
         }
         
         /* Create iframe in main content */
@@ -291,8 +297,10 @@
         .explainer-panel {
             position: fixed;
             top: 60px; /* Account for top header */
-            right: -400px;
-            width: 400px;
+            right: calc(-1 * var(--explainer-width));
+            width: var(--explainer-width);
+            min-width: 300px;
+            max-width: 800px;
             height: calc(100vh - 60px);
             background: #ffffff;
             border-left: 1px solid var(--cloud-gray);
@@ -304,6 +312,37 @@
         
         .explainer-panel.open {
             right: 0;
+        }
+        
+        /* Resize handle for explainer panel */
+        .explainer-resize-handle {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 4px;
+            height: 100%;
+            cursor: ew-resize;
+            background: transparent;
+            z-index: 20;
+        }
+        
+        .explainer-resize-handle:hover {
+            background: var(--bright-purple);
+            opacity: 0.5;
+        }
+        
+        .explainer-resize-handle.resizing {
+            background: var(--bright-purple);
+            opacity: 0.8;
+        }
+        
+        /* Disable transitions during resize */
+        .explainer-panel.resizing {
+            transition: none !important;
+        }
+        
+        .main-content.resizing {
+            transition: none !important;
         }
         
         .explainer-header {
@@ -1067,6 +1106,7 @@
         
         <!-- Explainer Agent Panel -->
         <div class="explainer-panel" id="explainer-panel">
+            <div class="explainer-resize-handle" id="explainer-resize-handle"></div>
             <div class="explainer-header">
                 <div class="explainer-header-left">
                     <button class="explainer-new-chat" id="explainer-new-chat" title="Start New Chat">+</button>
@@ -1197,6 +1237,10 @@
         let isExplainerProcessing = false;
         let explainerSessionId = null; // Track current session ID
         
+        // Resize functionality
+        let isResizing = false;
+        let explainerWidth = 400; // Default width
+        
         // Add utility functions to show/hide loading indicator
         function showLoading(operationText) {
             const overlay = document.getElementById('loading-overlay');
@@ -1250,6 +1294,61 @@
             } else {
                 openExplainerPanel();
             }
+        }
+        
+        // Resize functionality for explainer panel
+        function updateExplainerWidth(newWidth) {
+            // Constrain width between min and max
+            const minWidth = 300;
+            const maxWidth = Math.min(800, window.innerWidth - 220 - 50); // Account for sidebar and some margin
+            explainerWidth = Math.max(minWidth, Math.min(maxWidth, newWidth));
+            
+            // Update CSS variable
+            document.documentElement.style.setProperty('--explainer-width', explainerWidth + 'px');
+        }
+        
+        function startResize(e) {
+            isResizing = true;
+            const resizeHandle = document.getElementById('explainer-resize-handle');
+            const panel = document.getElementById('explainer-panel');
+            const mainContent = document.getElementById('main-content');
+            
+            resizeHandle.classList.add('resizing');
+            panel.classList.add('resizing');
+            mainContent.classList.add('resizing');
+            
+            // Prevent text selection during resize
+            document.body.style.userSelect = 'none';
+            document.body.style.cursor = 'ew-resize';
+            
+            e.preventDefault();
+        }
+        
+        function doResize(e) {
+            if (!isResizing) return;
+            
+            // Calculate new width based on mouse position
+            const newWidth = window.innerWidth - e.clientX;
+            updateExplainerWidth(newWidth);
+            
+            e.preventDefault();
+        }
+        
+        function stopResize() {
+            if (!isResizing) return;
+            
+            isResizing = false;
+            const resizeHandle = document.getElementById('explainer-resize-handle');
+            const panel = document.getElementById('explainer-panel');
+            const mainContent = document.getElementById('main-content');
+            
+            resizeHandle.classList.remove('resizing');
+            panel.classList.remove('resizing');
+            mainContent.classList.remove('resizing');
+            
+            // Restore normal cursor and text selection
+            document.body.style.userSelect = '';
+            document.body.style.cursor = '';
         }
         
         // Clear explainer chat history
@@ -1609,6 +1708,11 @@
                                 
                                 // Handle content
                                 if (data.content) {
+                                    // If we have a tool call in progress or just completed, create a new message
+                                    if (window.activeToolCalls && window.activeToolCalls.size > 0) {
+                                        assistantMessage = addExplainerMessage('', 'assistant');
+                                    }
+                                    
                                     currentContent += data.content;
                                     
                                     if (!assistantMessage) {
@@ -1702,6 +1806,23 @@
             document.getElementById('explainer-toggle').addEventListener('click', toggleExplainerPanel);
             document.getElementById('explainer-close').addEventListener('click', closeExplainerPanel);
             document.getElementById('explainer-new-chat').addEventListener('click', clearExplainerChat);
+            
+            // Resize event listeners
+            const resizeHandle = document.getElementById('explainer-resize-handle');
+            resizeHandle.addEventListener('mousedown', startResize);
+            document.addEventListener('mousemove', doResize);
+            document.addEventListener('mouseup', stopResize);
+            
+            // Handle window resize to update max width constraints
+            window.addEventListener('resize', function() {
+                if (explainerOpen) {
+                    // Recalculate max width and update if necessary
+                    const maxWidth = Math.min(800, window.innerWidth - 220 - 50);
+                    if (explainerWidth > maxWidth) {
+                        updateExplainerWidth(maxWidth);
+                    }
+                }
+            });
             
             // Explainer input event listeners
             const explainerInput = document.getElementById('explainer-input');

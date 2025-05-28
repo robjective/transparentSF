@@ -1524,390 +1524,14 @@ async def metric_control(request: Request):
     })
 
 
-@router.get("/get-endpoint-columns/{endpoint}")
-async def get_endpoint_columns(endpoint: str):
-    """Get available columns for an endpoint."""
-    try:
-        # Load the dataset file
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        dataset_file = os.path.join(script_dir, "data", "datasets", "fixed", f"{endpoint}.json")
-        
-        if not os.path.exists(dataset_file):
-            raise HTTPException(status_code=404, detail=f"Dataset file not found for endpoint: {endpoint}")
-        
-        with open(dataset_file, 'r') as f:
-            dataset_data = json.load(f)
-        
-        # Extract column names from the dataset
-        columns = [col["fieldName"] for col in dataset_data.get("columns", [])]
-        
-        return JSONResponse({
-            "status": "success",
-            "columns": columns
-        })
-    except Exception as e:
-        logger.exception(f"Error getting columns for endpoint '{endpoint}': {str(e)}")
-        return JSONResponse({
-            "status": "error",
-            "message": str(e)
-        }, status_code=500)
+# Removed - migrated to metrics_manager.py
 
 
-@router.get("/get-selected-columns/{endpoint}")
-async def get_selected_columns(endpoint: str, metric_id: str = None):
-    """Get currently selected columns for an endpoint and optionally a specific metric ID."""
-    try:
-        print(f"DEBUG: get_selected_columns called for endpoint {endpoint}, metric_id {metric_id}")
-        
-        # Load the enhanced queries file - ensure we use the absolute path to avoid path confusion
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        enhanced_queries_file = os.path.join(script_dir, "data", "dashboard", "dashboard_queries_enhanced.json")
-        logger.debug(f"Using dashboard_queries_enhanced.json at path: {enhanced_queries_file}")
-        
-        if not os.path.exists(enhanced_queries_file):
-            logger.warning(f"Enhanced queries file not found at: {enhanced_queries_file}")
-            # Try finding it in the parent directory structure
-            alternate_path = os.path.join(script_dir, "..", "ai", "data", "dashboard", "dashboard_queries_enhanced.json")
-            if os.path.exists(alternate_path):
-                logger.info(f"Found enhanced queries file at alternate path: {alternate_path}")
-                enhanced_queries_file = alternate_path
-            else:
-                raise HTTPException(status_code=404, detail="Enhanced queries file not found")
-        
-        with open(enhanced_queries_file, 'r') as f:
-            enhanced_queries = json.load(f)
-        
-        # Find the metric with this endpoint and (if provided) metric_id
-        selected_columns = []
-        for category in enhanced_queries.values():
-            for subcategory in category.values():
-                for metric in subcategory.get("queries", {}).values():
-                    current_endpoint = metric.get("endpoint")
-                    current_metric_id = metric.get("id")
-                    
-                    # If metric_id is provided, match on both endpoint and ID
-                    # Otherwise, just match on endpoint (for backward compatibility)
-                    if metric_id and current_endpoint == endpoint and current_metric_id == int(metric_id):
-                        # Get selected columns from the metric's category_fields
-                        category_fields = metric.get("category_fields", [])
-                        selected_columns = [field["fieldName"] for field in category_fields]
-                        logger.info(f"Found selected columns for endpoint {endpoint} and metric_id {metric_id}: {selected_columns}")
-                        return JSONResponse({
-                            "status": "success",
-                            "columns": selected_columns
-                        })
-                    elif not metric_id and current_endpoint == endpoint:
-                        # Get selected columns from the metric's category_fields
-                        category_fields = metric.get("category_fields", [])
-                        selected_columns = [field["fieldName"] for field in category_fields]
-                        logger.debug(f"Found selected columns for endpoint {endpoint}: {selected_columns}")
-                        break
-        
-        logger.info(f"Returning selected columns: {selected_columns}")
-        return JSONResponse({
-            "status": "success",
-            "columns": selected_columns
-        })
-    except Exception as e:
-        logger.exception(f"Error getting selected columns for endpoint '{endpoint}'" + 
-                        (f" and metric_id '{metric_id}'" if metric_id else "") + 
-                        f": {str(e)}")
-        return JSONResponse({
-            "status": "error",
-            "message": str(e)
-        }, status_code=500)
+# Removed - migrated to metrics_manager.py
 
+# Removed - migrated to metrics_manager.py
 
-@router.post("/update-selected-columns")
-async def update_selected_columns(request: Request):
-    """Update the selected columns for an endpoint."""
-    try:
-        # Get request data
-        data = await request.json()
-        endpoint = data.get("endpoint")
-        columns = data.get("columns", [])
-        metric_id = data.get("metric_id")  # Add metric_id to identify specific metric
-        
-        if not endpoint or not metric_id:
-            raise HTTPException(status_code=400, detail="Both endpoint and metric_id are required")
-        
-        # Load the enhanced queries file - ensure we use the absolute path to avoid path confusion
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        enhanced_queries_file = os.path.join(script_dir, "data", "dashboard", "dashboard_queries_enhanced.json")
-        logger.info(f"Using dashboard_queries_enhanced.json at path: {enhanced_queries_file}")
-        
-        if not os.path.exists(enhanced_queries_file):
-            logger.error(f"Enhanced queries file not found at: {enhanced_queries_file}")
-            # Try finding it in the parent directory structure
-            alternate_path = os.path.join(script_dir, "..", "ai", "data", "dashboard", "dashboard_queries_enhanced.json")
-            if os.path.exists(alternate_path):
-                logger.info(f"Found enhanced queries file at alternate path: {alternate_path}")
-                enhanced_queries_file = alternate_path
-            else:
-                raise HTTPException(status_code=404, detail="Enhanced queries file not found")
-        
-        with open(enhanced_queries_file, 'r') as f:
-            enhanced_queries = json.load(f)
-            logger.info(f"Successfully loaded enhanced queries file with {len(enhanced_queries)} categories")
-        
-        # Find and update the metric with this endpoint and metric_id
-        metric_updated = False
-        metric_found = False
-        
-        # Log the endpoint and metric_id we're looking for
-        logger.info(f"Looking for endpoint: {endpoint}, metric_id: {metric_id}")
-        
-        for category_name, category in enhanced_queries.items():
-            logger.debug(f"Checking category: {category_name}")
-            for subcategory_name, subcategory in category.items():
-                logger.debug(f"Checking subcategory: {subcategory_name}")
-                for metric_name, metric in subcategory.get("queries", {}).items():
-                    metric_endpoint = metric.get("endpoint")
-                    current_metric_id = metric.get("id")
-                    logger.debug(f"Checking metric: {metric_name} with endpoint: {metric_endpoint}, id: {current_metric_id}")
-                    
-                    if metric_endpoint == endpoint and current_metric_id == int(metric_id):
-                        metric_found = True
-                        # Update the category_fields with selected columns
-                        metric["category_fields"] = [
-                            {
-                                "name": col,
-                                "fieldName": col,
-                                "description": f"Selected column for enhanced dashboard queries"
-                            }
-                            for col in columns
-                        ]
-                        metric_updated = True
-                        logger.info(f"Successfully updated category_fields for metric: {metric_name}")
-                        break
-        
-        if not metric_found:
-            logger.error(f"Metric with endpoint '{endpoint}' and id '{metric_id}' not found")
-            raise HTTPException(status_code=404, detail=f"No metric found with endpoint: {endpoint} and id: {metric_id}")
-        
-        if not metric_updated:
-            logger.error(f"Found metric but failed to update category_fields")
-            raise HTTPException(status_code=500, detail=f"Failed to update category_fields for endpoint: {endpoint} and id: {metric_id}")
-        
-        # Save the updated enhanced queries
-        try:
-            with open(enhanced_queries_file, 'w') as f:
-                json.dump(enhanced_queries, f, indent=4)
-                logger.info(f"Successfully saved updated enhanced queries to: {enhanced_queries_file}")
-        except Exception as write_error:
-            logger.error(f"Error writing to file {enhanced_queries_file}: {str(write_error)}")
-            # Try to save to a different location if there's a permission issue
-            alt_save_path = os.path.join(script_dir, "data", "dashboard", "dashboard_queries_enhanced_updated.json")
-            logger.info(f"Attempting to save to alternate location: {alt_save_path}")
-            with open(alt_save_path, 'w') as f:
-                json.dump(enhanced_queries, f, indent=4)
-                logger.info(f"Successfully saved to alternate location: {alt_save_path}")
-        
-        return JSONResponse({
-            "status": "success",
-            "message": f"Updated category_fields for metric {metric_id} with endpoint {endpoint}"
-        })
-    except Exception as e:
-        logger.exception(f"Error updating category_fields: {str(e)}")
-        return JSONResponse({
-            "status": "error",
-            "message": str(e)
-        }, status_code=500)
-
-
-@router.get("/run_specific_metric")
-async def run_specific_metric(metric_id: int, district_id: int = 0, period_type: str = 'year'):
-    """Run analysis for a specific metric."""
-    logger.info(f"Run specific metric called for metric_id: {metric_id}, district_id: {district_id}, period_type: {period_type}")
-    
-    # Validate period_type
-    period_folder_map = {
-        'year': 'annual',
-        'month': 'monthly',
-        'day': 'daily',
-        'ytd': 'ytd',
-        'week': 'weekly'
-    }
-    
-    if period_type not in period_folder_map:
-        logger.error(f"Invalid period_type: {period_type}")
-        return JSONResponse({
-            "status": "error",
-            "message": f"Invalid period_type: {period_type}. Must be one of: {', '.join(period_folder_map.keys())}"
-        }, status_code=400)
-    
-    try:
-        # Load the metric ID mapping to get the endpoint
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        mapping_file = os.path.join(script_dir, "data", "dashboard", "metric_id_mapping.json")
-        enhanced_queries_file = os.path.join(script_dir, "data", "dashboard", "dashboard_queries_enhanced.json")
-        
-        if not os.path.exists(mapping_file):
-            logger.error(f"Metric ID mapping file not found: {mapping_file}")
-            return JSONResponse({
-                "status": "error",
-                "message": "Metric ID mapping file not found"
-            }, status_code=404)
-        
-        if not os.path.exists(enhanced_queries_file):
-            logger.error(f"Enhanced queries file not found: {enhanced_queries_file}")
-            return JSONResponse({
-                "status": "error",
-                "message": "Enhanced queries file not found"
-            }, status_code=404)
-        
-        # Load both files
-        with open(mapping_file, 'r') as f:
-            mapping = json.load(f)
-            
-        with open(enhanced_queries_file, 'r') as f:
-            enhanced_queries = json.load(f)
-        
-        # Check if the metric ID exists in the mapping
-        metric_id_str = str(metric_id)
-        if metric_id_str not in mapping:
-            logger.error(f"Metric ID {metric_id} not found in mapping")
-            return JSONResponse({
-                "status": "error",
-                "message": f"Metric ID {metric_id} not found"
-            }, status_code=404)
-        
-        # Get the metric details from mapping
-        metric_info = mapping[metric_id_str]
-        metric_name = metric_info.get("name", "Unknown")
-        category = metric_info.get("category", "Uncategorized")
-        
-        # Find the metric in enhanced queries
-        from generate_metric_analysis import find_metric_in_queries
-        enhanced_metric_info = find_metric_in_queries(enhanced_queries, metric_id)
-        
-        if not enhanced_metric_info:
-            logger.error(f"Metric ID {metric_id} not found in enhanced queries")
-            return JSONResponse({
-                "status": "error",
-                "message": f"Metric ID {metric_id} not found in enhanced queries"
-            }, status_code=404)
-        
-        # Merge the metric info from mapping with the enhanced query info
-        metric_info.update(enhanced_metric_info)
-        
-        # Create logs directory if it doesn't exist
-        logs_dir = os.path.join(script_dir, 'logs')
-        os.makedirs(logs_dir, exist_ok=True)
-        
-        # Determine which script to run based on period_type
-        if period_type == 'ytd':
-            # For YTD metrics, use generate_dashboard_metrics.py
-            logger.info(f"Running YTD dashboard metrics generation for metric ID {metric_id}")
-            
-            # Check if we can import the specific metric generation function
-            try:
-                from generate_dashboard_metrics import process_single_metric
-                
-                # Check if the function exists and call it
-                if callable(process_single_metric):
-                    # Call process_single_metric with just the metric_id and period_type
-                    result = process_single_metric(metric_id=metric_id, period_type=period_type)
-                    logger.info(f"YTD metrics generation completed for metric ID {metric_id}")
-                else:
-                    # Fall back to the main function if process_single_metric isn't available
-                    from generate_dashboard_metrics import main as generate_all_metrics
-                    generate_all_metrics()
-                    logger.info(f"All YTD metrics generated (including metric ID {metric_id})")
-            except (ImportError, AttributeError) as e:
-                # If there's no process_single_metric function, run the main function
-                logger.warning(f"Could not import specific metric generation function: {str(e)}")
-                from generate_dashboard_metrics import main as generate_all_metrics
-                generate_all_metrics()
-                logger.info(f"All YTD metrics generated (including metric ID {metric_id})")
-        
-        elif period_type == 'week':
-            # For weekly analysis, use generate_weekly_analysis.py
-            logger.info(f"Running weekly analysis for metric ID {metric_id}")
-            
-            try:
-                from generate_weekly_analysis import run_weekly_analysis, generate_weekly_newsletter
-                
-                # Run the analysis for the specific metric
-                results = run_weekly_analysis(
-                    metrics_list=[str(metric_id)],
-                    process_districts=(district_id == 0)  # Only process districts if district_id is 0 (citywide)
-                )
-                
-                # Generate a newsletter
-                newsletter_path = generate_weekly_newsletter(results)
-                
-                logger.info(f"Weekly analysis completed for metric ID {metric_id}")
-                
-            except ImportError as e:
-                logger.error(f"Could not import generate_weekly_analysis module: {str(e)}")
-                return JSONResponse({
-                    "status": "error",
-                    "message": f"Missing required module: {str(e)}"
-                }, status_code=500)
-            except Exception as e:
-                logger.error(f"Error in generate_weekly_analysis: {str(e)}")
-                return JSONResponse({
-                    "status": "error",
-                    "message": f"Error generating weekly analysis: {str(e)}"
-                }, status_code=500)
-                
-        else:
-            # For monthly/annual analysis, use generate_metric_analysis.py
-            logger.info(f"Running {period_type} analysis for metric ID {metric_id}")
-            
-            try:
-                from generate_metric_analysis import process_metric_analysis
-                
-                # Run the analysis for the specific metric
-                result = process_metric_analysis(
-                    metric_info=metric_info,
-                    period_type=period_type,
-                    process_districts=True  # Enable district processing
-                )
-                logger.info(f"{period_type.capitalize()} analysis completed for metric ID {metric_id}")
-                
-            except ImportError as e:
-                logger.error(f"Could not import generate_metric_analysis module: {str(e)}")
-                return JSONResponse({
-                    "status": "error",
-                    "message": f"Missing required module: {str(e)}"
-                }, status_code=500)
-            except Exception as e:
-                logger.error(f"Error in generate_metric_analysis: {str(e)}")
-                return JSONResponse({
-                    "status": "error",
-                    "message": f"Error generating metric analysis: {str(e)}"
-                }, status_code=500)
-        
-        # Check if expected output files exist
-        period_folder = period_folder_map[period_type]
-        expected_file = os.path.join(script_dir, 'output', period_folder, str(district_id), f"{metric_id}.json")
-        
-        if os.path.exists(expected_file):
-            logger.info(f"Output file confirmed at: {expected_file}")
-        else:
-            logger.warning(f"Expected output file not found at: {expected_file}")
-        
-        return JSONResponse({
-            "status": "success",
-            "message": f"{period_type.capitalize()} analysis for metric ID {metric_id} completed successfully",
-            "details": {
-                "metric_id": metric_id,
-                "district_id": district_id,
-                "period_type": period_type,
-                "metric_name": metric_name,
-                "category": category,
-                "expected_file": expected_file
-            }
-        })
-    except Exception as e:
-        logger.exception(f"Error running specific metric analysis: {str(e)}")
-        return JSONResponse({
-            "status": "error",
-            "message": str(e)
-        }, status_code=500)
-
+# Removed - migrated to metrics_manager.py
 
 @router.get("/get_output_files")
 async def get_output_files(metric_id: str, district_id: str = '0', period_type: str = 'year'):
@@ -2343,23 +1967,28 @@ async def clear_vector_db():
 @router.get("/get-notes")
 async def get_notes_file():
     """
-    Serves the combined notes file from the output/notes directory.
+    Serves the combined notes using the same notes_manager function as the explainer agent.
     """
     logger.info("Backend get-notes route called")
     
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    notes_file = os.path.join(script_dir, 'output', 'notes', 'combined_notes.txt')
-    
-    if not os.path.exists(notes_file):
-        logger.error("Notes file not found")
-        return JSONResponse({
-            "success": False, 
-            "error": "Notes file not found"
-        }, status_code=404)
-    
     try:
-        with open(notes_file, 'r', encoding='utf-8') as f:
-            content = f.read()
+        # Import the notes manager function
+        from tools.notes_manager import get_notes
+        
+        # Create empty context_variables for the function
+        context_variables = {}
+        
+        # Call the same function the explainer agent uses
+        result = get_notes(context_variables)
+        
+        if "error" in result:
+            logger.error(f"Notes manager error: {result['error']}")
+            return JSONResponse({
+                "success": False, 
+                "error": result["error"]
+            }, status_code=500)
+        
+        content = result.get("notes", "")
         
         # Simple token count approximation
         token_count = len(content.split())
@@ -2369,11 +1998,12 @@ async def get_notes_file():
             "content": content,
             "token_count": token_count
         })
+        
     except Exception as e:
-        logger.exception(f"Error reading notes file: {str(e)}")
+        logger.exception(f"Error getting notes: {str(e)}")
         return JSONResponse({
             "success": False, 
-            "error": f"Error reading notes file: {str(e)}"
+            "error": f"Error getting notes: {str(e)}"
         }, status_code=500)
 
 # Import evals functionality
@@ -2507,8 +2137,44 @@ async def dashboard_page(request: Request):
 
 @router.get("/api/datasets-count")
 async def get_datasets_count():
-    """Get the count of dataset files in the datasets directory."""
+    """Get the count of datasets from the database."""
     try:
+        # Try to get count from database first
+        from tools.db_utils import get_postgres_connection
+        
+        connection = get_postgres_connection()
+        if connection:
+            try:
+                cursor = connection.cursor()
+                
+                # Query the datasets table
+                cursor.execute("SELECT COUNT(*) FROM datasets WHERE is_active = true")
+                
+                result = cursor.fetchone()
+                count = int(result[0]) if result else 0
+                
+                cursor.close()
+                connection.close()
+                
+                # Mock change value for now
+                # In a real implementation, this would be calculated from historical data
+                change = 0.0
+                
+                logger.info(f"Dataset count from database: {count}")
+                
+                return JSONResponse(content={
+                    "count": count,
+                    "change": float(change)
+                })
+                
+            except Exception as db_error:
+                logger.error(f"Database error in get_datasets_count: {db_error}")
+                if connection:
+                    connection.close()
+                # Fall through to file-based approach
+        
+        # Fallback to file-based approach
+        logger.warning("Database approach failed, falling back to file-based approach")
         current_dir = os.path.dirname(os.path.abspath(__file__))
         datasets_dir = os.path.join(current_dir, 'data', 'datasets')
         fixed_datasets_dir = os.path.join(datasets_dir, 'fixed')
@@ -2544,8 +2210,48 @@ async def get_datasets_count():
 
 @router.get("/api/list-datasets-for-typeahead")
 async def list_datasets_for_typeahead():
-    """Get a list of datasets for the typeahead functionality."""
+    """Get a list of datasets for the typeahead functionality from database."""
     try:
+        # Try to get datasets from database first
+        from tools.db_utils import get_postgres_connection
+        
+        connection = get_postgres_connection()
+        if connection:
+            try:
+                cursor = connection.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+                
+                # Query the datasets table
+                cursor.execute("""
+                    SELECT endpoint, title, description, category
+                    FROM datasets 
+                    WHERE is_active = true
+                    ORDER BY title
+                """)
+                
+                datasets = []
+                for row in cursor.fetchall():
+                    dataset_info = {
+                        'endpoint': row['endpoint'],
+                        'title': row['title'] or 'Untitled',
+                        'description': row['description'] or '',
+                        'category': row['category'] or 'Uncategorized'
+                    }
+                    datasets.append(dataset_info)
+                
+                cursor.close()
+                connection.close()
+                
+                logger.info(f"Retrieved {len(datasets)} datasets from database")
+                return JSONResponse(content=datasets)
+                
+            except Exception as db_error:
+                logger.error(f"Database error in list_datasets_for_typeahead: {db_error}")
+                if connection:
+                    connection.close()
+                # Fall through to file-based approach
+        
+        # Fallback to file-based approach
+        logger.warning("Database approach failed, falling back to file-based approach")
         current_dir = os.path.dirname(os.path.abspath(__file__))
         datasets_dir = os.path.join(current_dir, 'data', 'datasets')
         fixed_datasets_dir = os.path.join(datasets_dir, 'fixed')
@@ -3703,8 +3409,40 @@ async def generate_monthly_report_post(request: Request):
 
 @router.get("/api/total-metrics-count")
 async def get_total_metrics_count():
-    """Get the total count of metrics from dashboard_queries_enhanced.json."""
+    """Get the total count of metrics from the database."""
     try:
+        # Try to get count from database first
+        from tools.db_utils import get_postgres_connection
+        
+        connection = get_postgres_connection()
+        if connection:
+            try:
+                cursor = connection.cursor()
+                
+                # Query the metrics table
+                cursor.execute("SELECT COUNT(*) FROM metrics")
+                
+                result = cursor.fetchone()
+                count = int(result[0]) if result else 0
+                
+                cursor.close()
+                connection.close()
+                
+                logger.info(f"Metrics count from database: {count}")
+                
+                return JSONResponse({
+                    "count": count,
+                    "change": 0
+                })
+                
+            except Exception as db_error:
+                logger.error(f"Database error in get_total_metrics_count: {db_error}")
+                if connection:
+                    connection.close()
+                # Fall through to file-based approach
+        
+        # Fallback to file-based approach
+        logger.warning("Database approach failed, falling back to file-based approach")
         script_dir = os.path.dirname(os.path.abspath(__file__))
         queries_file = os.path.join(script_dir, "data", "dashboard", "dashboard_queries_enhanced.json")
         
@@ -5127,76 +4865,7 @@ async def generate_narrated_report_endpoint(request: Request):
             }
         )
 
-@router.post("/api/metrics")
-async def create_metric(metric_data: dict):
-    """Create a new metric in the system."""
-    logger.info("Create metric endpoint called")
-    try:
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        enhanced_queries_file = os.path.join(script_dir, "data", "dashboard", "dashboard_queries_enhanced.json")
-        mapping_file = os.path.join(script_dir, "data", "dashboard", "metric_id_mapping.json")
-        
-        # Load existing data
-        with open(enhanced_queries_file, 'r') as f:
-            enhanced_queries = json.load(f)
-        
-        with open(mapping_file, 'r') as f:
-            mapping = json.load(f)
-        
-        # Extract category and subcategory from the metric name
-        # For now, we'll use a default category and subcategory
-        category = "crime"  # Default category
-        subcategory = "Crime"  # Default subcategory
-        
-        # Create the metric entry
-        metric_entry = {
-            "id": metric_data["id"],
-            "endpoint": metric_data["endpoint"],
-            "summary": metric_data["summary"],
-            "definition": metric_data["definition"],
-            "data_sf_url": metric_data["data_sf_url"],
-            "ytd_query": metric_data["ytd_query"],
-            "metric_query": metric_data["metric_query"],
-            "dataset_title": metric_data["dataset_title"],
-            "dataset_category": metric_data["dataset_category"],
-            "location_fields": metric_data["location_fields"],
-            "category_fields": metric_data["category_fields"]
-        }
-        
-        # Add the metric to the enhanced queries
-        if category not in enhanced_queries:
-            enhanced_queries[category] = {}
-        if subcategory not in enhanced_queries[category]:
-            enhanced_queries[category][subcategory] = {"queries": {}}
-        
-        enhanced_queries[category][subcategory]["queries"][metric_data["name"]] = metric_entry
-        
-        # Add the metric to the mapping
-        mapping[str(metric_data["id"])] = {
-            "name": metric_data["name"],
-            "category": category,
-            "subcategory": subcategory
-        }
-        
-        # Save the updated files
-        with open(enhanced_queries_file, 'w') as f:
-            json.dump(enhanced_queries, f, indent=4)
-        
-        with open(mapping_file, 'w') as f:
-            json.dump(mapping, f, indent=4)
-        
-        return JSONResponse({
-            "status": "success",
-            "message": "Metric created successfully",
-            "metric": metric_entry
-        })
-        
-    except Exception as e:
-        logger.exception(f"Error creating metric: {str(e)}")
-        return JSONResponse({
-            "status": "error",
-            "message": str(e)
-        }, status_code=500)
+# Removed - migrated to metrics_manager.py
 
 @router.get("/backend/api/active-charts")
 async def get_active_charts(metric_id: str, district: str = "0", period_type: str = "month"):
@@ -6073,3 +5742,280 @@ async def get_district_maps(metric_id: str = None):
                 "message": f"Failed to get district maps: {str(e)}"
             }
         )
+
+@router.get("/api/enhanced-queries")
+async def get_enhanced_queries_db():
+    """Serve enhanced dashboard queries built entirely from database."""
+    try:
+        from tools.db_utils import get_postgres_connection
+        import psycopg2.extras
+        
+        connection = get_postgres_connection()
+        if not connection:
+            raise HTTPException(status_code=500, detail="Database connection failed")
+        
+        cursor = connection.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        
+        # Query all active metrics from the database
+        cursor.execute("""
+            SELECT 
+                m.id,
+                m.metric_name,
+                m.metric_key,
+                m.category,
+                m.subcategory,
+                m.endpoint,
+                m.summary,
+                m.definition,
+                m.data_sf_url,
+                m.ytd_query,
+                m.metric_query,
+                m.dataset_title,
+                m.dataset_category,
+                m.show_on_dash,
+                m.item_noun,
+                m.greendirection,
+                m.location_fields,
+                m.category_fields,
+                m.metadata,
+                d.title as dataset_title_from_datasets,
+                d.category as dataset_category_from_datasets,
+                d.columns as dataset_columns
+            FROM metrics m
+            LEFT JOIN datasets d ON m.endpoint = d.endpoint AND d.is_active = true
+            WHERE m.is_active = true
+            ORDER BY m.category, m.subcategory, m.id
+        """)
+        
+        metrics_rows = cursor.fetchall()
+        cursor.close()
+        connection.close()
+        
+        # Build the enhanced queries structure
+        enhanced_queries = {}
+        
+        for row in metrics_rows:
+            category = row['category']
+            subcategory = row['subcategory'] or category
+            metric_name = row['metric_name']
+            
+            # Initialize category if not exists
+            if category not in enhanced_queries:
+                enhanced_queries[category] = {}
+            
+            # Initialize subcategory if not exists
+            if subcategory not in enhanced_queries[category]:
+                enhanced_queries[category][subcategory] = {
+                    "queries": {}
+                }
+            
+            # Use dataset info from datasets table if available, otherwise from metrics table
+            dataset_title = row['dataset_title_from_datasets'] or row['dataset_title'] or ""
+            dataset_category = row['dataset_category_from_datasets'] or row['dataset_category'] or ""
+            
+            # Build the metric data
+            metric_data = {
+                "id": row['id'],
+                "endpoint": row['endpoint'],
+                "summary": row['summary'] or "",
+                "definition": row['definition'] or "",
+                "data_sf_url": row['data_sf_url'] or "",
+                "show_on_dash": "yes" if row['show_on_dash'] else "no",
+                "item_noun": row['item_noun'] or "Items",
+                "ytd_query": row['ytd_query'] or "",
+                "metric_query": row['metric_query'] or "",
+                "dataset_title": dataset_title,
+                "dataset_category": dataset_category,
+                "greendirection": row['greendirection'] or "up",
+                "location_fields": row['location_fields'] or [],
+                "category_fields": row['category_fields'] or []
+            }
+            
+            # Add metadata if available
+            if row['metadata']:
+                metric_data["metadata"] = row['metadata']
+            
+            # Add the metric to the enhanced queries
+            enhanced_queries[category][subcategory]["queries"][metric_name] = metric_data
+        
+        logger.info(f"Built enhanced queries from database with {len(metrics_rows)} metrics")
+        return JSONResponse(content=enhanced_queries)
+        
+    except Exception as e:
+        logger.error(f"Error building enhanced queries from database: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error building enhanced queries: {str(e)}")
+
+
+@router.get("/get-endpoint-columns/{endpoint}")
+async def get_endpoint_columns_db(endpoint: str):
+    """Get available columns for an endpoint from database only."""
+    try:
+        from tools.db_utils import get_postgres_connection
+        import psycopg2.extras
+        
+        connection = get_postgres_connection()
+        if not connection:
+            raise HTTPException(status_code=500, detail="Database connection failed")
+        
+        cursor = connection.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        
+        # Query the datasets table for this endpoint
+        cursor.execute("""
+            SELECT columns
+            FROM datasets 
+            WHERE endpoint = %s AND is_active = true
+        """, (endpoint,))
+        
+        row = cursor.fetchone()
+        cursor.close()
+        connection.close()
+        
+        if row and row['columns']:
+            # Extract column names from the database
+            columns = [col["fieldName"] for col in row['columns'] if col.get("fieldName")]
+            
+            return JSONResponse({
+                "status": "success",
+                "columns": columns
+            })
+        else:
+            logger.warning(f"No columns found in database for endpoint: {endpoint}")
+            raise HTTPException(status_code=404, detail=f"No columns found for endpoint: {endpoint}")
+            
+    except Exception as e:
+        logger.error(f"Error getting columns for endpoint '{endpoint}': {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error getting columns: {str(e)}")
+
+
+@router.get("/get-selected-columns/{endpoint}")
+async def get_selected_columns_db(endpoint: str, metric_id: str = None):
+    """Get currently selected columns for an endpoint and optionally a specific metric ID from database."""
+    try:
+        from tools.db_utils import get_postgres_connection
+        import psycopg2.extras
+        
+        connection = get_postgres_connection()
+        if not connection:
+            raise HTTPException(status_code=500, detail="Database connection failed")
+        
+        cursor = connection.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        
+        # Query the metrics table for this endpoint and metric_id
+        if metric_id:
+            cursor.execute("""
+                SELECT category_fields
+                FROM metrics 
+                WHERE endpoint = %s AND id = %s AND is_active = true
+            """, (endpoint, int(metric_id)))
+        else:
+            # If no metric_id provided, get the first metric with this endpoint
+            cursor.execute("""
+                SELECT category_fields
+                FROM metrics 
+                WHERE endpoint = %s AND is_active = true
+                LIMIT 1
+            """, (endpoint,))
+        
+        row = cursor.fetchone()
+        cursor.close()
+        connection.close()
+        
+        if row and row['category_fields']:
+            # Extract field names from category_fields
+            selected_columns = [field["fieldName"] for field in row['category_fields'] if field.get("fieldName")]
+            
+            logger.info(f"Found selected columns for endpoint {endpoint}" + 
+                       (f" and metric_id {metric_id}" if metric_id else "") + 
+                       f": {selected_columns}")
+            
+            return JSONResponse({
+                "status": "success",
+                "columns": selected_columns
+            })
+        else:
+            logger.info(f"No selected columns found for endpoint {endpoint}" + 
+                       (f" and metric_id {metric_id}" if metric_id else ""))
+            return JSONResponse({
+                "status": "success",
+                "columns": []
+            })
+            
+    except Exception as e:
+        logger.error(f"Error getting selected columns for endpoint '{endpoint}'" + 
+                    (f" and metric_id '{metric_id}'" if metric_id else "") + 
+                    f": {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error getting selected columns: {str(e)}")
+
+
+@router.post("/update-selected-columns")
+async def update_selected_columns_db(request: Request):
+    """Update the selected columns for a metric in the database."""
+    try:
+        from tools.db_utils import get_postgres_connection
+        import psycopg2.extras
+        
+        # Get request data
+        data = await request.json()
+        endpoint = data.get("endpoint")
+        columns = data.get("columns", [])
+        metric_id = data.get("metric_id")
+        
+        if not endpoint or not metric_id:
+            raise HTTPException(status_code=400, detail="Both endpoint and metric_id are required")
+        
+        connection = get_postgres_connection()
+        if not connection:
+            raise HTTPException(status_code=500, detail="Database connection failed")
+        
+        cursor = connection.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        
+        # Build the category_fields JSON structure
+        category_fields = [
+            {
+                "name": col,
+                "fieldName": col,
+                "description": f"Selected column for metric analysis"
+            }
+            for col in columns
+        ]
+        
+        # Update the metric in the database
+        cursor.execute("""
+            UPDATE metrics 
+            SET category_fields = %s, updated_at = CURRENT_TIMESTAMP
+            WHERE endpoint = %s AND id = %s AND is_active = true
+        """, (json.dumps(category_fields), endpoint, int(metric_id)))
+        
+        if cursor.rowcount == 0:
+            cursor.close()
+            connection.close()
+            raise HTTPException(status_code=404, detail=f"No metric found with endpoint: {endpoint} and id: {metric_id}")
+        
+        connection.commit()
+        cursor.close()
+        connection.close()
+        
+        logger.info(f"Successfully updated category_fields for metric {metric_id} with endpoint {endpoint}")
+        
+        return JSONResponse({
+            "status": "success",
+            "message": f"Updated category_fields for metric {metric_id} with endpoint {endpoint}"
+        })
+        
+    except Exception as e:
+        logger.error(f"Error updating category_fields: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error updating selected columns: {str(e)}")
+
+# Import and include evals router
+import evals_routes
+evals_routes.set_templates(templates)
+
+@router.get("/dashboard")
+async def dashboard_page(request: Request):
+    """Serve the dashboard page."""
+    logger.debug("Dashboard page route called")
+    if templates is None:
+        logger.error("Templates not initialized in backend router")
+        raise RuntimeError("Templates not initialized")
+    
+    return templates.TemplateResponse("dashboard.html", {"request": request})

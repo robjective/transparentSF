@@ -41,8 +41,208 @@ console_handler = logging.StreamHandler()
 console_handler.setFormatter(formatter)
 logger.addHandler(console_handler)
 
+def load_metrics_from_db():
+    """Load metrics from the database instead of JSON files."""
+    try:
+        from tools.db_utils import get_postgres_connection
+        import psycopg2.extras
+        
+        connection = get_postgres_connection()
+        if not connection:
+            logger.error("Failed to connect to database")
+            return None
+        
+        cursor = connection.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        
+        # Query all active metrics from the database
+        cursor.execute("""
+            SELECT 
+                m.id,
+                m.metric_name,
+                m.metric_key,
+                m.category,
+                m.endpoint,
+                m.summary,
+                m.definition,
+                m.data_sf_url,
+                m.ytd_query,
+                m.metric_query,
+                m.location_fields,
+                m.category_fields,
+                m.is_active,
+                d.title as dataset_title,
+                d.category as dataset_category
+            FROM metrics m
+            LEFT JOIN datasets d ON m.endpoint = d.endpoint
+            WHERE m.is_active = true
+            ORDER BY m.category, m.metric_name
+        """)
+        
+        metrics = cursor.fetchall()
+        cursor.close()
+        connection.close()
+        
+        if not metrics:
+            logger.warning("No active metrics found in database")
+            return {}
+        
+        # Convert to the expected dashboard queries format
+        dashboard_queries = {}
+        
+        for metric in metrics:
+            category = metric['category'] or 'uncategorized'
+            
+            # Initialize category if it doesn't exist
+            if category not in dashboard_queries:
+                dashboard_queries[category] = {}
+            
+            # Use the category as both top-level and subcategory for simplicity
+            # This matches the existing structure where we have crime -> Crime -> queries
+            subcategory = category.title()
+            if subcategory not in dashboard_queries[category]:
+                dashboard_queries[category][subcategory] = {
+                    'endpoint': metric['endpoint'],
+                    'queries': {}
+                }
+            
+            # Create the query entry
+            query_name = metric['metric_name']
+            query_data = {
+                'id': metric['id'],
+                'endpoint': metric['endpoint'],
+                'summary': metric['summary'] or '',
+                'definition': metric['definition'] or '',
+                'data_sf_url': metric['data_sf_url'] or '',
+                'ytd_query': metric['ytd_query'] or '',
+                'metric_query': metric['metric_query'] or '',
+                'dataset_title': metric['dataset_title'] or '',
+                'dataset_category': metric['dataset_category'] or '',
+                'location_fields': metric['location_fields'] or [],
+                'category_fields': metric['category_fields'] or []
+            }
+            
+            dashboard_queries[category][subcategory]['queries'][query_name] = query_data
+        
+        logger.info(f"Loaded {len(metrics)} metrics from database across {len(dashboard_queries)} categories")
+        return dashboard_queries
+        
+    except Exception as e:
+        logger.error(f"Error loading metrics from database: {str(e)}")
+        logger.error(traceback.format_exc())
+        return None
+
+def load_single_metric_from_db(metric_id):
+    """Load a single metric from the database by ID."""
+    try:
+        from tools.db_utils import get_postgres_connection
+        import psycopg2.extras
+        
+        connection = get_postgres_connection()
+        if not connection:
+            logger.error("Failed to connect to database")
+            return None
+        
+        cursor = connection.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        
+        # Query the specific metric from the database
+        # Handle both numeric and string IDs
+        if str(metric_id).isdigit():
+            # Numeric ID - search by id field
+            cursor.execute("""
+                SELECT 
+                    m.id,
+                    m.metric_name,
+                    m.metric_key,
+                    m.category,
+                    m.endpoint,
+                    m.summary,
+                    m.definition,
+                    m.data_sf_url,
+                    m.ytd_query,
+                    m.metric_query,
+                    m.location_fields,
+                    m.category_fields,
+                    m.is_active,
+                    d.title as dataset_title,
+                    d.category as dataset_category
+                FROM metrics m
+                LEFT JOIN datasets d ON m.endpoint = d.endpoint
+                WHERE m.id = %s AND m.is_active = true
+            """, (int(metric_id),))
+        else:
+            # String ID - search by metric_key
+            cursor.execute("""
+                SELECT 
+                    m.id,
+                    m.metric_name,
+                    m.metric_key,
+                    m.category,
+                    m.endpoint,
+                    m.summary,
+                    m.definition,
+                    m.data_sf_url,
+                    m.ytd_query,
+                    m.metric_query,
+                    m.location_fields,
+                    m.category_fields,
+                    m.is_active,
+                    d.title as dataset_title,
+                    d.category as dataset_category
+                FROM metrics m
+                LEFT JOIN datasets d ON m.endpoint = d.endpoint
+                WHERE m.metric_key = %s AND m.is_active = true
+            """, (str(metric_id),))
+        
+        metric = cursor.fetchone()
+        cursor.close()
+        connection.close()
+        
+        if not metric:
+            logger.error(f"Metric with ID {metric_id} not found in database")
+            return None
+        
+        # Convert to the expected dashboard queries format
+        category = metric['category'] or 'uncategorized'
+        subcategory = category.title()
+        query_name = metric['metric_name']
+        
+        query_data = {
+            'id': metric['id'],
+            'endpoint': metric['endpoint'],
+            'summary': metric['summary'] or '',
+            'definition': metric['definition'] or '',
+            'data_sf_url': metric['data_sf_url'] or '',
+            'ytd_query': metric['ytd_query'] or '',
+            'metric_query': metric['metric_query'] or '',
+            'dataset_title': metric['dataset_title'] or '',
+            'dataset_category': metric['dataset_category'] or '',
+            'location_fields': metric['location_fields'] or [],
+            'category_fields': metric['category_fields'] or []
+        }
+        
+        # Return in the expected format
+        dashboard_queries = {
+            category: {
+                subcategory: {
+                    'endpoint': metric['endpoint'],
+                    'queries': {
+                        query_name: query_data
+                    }
+                }
+            }
+        }
+        
+        logger.info(f"Loaded metric {metric_id} ({query_name}) from database")
+        return dashboard_queries, category, subcategory, query_name, query_data
+        
+    except Exception as e:
+        logger.error(f"Error loading metric {metric_id} from database: {str(e)}")
+        logger.error(traceback.format_exc())
+        return None
+
 def load_json_file(file_path):
-    """Load a JSON file and return its contents."""
+    """Load a JSON file and return its contents. DEPRECATED - use database functions instead."""
+    logger.warning(f"load_json_file is deprecated. Loading from {file_path} - consider migrating to database")
     try:
         with open(file_path, 'r') as f:
             return json.load(f)
@@ -1225,72 +1425,15 @@ def process_single_metric(metric_id, period_type='ytd'):
         metric_id (str or int): The ID of the metric to process (e.g., "arrests_presented_to_da_ytd" or 13)
         period_type (str): The type of period to process ('ytd', 'month', 'year', 'week')
     """
-    # Load dashboard queries
-    dashboard_queries_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "dashboard", "dashboard_queries.json")
-    enhanced_queries_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "dashboard", "dashboard_queries_enhanced.json")
-    
-    # Try to load enhanced queries first, fall back to regular queries
-    if os.path.exists(enhanced_queries_path):
-        logging.info("Using enhanced dashboard queries")
-        dashboard_queries = load_json_file(enhanced_queries_path)
-    else:
-        logging.info("Using standard dashboard queries")
-        dashboard_queries = load_json_file(dashboard_queries_path)
-    
-    if not dashboard_queries:
-        logging.error("Failed to load dashboard queries")
+    # Load single metric from database
+    result = load_single_metric_from_db(metric_id)
+    if not result:
+        logging.error(f"Failed to load metric {metric_id} from database")
         return None
     
-    # Find the metric in the queries data
-    metric_data = None
-    category_name = None
-    subcategory_name = None
-    query_name = None
+    single_metric_queries, category_name, subcategory_name, query_name, metric_data = result
     
-    # Convert metric_id to string for comparison
-    metric_id_str = str(metric_id)
-    
-    for cat_name, cat_data in dashboard_queries.items():
-        for subcat_name, subcat_data in cat_data.items():
-            if isinstance(subcat_data, dict) and 'queries' in subcat_data:
-                for q_name, query_data in subcat_data['queries'].items():
-                    # Check if this is a numeric ID match
-                    if isinstance(query_data, dict) and 'id' in query_data and str(query_data['id']) == metric_id_str:
-                        metric_data = query_data
-                        category_name = cat_name
-                        subcategory_name = subcat_name
-                        query_name = q_name
-                        logging.info(f"Found metric by numeric ID: {metric_id_str}")
-                        break
-                    
-                    # Also check the string ID format
-                    query_id = q_name.lower().replace(" ", "_").replace("-", "_").replace("_ytd", "") + "_ytd"
-                    if query_id == metric_id_str:
-                        metric_data = query_data
-                        category_name = cat_name
-                        subcategory_name = subcat_name
-                        query_name = q_name
-                        logging.info(f"Found metric by string ID: {metric_id_str}")
-                        break
-                if metric_data:
-                    break
-        if metric_data:
-            break
-    
-    if not metric_data:
-        logging.error(f"Metric {metric_id} not found in queries data")
-        return None
-    
-    # Create a minimal queries data structure with just this metric
-    single_metric_queries = {
-        category_name: {
-            subcategory_name: {
-                "queries": {
-                    query_name: metric_data
-                }
-            }
-        }
-    }
+    logging.info(f"Loaded metric {metric_id} ({query_name}) from database")
     
     # Determine the output directory based on period_type
     script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -1430,20 +1573,12 @@ def main():
         # Process single metric
         process_single_metric(args.metric_id, args.period_type)
     else:
-        # Load dashboard queries
-        dashboard_queries_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "dashboard", "dashboard_queries.json")
-        enhanced_queries_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "dashboard", "dashboard_queries_enhanced.json")
-        
-        # Try to load enhanced queries first, fall back to regular queries
-        if os.path.exists(enhanced_queries_path):
-            logging.info("Using enhanced dashboard queries")
-            dashboard_queries = load_json_file(enhanced_queries_path)
-        else:
-            logging.info("Using standard dashboard queries")
-            dashboard_queries = load_json_file(dashboard_queries_path)
+        # Load dashboard queries from database
+        logging.info("Loading metrics from database")
+        dashboard_queries = load_metrics_from_db()
         
         if not dashboard_queries:
-            logging.error("Failed to load dashboard queries")
+            logging.error("Failed to load metrics from database")
             return
         
         # Generate all metrics

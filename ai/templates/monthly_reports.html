@@ -952,6 +952,20 @@
                     emailLink.style.display = emailFilename ? 'inline-block' : 'none';
                 }
                 
+                // Audio script link
+                const audioScriptLink = document.getElementById('view-audio-script');
+                if (audioScriptLink) {
+                    // Construct the audio script filename from the email version
+                    const audioScriptFilename = emailFilename ? emailFilename.replace('.html', '_audio_script.html') : null;
+                    
+                    if (audioScriptFilename) {
+                        audioScriptLink.href = `/backend/monthly-report/file/${audioScriptFilename}`;
+                        audioScriptLink.style.display = 'inline-block';
+                    } else {
+                        audioScriptLink.style.display = 'none';
+                    }
+                }
+                
                 // Published link
                 const publishedLink = document.getElementById('view-published-report');
                 if (publishedLink) {
@@ -1729,6 +1743,7 @@
                                     Your browser does not support the audio element.
                                 </audio>
                             </div>
+                            <a href="#" id="view-audio-script" target="_blank" style="text-decoration: none; color: #ad35fa;">View Audio Script</a>
                             <a href="#" id="view-published-report" target="_blank" style="text-decoration: none; color: #ad35fa;">View Published Post</a>
                         </div>
                     </div>
