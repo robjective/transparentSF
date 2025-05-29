@@ -8,6 +8,8 @@ import os
 import re
 import io
 from db_utils import get_postgres_connection, execute_with_connection
+import subprocess
+import tempfile
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -84,6 +86,17 @@ def restore_metrics_from_backup():
         "-c", "DROP TABLE IF EXISTS public.metrics CASCADE;"
     ]
 
+    # Pre-process the dump so ownership lines reference the current user instead of hard-coded "postgres"
+    with open(backup_file, "r", encoding="utf-8") as f:
+        dump_sql = f.read()
+
+    fixed_sql = re.sub(r"OWNER TO\s+postgres", f"OWNER TO {db_user}", dump_sql, flags=re.IGNORECASE)
+
+    # Write to a temporary file for psql to consume
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix="_metrics_restore.sql")
+    with open(tmp.name, "w", encoding="utf-8") as f:
+        f.write(fixed_sql)
+
     restore_cmd = [
         "psql",
         "-h", db_host,
@@ -91,10 +104,8 @@ def restore_metrics_from_backup():
         "-U", db_user,
         "-d", db_name,
         "-v", "ON_ERROR_STOP=1",
-        "-f", backup_file
+        "-f", tmp.name
     ]
-
-    import subprocess
 
     try:
         logger.info("Dropping existing metrics table (if any)...")
