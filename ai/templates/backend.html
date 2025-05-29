@@ -1344,6 +1344,7 @@
             <button id="analyze-ytd-btn" class="analysis-btn">Run Dashboard Metrics</button>
             <button id="reload-vector-db-btn" class="management-btn">Reload Vector DB</button>
             <button id="reload-sfpublic-btn" class="management-btn">Reload SF Public Data</button>
+            <button id="fetch-metadata-btn" class="management-btn">Fetch Metadata</button>
             
             <div class="sidebar-divider"></div>
             
@@ -2527,6 +2528,80 @@
                     document.getElementById('content-frame').src = url;
                 } finally {
                     // Reset button state
+                    button.disabled = false;
+                    button.textContent = originalText;
+                }
+            });
+
+            // Fetch Metadata button handler
+            document.getElementById('fetch-metadata-btn').addEventListener('click', async function() {
+                const button = this;
+                const originalText = button.textContent;
+
+                button.disabled = true;
+                button.textContent = 'Fetching...';
+                showLoading('Fetching SF metadata...');
+
+                try {
+                    const response = await fetch('/backend/fetch_metadata');
+                    const data = await response.json();
+
+                    hideLoading();
+
+                    // Build results HTML similar to other operations
+                    const htmlContent = `
+                        <html>
+                            <head>
+                                <style>
+                                    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; padding: 20px; }
+                                    pre { background: #f5f5f5; padding: 15px; border-radius: 5px; overflow: auto; }
+                                    .status { font-weight: bold; margin-bottom: 10px; }
+                                    .success { color: #28a745; }
+                                    .error { color: #dc3545; }
+                                </style>
+                            </head>
+                            <body>
+                                <h2>Fetch Metadata Results</h2>
+                                <div class="status ${data.status === 'success' ? 'success' : 'error'}">
+                                    Status: ${data.status}
+                                </div>
+                                <div>
+                                    <p>${data.message}</p>
+                                </div>
+                                ${data.log_content ? `<h3>Log Output:</h3><pre>${data.log_content}</pre>` : ''}
+                            </body>
+                        </html>
+                    `;
+
+                    const blob = new Blob([htmlContent], { type: 'text/html' });
+                    const url = URL.createObjectURL(blob);
+                    document.getElementById('content-frame').src = url;
+
+                } catch (error) {
+                    hideLoading();
+                    console.error('Error fetching metadata:', error);
+
+                    const htmlContent = `
+                        <html>
+                            <head>
+                                <style>
+                                    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; padding: 20px; }
+                                    .error { color: #dc3545; font-weight: bold; }
+                                </style>
+                            </head>
+                            <body>
+                                <h2>Fetch Metadata Error</h2>
+                                <div class="error">
+                                    ${error.message || 'Unknown error occurred'}
+                                </div>
+                            </body>
+                        </html>
+                    `;
+
+                    const blob = new Blob([htmlContent], { type: 'text/html' });
+                    const url = URL.createObjectURL(blob);
+                    document.getElementById('content-frame').src = url;
+                } finally {
                     button.disabled = false;
                     button.textContent = originalText;
                 }

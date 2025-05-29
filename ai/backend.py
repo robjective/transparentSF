@@ -6126,3 +6126,65 @@ async def reload_explainer_prompts():
                 "message": f"Error reloading prompts: {str(e)}"
             }
         )
+
+# ------------------------------------------------------
+# NEW: Fetch SF Metadata and load into the database
+# ------------------------------------------------------
+
+@router.get("/fetch_metadata")
+async def fetch_metadata_route():
+    """Fetch SF dataset metadata using fetch_metadata.py and store it in Postgres."""
+    logger.debug("Fetch metadata route called")
+    try:
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        script_path = os.path.join(script_dir, "fetch_metadata.py")
+
+        # Ensure logs directory exists
+        logs_dir = os.path.join(script_dir, "logs")
+        os.makedirs(logs_dir, exist_ok=True)
+
+        log_file = os.path.join(logs_dir, "fetch_metadata.log")
+
+        # Clear the log file before running
+        try:
+            with open(log_file, 'w') as f:
+                f.write("")
+        except Exception:
+            # If log file cannot be written, still proceed without halting
+            log_file = None
+
+        # Run the script
+        result = subprocess.run(["python", script_path], capture_output=True, text=True)
+
+        # Read the log file content if available
+        log_content = ""
+        if log_file and os.path.exists(log_file):
+            try:
+                with open(log_file, 'r') as f:
+                    log_content = f.read()
+            except Exception as e:
+                log_content = f"Error reading log file: {str(e)}"
+
+        if result.returncode == 0:
+            logger.info("Metadata fetched and stored successfully.")
+            return JSONResponse({
+                "status": "success",
+                "message": "Metadata fetched and stored successfully.",
+                "output": result.stdout,
+                "log_content": log_content
+            })
+        else:
+            logger.error(f"Metadata fetch failed: {result.stderr}")
+            return JSONResponse({
+                "status": "error",
+                "message": "Failed to fetch metadata.",
+                "output": result.stderr,
+                "log_content": log_content
+            })
+    except Exception as e:
+        logger.exception(f"Error fetching metadata: {str(e)}")
+        return JSONResponse({
+            "status": "error",
+            "message": str(e),
+            "log_content": "Error occurred before log file could be read"
+        })
