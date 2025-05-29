@@ -6,72 +6,105 @@ Script to restore the metrics table from a backup file.
 import logging
 import os
 import re
+import io
 from db_utils import get_postgres_connection, execute_with_connection
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-def restore_metrics_from_backup():
-    """Restores the metrics table from the backup file."""
-    logger.info("Starting process to restore metrics table from backup file.")
+def split_sql_statements(sql_content):
+    """Split SQL content into individual statements, handling comments and semicolons properly."""
+    sql_content = re.sub(r'--.*$', '', sql_content, flags=re.MULTILINE)
 
-    # Get the absolute path to the backup file
+    statements = []
+    buffer = []
+    in_string = False
+    string_char = ''
+
+    for char in sql_content:
+        if char in ("'", '"'):
+            if not in_string:
+                in_string = True
+                string_char = char
+            elif string_char == char:
+                in_string = False
+        if char == ';' and not in_string:
+            stmt = ''.join(buffer).strip()
+            if stmt:
+                statements.append(stmt)
+            buffer = []
+        else:
+            buffer.append(char)
+
+    # Capture any remaining statement after the loop
+    stmt = ''.join(buffer).strip()
+    if stmt:
+        statements.append(stmt)
+
+    return statements
+
+def extract_copy_data(sql_content):
+    """Extract the COPY data from the SQL content."""
+    copy_match = re.search(r'COPY.*?FROM stdin;\n(.*?)\n\\.', sql_content, re.DOTALL)
+    if copy_match:
+        return copy_match.group(1)
+    return None
+
+def restore_metrics_from_backup():
+    """Restores the metrics table by handing the SQL file directly to psql."""
+    logger.info("Starting direct restore of metrics table using psql.")
+
+    # Path to the backup file
     backup_file = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'metrics_backup.sql')
-    
+
     if not os.path.exists(backup_file):
         logger.error(f"Backup file not found at: {backup_file}")
         return False
 
-    def restore_operation(connection):
-        cursor = connection.cursor()
-        try:
-            # Read the backup file
-            with open(backup_file, 'r', encoding='utf-8') as f:
-                backup_sql = f.read()
-            
-            # Remove comments
-            backup_sql = re.sub(r'--.*$', '', backup_sql, flags=re.MULTILINE)
-            
-            # Split the SQL file into individual statements
-            statements = backup_sql.split(';')
-            
-            # Execute each statement separately
-            for statement in statements:
-                # Clean up the statement
-                statement = statement.strip()
-                
-                # Skip empty statements or statements that are just whitespace
-                if not statement or statement.isspace():
-                    continue
-                    
-                # Add back the semicolon for execution
-                statement = statement + ';'
-                
-                try:
-                    logger.info(f"Executing statement: {statement[:100]}...")
-                    cursor.execute(statement)
-                except Exception as e:
-                    logger.error(f"Error executing statement: {statement[:100]}... Error: {str(e)}")
-                    raise
-            
-            connection.commit()
-            logger.info("Successfully restored metrics table from backup file.")
-            return True
-        except Exception as e:
-            connection.rollback()
-            logger.error(f"Error restoring metrics table: {e}")
-            raise
-        finally:
-            cursor.close()
+    # Gather DB connection parameters from environment (fall back to defaults)
+    db_host = os.getenv("POSTGRES_HOST", "localhost")
+    db_port = os.getenv("POSTGRES_PORT", "5432")
+    db_name = os.getenv("POSTGRES_DB", "transparentsf")
+    db_user = os.getenv("POSTGRES_USER", "postgres")
+    db_password = os.getenv("POSTGRES_PASSWORD", "postgres")
 
-    restore_result = execute_with_connection(operation=restore_operation)
+    # Set up environment for psql (password via env var so no prompt)
+    env = os.environ.copy()
+    if db_password:
+        env["PGPASSWORD"] = db_password
 
-    if restore_result["status"] == "success":
-        logger.info("Metrics table restoration completed successfully.")
+    # Drop existing table first to avoid duplicate errors
+    drop_cmd = [
+        "psql",
+        "-h", db_host,
+        "-p", str(db_port),
+        "-U", db_user,
+        "-d", db_name,
+        "-c", "DROP TABLE IF EXISTS public.metrics CASCADE;"
+    ]
+
+    restore_cmd = [
+        "psql",
+        "-h", db_host,
+        "-p", str(db_port),
+        "-U", db_user,
+        "-d", db_name,
+        "-v", "ON_ERROR_STOP=1",
+        "-f", backup_file
+    ]
+
+    import subprocess
+
+    try:
+        logger.info("Dropping existing metrics table (if any)...")
+        subprocess.run(drop_cmd, check=True, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        logger.info("Running psql to restore metrics table from backup file...")
+        subprocess.run(restore_cmd, check=True, env=env)
+        logger.info("Metrics table restoration completed successfully via psql.")
         return True
-    else:
-        logger.error(f"Metrics table restoration failed: {restore_result.get('message', 'Unknown error')}")
+    except subprocess.CalledProcessError as e:
+        logger.error("psql command failed. Output:\n%s", e.stderr.decode() if e.stderr else str(e))
         return False
 
 if __name__ == "__main__":
