@@ -5,6 +5,7 @@ Script to restore the metrics table from a backup file.
 
 import logging
 import os
+import re
 from db_utils import get_postgres_connection, execute_with_connection
 
 # Configure logging
@@ -29,19 +30,26 @@ def restore_metrics_from_backup():
             with open(backup_file, 'r', encoding='utf-8') as f:
                 backup_sql = f.read()
             
+            # Remove comments
+            backup_sql = re.sub(r'--.*$', '', backup_sql, flags=re.MULTILINE)
+            
             # Split the SQL file into individual statements
             statements = backup_sql.split(';')
             
             # Execute each statement separately
             for statement in statements:
-                # Skip empty statements
-                if not statement.strip():
+                # Clean up the statement
+                statement = statement.strip()
+                
+                # Skip empty statements or statements that are just whitespace
+                if not statement or statement.isspace():
                     continue
                     
                 # Add back the semicolon for execution
-                statement = statement.strip() + ';'
+                statement = statement + ';'
                 
                 try:
+                    logger.info(f"Executing statement: {statement[:100]}...")
                     cursor.execute(statement)
                 except Exception as e:
                     logger.error(f"Error executing statement: {statement[:100]}... Error: {str(e)}")
