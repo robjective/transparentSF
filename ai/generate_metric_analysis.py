@@ -721,12 +721,12 @@ def process_metric_analysis(metric_info, period_type='month', process_districts=
                                 group_field="supervisor_district"
                             )
                             
-                            if map_result and map_result.get("chart_id"):
-                                chart_id = map_result.get('chart_id')
-                                logging.info(f"Successfully generated density map with ID: {chart_id}")
+                            if map_result and map_result.get("map_id"):
+                                map_id = map_result.get('map_id')
+                                logging.info(f"Successfully generated density map with ID: {map_id}")
                                 
                                 # Store map ID and URL for markdown reference
-                                generated_maps['density_map_id'] = chart_id
+                                generated_maps['density_map_id'] = map_id
                                 generated_maps['density_map_url'] = map_result.get('publish_url')
                                 
                                 # Add map to HTML content
@@ -861,12 +861,12 @@ def process_metric_analysis(metric_info, period_type='month', process_districts=
                                     group_field="supervisor_district"
                                 )
                                 
-                                if map_result and map_result.get("chart_id"):
-                                    chart_id = map_result.get('chart_id')
-                                    logging.info(f"Successfully generated delta map with ID: {chart_id}")
+                                if map_result and map_result.get("map_id"):
+                                    map_id = map_result.get('map_id')
+                                    logging.info(f"Successfully generated delta map with ID: {map_id}")
                                     
                                     # Store map ID and URL for markdown reference
-                                    generated_maps['delta_map_id'] = chart_id
+                                    generated_maps['delta_map_id'] = map_id
                                     generated_maps['delta_map_url'] = map_result.get('publish_url')
                                     
                                     # Add map to HTML content

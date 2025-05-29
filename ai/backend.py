@@ -6019,3 +6019,110 @@ async def dashboard_page(request: Request):
         raise RuntimeError("Templates not initialized")
     
     return templates.TemplateResponse("dashboard.html", {"request": request})
+
+@router.get("/api/explainer-prompt-sections")
+async def get_explainer_prompt_sections():
+    """Get all prompt sections for the explainer agent settings interface."""
+    try:
+        from agents.explainer_prompts import PROMPT_SECTIONS
+        
+        return JSONResponse(content={
+            "status": "success",
+            "sections": PROMPT_SECTIONS
+        })
+        
+    except Exception as e:
+        logger.error(f"Error getting explainer prompt sections: {str(e)}", exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={
+                "status": "error",
+                "message": f"Error getting prompt sections: {str(e)}"
+            }
+        )
+
+@router.post("/api/explainer-update-prompt-section")
+async def update_explainer_prompt_section(request: Request):
+    """Update a specific prompt section for the explainer agent."""
+    try:
+        data = await request.json()
+        section_key = data.get("section_key")
+        content = data.get("content")
+        
+        if not section_key or not content:
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "status": "error",
+                    "message": "Both section_key and content are required"
+                }
+            )
+        
+        # Import the prompts module
+        from agents import explainer_prompts
+        
+        # Update the section content
+        if section_key in explainer_prompts.PROMPT_SECTIONS:
+            explainer_prompts.PROMPT_SECTIONS[section_key]["content"] = content
+            
+            # Update the corresponding constant
+            constant_name = section_key.upper() + "_INSTRUCTIONS"
+            if hasattr(explainer_prompts, constant_name):
+                setattr(explainer_prompts, constant_name, content)
+            
+            return JSONResponse(content={
+                "status": "success",
+                "message": f"Section {section_key} updated successfully"
+            })
+        else:
+            return JSONResponse(
+                status_code=404,
+                content={
+                    "status": "error",
+                    "message": f"Section {section_key} not found"
+                }
+            )
+            
+    except Exception as e:
+        logger.error(f"Error updating explainer prompt section: {str(e)}", exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={
+                "status": "error",
+                "message": f"Error updating prompt section: {str(e)}"
+            }
+        )
+
+@router.post("/api/explainer-reload-prompts")
+async def reload_explainer_prompts():
+    """Reload the explainer agent prompts after updates."""
+    try:
+        from agents.explainer_agent import create_explainer_agent
+        
+        # Create a new agent instance to test the reload
+        agent = create_explainer_agent()
+        success = agent.reload_prompts()
+        
+        if success:
+            return JSONResponse(content={
+                "status": "success",
+                "message": "Explainer agent prompts reloaded successfully"
+            })
+        else:
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "status": "error",
+                    "message": "Failed to reload explainer agent prompts"
+                }
+            )
+            
+    except Exception as e:
+        logger.error(f"Error reloading explainer prompts: {str(e)}", exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={
+                "status": "error",
+                "message": f"Error reloading prompts: {str(e)}"
+            }
+        )

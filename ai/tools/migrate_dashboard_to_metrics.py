@@ -1,236 +1,58 @@
 #!/usr/bin/env python3
 """
-Migration script to import dashboard queries from dashboard_queries_enhanced.json
-into the new metrics table in PostgreSQL.
+Script to restore the metrics table from a backup file.
 """
 
-import os
-import json
 import logging
-from pathlib import Path
+import os
 from db_utils import get_postgres_connection, execute_with_connection
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-def load_dashboard_queries():
-    """Load dashboard queries from the JSON file."""
-    script_dir = Path(__file__).parent
-    json_file = script_dir.parent / "data" / "dashboard" / "dashboard_queries_enhanced.json"
-    
-    try:
-        with open(json_file, 'r', encoding='utf-8') as f:
-            return json.load(f)
-    except Exception as e:
-        logger.error(f"Error loading dashboard queries: {e}")
-        return None
+def restore_metrics_from_backup():
+    """Restores the metrics table from the backup file."""
+    logger.info("Starting process to restore metrics table from backup file.")
 
-def determine_greendirection(metric_name, category, subcategory):
-    """
-    Determine the greendirection value based on metric characteristics.
+    # Get the absolute path to the backup file
+    backup_file = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'metrics_backup.sql')
     
-    Returns:
-        str: 'up', 'down', or 'neutral'
-    """
-    metric_lower = metric_name.lower()
-    
-    # Crime metrics - increases are generally bad
-    if category == 'crime':
-        return 'down'
-    
-    # Safety metrics
-    elif category == 'safety':
-        # Response times - increases are bad
-        if 'response' in metric_lower or 'minutes' in metric_lower:
-            return 'down'
-        # Fire incidents and fatalities - increases are bad
-        elif 'incident' in metric_lower or 'fatalities' in metric_lower:
-            return 'down'
-        # 311 cases - increases could be neutral (more reporting) or bad (more problems)
-        elif '311' in metric_lower:
-            return 'neutral'
-        # Encampment calls - increases are generally bad
-        elif 'encampment' in metric_lower:
-            return 'down'
-        else:
-            return 'neutral'
-    
-    # Economy metrics
-    elif category == 'economy':
-        # Housing units - increases are good
-        if 'housing' in metric_lower and 'units' in metric_lower:
-            return 'up'
-        # Business registrations - increases are good
-        elif 'registration' in metric_lower and 'business' in metric_lower:
-            return 'up'
-        elif 'registration' in metric_lower and 'retail' in metric_lower:
-            return 'up'
-        # Business closures - increases are bad
-        elif 'closure' in metric_lower:
-            return 'down'
-        else:
-            return 'neutral'
-    
-    # Default to neutral for unknown patterns
-    else:
-        return 'neutral'
-
-def flatten_queries(data):
-    """Flatten the nested query structure into a list of metrics."""
-    metrics = []
-    
-    def process_queries(queries_dict, category, subcategory, subsubcategory=None):
-        """Process a queries dictionary and extract metrics."""
-        for metric_name, metric_data in queries_dict.items():
-            # Create a unique key from the metric name
-            metric_key = metric_name.lower().replace(' ', '_').replace('(', '').replace(')', '').replace('-', '_').replace(':', '').replace('🚨', 'violent_').replace('🏠', 'property_').replace('💊', 'drug_').replace('🔒', 'jail_').replace('🚓', 'arrests_').replace('⚖️', 'convictions_').replace('🚒', 'fire_').replace('💔', 'fatalities_').replace('🚑', 'response_').replace('📞', 'cases_').replace('⛺', 'encampment_').replace('🏠', 'housing_').replace('🏢', 'business_').replace('🛍️', 'retail_').replace('🏪', 'retail_closures_').replace('👮', 'police_').replace('🚫', 'closures_')
-            
-            # Clean up the key further
-            import re
-            metric_key = re.sub(r'[^\w_]', '', metric_key)
-            metric_key = re.sub(r'_+', '_', metric_key).strip('_')
-            
-            # If there's an ID in the metric data, use it to make the key unique
-            if 'id' in metric_data and metric_data['id'] is not None:
-                metric_key = f"{metric_key}_{metric_data['id']}"
-            else:
-                # If no ID, make it unique by including category info
-                effective_subcategory = subsubcategory if subsubcategory else subcategory
-                if effective_subcategory != category:
-                    metric_key = f"{category}_{effective_subcategory}_{metric_key}"
-                else:
-                    metric_key = f"{category}_{metric_key}"
-            
-            # Use subsubcategory if available, otherwise subcategory
-            effective_subcategory = subsubcategory if subsubcategory else subcategory
-            
-            metric = {
-                'metric_name': metric_name,
-                'metric_key': metric_key,
-                'category': category,
-                'subcategory': effective_subcategory,
-                'endpoint': metric_data.get('endpoint', ''),
-                'summary': metric_data.get('summary', ''),
-                'definition': metric_data.get('definition', ''),
-                'data_sf_url': metric_data.get('data_sf_url', ''),
-                'ytd_query': metric_data.get('ytd_query', ''),
-                'metric_query': metric_data.get('metric_query', ''),
-                'dataset_title': metric_data.get('dataset_title', ''),
-                'dataset_category': metric_data.get('dataset_category', ''),
-                'show_on_dash': metric_data.get('show_on_dash', 'yes') == 'yes',
-                'item_noun': metric_data.get('item_noun', 'Items'),
-                'location_fields': metric_data.get('location_fields', []),
-                'category_fields': metric_data.get('category_fields', []),
-                'metadata': {
-                    'id': metric_data.get('id'),
-                    'original_category': category,
-                    'original_subcategory': subcategory,
-                    'original_subsubcategory': subsubcategory
-                },
-                'greendirection': determine_greendirection(metric_name, category, effective_subcategory)
-            }
-            metrics.append(metric)
-    
-    for category, category_data in data.items():
-        # Check if this is a top-level category with direct queries
-        if isinstance(category_data, dict) and 'queries' in category_data:
-            # This is a top-level category with direct queries (like the top-level 311_cases)
-            process_queries(category_data['queries'], category, category)
-        else:
-            # This is a nested category structure
-            for subcategory, subcategory_data in category_data.items():
-                if isinstance(subcategory_data, dict):
-                    # Check if this subcategory has direct queries
-                    if 'queries' in subcategory_data:
-                        process_queries(subcategory_data['queries'], category, subcategory)
-                    
-                    # Check if this subcategory has sub-subcategories with queries
-                    for key, value in subcategory_data.items():
-                        if key != 'queries' and isinstance(value, dict) and 'queries' in value:
-                            # This is a sub-subcategory with queries (like 311_cases under emergency_response)
-                            process_queries(value['queries'], category, subcategory, key)
-    
-    return metrics
-
-def insert_metrics(connection, metrics):
-    """Insert metrics into the database."""
-    cursor = connection.cursor()
-    inserted_count = 0
-    
-    # Clear existing metrics first
-    cursor.execute("DELETE FROM metrics")
-    logger.info("Cleared existing metrics")
-    
-    insert_query = """
-        INSERT INTO metrics (
-            metric_name, metric_key, category, subcategory, endpoint,
-            summary, definition, data_sf_url, ytd_query, metric_query,
-            dataset_title, dataset_category, show_on_dash, item_noun,
-            location_fields, category_fields, metadata, greendirection
-        ) VALUES (
-            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
-        )
-    """
-    
-    for metric in metrics:
-        try:
-            cursor.execute(insert_query, (
-                metric['metric_name'],
-                metric['metric_key'],
-                metric['category'],
-                metric['subcategory'],
-                metric['endpoint'],
-                metric['summary'],
-                metric['definition'],
-                metric['data_sf_url'],
-                metric['ytd_query'],
-                metric['metric_query'],
-                metric['dataset_title'],
-                metric['dataset_category'],
-                metric['show_on_dash'],
-                metric['item_noun'],
-                json.dumps(metric['location_fields']),
-                json.dumps(metric['category_fields']),
-                json.dumps(metric['metadata']),
-                metric['greendirection']
-            ))
-            inserted_count += 1
-            logger.info(f"Inserted metric: {metric['metric_name']}")
-        except Exception as e:
-            logger.error(f"Error inserting metric {metric['metric_name']}: {e}")
-    
-    connection.commit()
-    cursor.close()
-    return inserted_count
-
-def migrate_dashboard_to_metrics():
-    """Main migration function."""
-    logger.info("Starting dashboard queries migration to metrics table")
-    
-    # Load dashboard queries
-    dashboard_data = load_dashboard_queries()
-    if not dashboard_data:
-        logger.error("Failed to load dashboard queries")
+    if not os.path.exists(backup_file):
+        logger.error(f"Backup file not found at: {backup_file}")
         return False
-    
-    # Flatten the queries
-    metrics = flatten_queries(dashboard_data)
-    logger.info(f"Found {len(metrics)} metrics to migrate")
-    
-    # Insert into database
-    def migration_operation(connection):
-        return insert_metrics(connection, metrics)
-    
-    result = execute_with_connection(operation=migration_operation)
-    
-    if result["status"] == "success":
-        inserted_count = result["result"]
-        logger.info(f"Successfully migrated {inserted_count} metrics to database")
+
+    def restore_operation(connection):
+        cursor = connection.cursor()
+        try:
+            # Read the backup file
+            with open(backup_file, 'r') as f:
+                backup_sql = f.read()
+            
+            # Execute the backup SQL
+            cursor.execute(backup_sql)
+            connection.commit()
+            logger.info("Successfully restored metrics table from backup file.")
+            return True
+        except Exception as e:
+            connection.rollback()
+            logger.error(f"Error restoring metrics table: {e}")
+            raise
+        finally:
+            cursor.close()
+
+    restore_result = execute_with_connection(operation=restore_operation)
+
+    if restore_result["status"] == "success":
+        logger.info("Metrics table restoration completed successfully.")
         return True
     else:
-        logger.error(f"Migration failed: {result['message']}")
+        logger.error(f"Metrics table restoration failed: {restore_result.get('message', 'Unknown error')}")
         return False
 
 if __name__ == "__main__":
-    migrate_dashboard_to_metrics() 
+    success = restore_metrics_from_backup()
+    if success:
+        logger.info("Metrics table restoration process completed successfully.")
+    else:
+        logger.error("Metrics table restoration process failed.") 

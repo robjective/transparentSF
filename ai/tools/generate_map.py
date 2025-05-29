@@ -152,6 +152,8 @@ if not DATAWRAPPER_API_KEY:
 DEFAULT_DISTRICT_CHART = os.getenv("DATAWRAPPER_REFERENCE_CHART", "j5vON")
 # Default reference chart for locator maps
 DEFAULT_LOCATOR_CHART = "dRKcH"
+# Default reference chart for symbol maps
+DEFAULT_SYMBOL_CHART = "K8LoR"
 
 def _make_dw_request(method, endpoint, headers=None, data=None, json_payload=None):
     """Helper function to make requests to Datawrapper API."""
@@ -972,7 +974,7 @@ def process_location_data(location_data, map_type):
     
     return processed_data
 
-def create_datawrapper_chart(chart_title, location_data, map_type="supervisor_district", reference_chart_id=None, center_coords=None, zoom_level=None, series_field=None, color_palette=None):
+def create_datawrapper_chart(chart_title, location_data, map_type="supervisor_district", reference_chart_id=None, center_coords=None, zoom_level=None, series_field=None, color_palette=None, map_metadata=None):
     """
     Creates a Datawrapper chart, either by cloning a reference chart or creating from scratch.
 
@@ -983,12 +985,13 @@ def create_datawrapper_chart(chart_title, location_data, map_type="supervisor_di
         chart_title (str): Title for the chart.
         location_data (list or str): Data for the chart. For locator maps, this should be a list of point dicts.
                                      For other maps, it can be CSV data string or path.
-        map_type (str): Type of map (e.g., 'supervisor_district', 'point', 'address', 'intersection').
+        map_type (str): Type of map (e.g., 'supervisor_district', 'point', 'address', 'intersection', 'symbol').
         reference_chart_id (str, optional): ID of a Datawrapper chart to clone for non-locator maps.
         center_coords (list, optional): [longitude, latitude] for locator map center.
         zoom_level (int/float, optional): Zoom level for locator map.
         series_field (str, optional): Field name to use for series grouping (e.g., 'series', 'category', 'type').
         color_palette (list or str, optional): Color palette for series. Can be list of colors or palette name.
+        map_metadata (dict, optional): Additional metadata for styling and configuration.
         
     Returns:
         str: The ID of the created/updated chart, or None on failure.
@@ -1016,7 +1019,7 @@ def create_datawrapper_chart(chart_title, location_data, map_type="supervisor_di
         
         # Handle location_data format conversion for district maps
         if map_type in ["supervisor_district", "police_district"] and isinstance(location_data, list):
-            # Convert list of dictionaries to CSV format
+            # Convert list of dictionaries to CSV format for district-based maps
             logger.info(f"Converting list format to CSV for {map_type} map")
             
             # Check if this is enhanced change data (with current, previous, delta fields)
@@ -1037,7 +1040,7 @@ def create_datawrapper_chart(chart_title, location_data, map_type="supervisor_di
             else:
                 # Make a copy to avoid modifying the original
                 map_metadata = dict(map_metadata)
-            
+                
             # Add the has_change_data flag to metadata
             map_metadata["has_change_data"] = has_change_data
             
@@ -1079,9 +1082,32 @@ def create_datawrapper_chart(chart_title, location_data, map_type="supervisor_di
                         csv_data += f"{item['district']},{item['value']}\n"
                     else:
                         logger.warning(f"Skipping invalid district data item: {item}")
-            
+                
             location_data = csv_data
             logger.info(f"Converted to CSV format: {location_data}")
+        
+        # Handle location_data format conversion for symbol maps (coordinate-based)
+        elif map_type == "symbol" and isinstance(location_data, list):
+            # Convert list of dictionaries to CSV format for coordinate-based symbol maps
+            logger.info(f"Converting list format to CSV for symbol map with coordinates")
+            csv_data = "name,latitude,longitude,value,color\n"
+            for item in location_data:
+                if isinstance(item, dict):
+                    name = item.get('name', item.get('title', 'Unknown'))
+                    lat = item.get('lat', item.get('latitude'))
+                    lon = item.get('lon', item.get('longitude'))
+                    value = item.get('value', 1)
+                    color = item.get('color', '#0066cc')
+                    
+                    if lat is not None and lon is not None:
+                        csv_data += f"{name},{lat},{lon},{value},{color}\n"
+                    else:
+                        logger.warning(f"Skipping symbol map item missing coordinates: {item}")
+                else:
+                    logger.warning(f"Skipping invalid symbol map data item: {item}")
+            
+            location_data = csv_data
+            logger.info(f"Converted to CSV format for symbol map: {location_data}")
         
         # Handle locator maps (point, address, intersection) with the new logic
         if map_type in ["point", "address", "intersection"]:
@@ -1266,10 +1292,14 @@ def create_datawrapper_chart(chart_title, location_data, map_type="supervisor_di
                 logger.error(f"Failed to create and configure locator map '{chart_title}'.")
             return chart_id # Return chart_id (or None if creation failed)
 
-        # Existing logic for other map types (cloning, CSV upload)
-        ref_chart_id = reference_chart_id or DEFAULT_DISTRICT_CHART
+        # Existing logic for all map types using cloning approach (district maps, symbol maps, etc.)
+        if map_type == "symbol":
+            ref_chart_id = reference_chart_id or DEFAULT_SYMBOL_CHART
+        else:
+            ref_chart_id = reference_chart_id or DEFAULT_DISTRICT_CHART
+            
         if not ref_chart_id:
-            logger.error("No reference chart ID provided for non-locator map type.")
+            logger.error(f"No reference chart ID provided for {map_type} map type.")
             return None
 
         logger.info(f"Cloning chart from reference ID: {ref_chart_id} for new chart: {chart_title}")
@@ -1343,172 +1373,208 @@ def create_datawrapper_chart(chart_title, location_data, map_type="supervisor_di
 
 def _apply_custom_map_styling(chart_id, map_type, map_metadata=None):
     """
-    Apply custom styling to a Datawrapper map based on the map type and metadata.
+    Apply custom styling to a Datawrapper chart based on map type and metadata.
     
     Args:
         chart_id (str): The Datawrapper chart ID
-        map_type (str): The type of map (e.g., 'supervisor_district')
-        map_metadata (dict or str, optional): Metadata about the map, can be JSON string or dict
-        
-    Returns:
-        bool: True if styling was applied successfully, False otherwise
+        map_type (str): Type of map (e.g., 'supervisor_district', 'point', 'address', 'intersection', 'symbol')
+        map_metadata (dict, optional): Additional metadata for styling
     """
+    if not DATAWRAPPER_API_KEY:
+        logger.error("DATAWRAPPER_API_KEY not set. Cannot apply styling.")
+        return
+    
     try:
-        logger.info(f"Applying custom styling to chart {chart_id}, type: {map_type}")
-        
-        # Ensure map_metadata is a dictionary
-        if isinstance(map_metadata, str):
-            try:
-                map_metadata = json.loads(map_metadata)
-            except json.JSONDecodeError:
-                # Try parsing as Python dict string representation (e.g., "{'key': 'value'}")
-                try:
-                    map_metadata = ast.literal_eval(map_metadata)
-                    logger.info(f"Successfully parsed map_metadata as Python dict for storage: {map_metadata}")
-                except (ValueError, SyntaxError):
-                    logger.warning(f"Invalid JSON and Python dict in map_metadata, treating as empty dict: {map_metadata}")
-                    map_metadata = {}
-        elif map_metadata is None:
-            map_metadata = {}
-        
-        # Define color schemes for different map types
-        density_color_scheme = [
-            {"color": "#f0f9ff", "position": 0},     # Very light blue
-            {"color": "#7dd3fc", "position": 0.25},  # Light blue
-            {"color": "#0ea5e9", "position": 0.5},   # Medium blue
-            {"color": "#0284c7", "position": 0.75},  # Dark blue
-            {"color": "#0c4a6e", "position": 1}      # Very dark blue
-        ]
-        
-        # Symmetric diverging palette with matched lightness on both sides
-        # Endpoints chosen to have similar L* in Lab space so red & green feel balanced
-        delta_color_scheme = [
-            {"color": "#29c786", "position": 0},      # Green (≈L54)
-            {"color": "#a3ebd1", "position": 0.25},   # Light green
-            {"color": "#eeeeee", "position": 0.5},    # Neutral grey
-            {"color": "#f7a3a3", "position": 0.75},   # Light red
-            {"color": "#e24d4d", "position": 1.0}     # Red (≈L54)
-        ]
-        
-        # Determine which color scheme to use
-        if map_metadata.get("map_type") == "delta":
-            colors = delta_color_scheme
-            mode = "continuous"
-            interpolation = "equidistant"
-            legend_title = "% Change"
-            legend_max = "+100%"
-            legend_min = "-100%" 
-            legend_center = "0%"
-            legend_format = "0,0.[0]%"
-            legend_labels = "custom"  # Use custom labels for fixed percentage range
-            # Set explicit color scale range for percentage values (-100 to +100 = -100% to +100%)
-            colorscale_min = -100.0
-            colorscale_max = 100.0
-            # Custom labels for the legend to show the full percentage range
-            custom_labels = ["-100%", "-50%", "0%", "+50%", "+100%"]
-            # Enhanced tooltip for delta maps - using correct Datawrapper format with double curly brackets
-            tooltip_body = "Current: {{ current_value }}<br/>Previous: {{ previous_value }}<br/>Change: {{ delta }}<br/>% Change: {{ FORMAT(percent_change * 100, '0,0.[0]') }}%"
-            tooltip_title = "District %REGION_NAME%"
-        else:
-            colors = density_color_scheme
-            mode = "continuous"
-            interpolation = "equidistant"
-            legend_title = "VALUE"
-            legend_max = "high"
-            legend_min = "low"
-            legend_center = "medium"
-            legend_format = "0,0.[0]"  # Fixed: Remove % for actual values
-            legend_labels = "ranges"  # Use auto-calculated ranges for density maps
-            custom_labels = []
-            # Use automatic scaling for density maps
-            colorscale_min = None
-            colorscale_max = None
-            # Check if we have enhanced data available
-            if map_metadata.get("has_change_data", False):
-                tooltip_body = "Current: {{ current_value }}<br/>Previous: {{ previous_value }}<br/>Change: {{ delta }}"
-                tooltip_title = "District %REGION_NAME%"
-            else:
-                # Standard tooltip for simple maps
-                tooltip_body = "%REGION_VALUE%"
-                tooltip_title = "District %REGION_NAME%"
-        
-        # Prepare colorscale configuration
-        colorscale_config = {
-            "colors": colors,
-            "mode": mode,
-            "interpolation": interpolation,
-            "stops": "equidistant",
-            "stopCount": 5,
-            "palette": 0
+        # Get the current chart data
+        chart_url = f"https://api.datawrapper.de/v3/charts/{chart_id}"
+        headers = {
+            "Authorization": f"Bearer {DATAWRAPPER_API_KEY}",
+            "Content-Type": "application/json"
         }
         
-        # Add explicit min/max for delta maps to ensure proper percentage scaling
-        if colorscale_min is not None and colorscale_max is not None:
-            colorscale_config["min"] = colorscale_min
-            colorscale_config["max"] = colorscale_max
-            colorscale_config["stops"] = "custom"  # Use custom stops when min/max are specified
-            # Define explicit custom stops for the -100% to +100% range
-            colorscale_config["customStops"] = [
-                {"position": 0.0, "color": "#29c786"},   # -100%
-                {"position": 0.25, "color": "#a3ebd1"},  # -50%
-                {"position": 0.5, "color": "#eeeeee"},   # 0%
-                {"position": 0.75, "color": "#f7a3a3"},  # +50%
-                {"position": 1.0, "color": "#e24d4d"}    # +100%
-            ]
-            # Explicitly fix min/max center so Datawrapper doesn't auto-rescale based on data range
-            colorscale_config["rangeMin"] = -100
-            colorscale_config["rangeMax"] = 100
-            colorscale_config["rangeCenter"] = 0
+        # Get current chart data
+        response = requests.get(chart_url, headers=headers)
+        response.raise_for_status()
+        chart_data = response.json()
         
-        # Prepare legend configuration
-        legend_config = {
-            "size": 170,
-            "title": legend_title,
-            "labels": legend_labels,
-            "enabled": True,
-            "offsetX": 0,
-            "offsetY": 0,
-            "reverse": False,
-            "labelMax": legend_max,
-            "labelMin": legend_min,
-            "position": "above",
-            "hideItems": [],
-            "interactive": True,
-            "labelCenter": legend_center,
-            "labelFormat": legend_format,
-            "orientation": "horizontal",
-            "titleEnabled": True
-        }
-        
-        # Add custom labels for delta maps
-        if custom_labels:
-            legend_config["customLabels"] = custom_labels
-        else:
-            legend_config["customLabels"] = []
-        
-        # Prepare styling payload
+        # Initialize styling payload
         styling_payload = {
             "metadata": {
-                "visualize": {
-                    "colorscale": colorscale_config,
-                    "tooltip": {
-                        "body": tooltip_body,
-                        "title": tooltip_title,
-                        "sticky": True,
-                        "enabled": True
-                    },
-                    "legends": {
-                        "color": legend_config
-                    }
-                },
+                "visualize": {},
                 "describe": {
-                    "intro": map_metadata.get("description", ""),
+                    "intro": map_metadata.get("description", "") if map_metadata else "",
                     "source-name": "DataSF",
-                    "source-url": map_metadata.get("executed_url", ""),
+                    "source-url": map_metadata.get("executed_url", "") if map_metadata else "",
                     "byline": "TransparentSF"
                 }
             }
         }
+        
+        # Apply different styling based on map type
+        if map_type in ["supervisor_district", "police_district"]:
+            # Base configuration for all district maps
+            base_config = {
+                "basemap": "custom_upload",
+                "basemapFilename": "districts_geojson.json",
+                "basemapProjection": "geoAzimuthalEqualArea",
+                "map-key-attr": "district",
+                "map-type-set": True,
+                "chart-type-set": True,
+                "zoomable": True,
+                "map-align": "center",
+                "map-padding": 0,
+                "hide-region-borders": True,
+                "hide-empty-regions": False,
+                "basemapRegions": "all",
+                "max-map-height": 650,
+                "min-label-zoom": 1,
+                "zoom-button-pos": "br",
+                "map-label-format": "0,0.[00]",
+                "avoid-label-overlap": True,
+                "mapViewCropPadding": 10,
+                "basemapShowExtraOptions": False
+            }
+            
+            # Check if this is a delta/change map
+            is_delta_map = map_metadata and map_metadata.get("map_type") == "delta"
+            
+            if is_delta_map:
+                # Delta map styling (for showing changes) - ALWAYS APPLY THIS FOR DELTA MAPS
+                styling_payload["metadata"]["visualize"] = {
+                    **base_config,
+                    "colorscale": {
+                        "mode": "continuous",
+                        "stops": "equidistant",
+                        "colors": [
+                            {"color": "#dc2626", "position": 0},      # Strong Red (for -100%)
+                            {"color": "#f87171", "position": 0.25},   # Light Red
+                            {"color": "#eeeeee", "position": 0.5},    # Neutral Gray (for 0%)
+                            {"color": "#a7e9d8", "position": 0.75},   # Light Teal/Green
+                            {"color": "#00dca6", "position": 1.0}     # Strong Teal/Green (for +100%)
+                        ],
+                        "palette": 0,
+                        "stopCount": 5,
+                        "interpolation": "equidistant",
+                        "min": -100,
+                        "max": 100,
+                        "domain": [-100, 100],
+                        "rangeMin": -100,
+                        "rangeMax": 100,
+                        "rangeCenter": 0,
+                        "customStops": [] # Clear any custom stops from template
+                    },
+                    "legends": {
+                        "color": {
+                            "size": 170,
+                            "title": "CHANGE",
+                            "labels": "ranges",
+                            "enabled": True,
+                            "offsetX": 0,
+                            "offsetY": 0,
+                            "reverse": False,
+                            "labelMax": "100%",  # Fixed maximum label
+                            "labelMin": "-100%",  # Fixed minimum label
+                            "position": "above",
+                            "interactive": True,
+                            "labelCenter": "medium",
+                            "labelFormat": "+0,0.[00]%",  # Format as percentage with + sign
+                            "orientation": "horizontal",
+                            "titleEnabled": False,
+                            "customLabels": []  # Clear any custom labels
+                        }
+                    },
+                    "tooltip": {
+                        "body": "Current: {{ current_value }}<br/>Previous: {{ previous_value }}<br/>Change: {{ delta }}<br/>% Change: {{ FORMAT(percent_change, '0,0.[0]%') }}",
+                        "title": "District {{ district }}",
+                        "sticky": True,
+                        "enabled": True
+                    }
+                }
+            else:
+                # Density map styling (for showing absolute values)
+                styling_payload["metadata"]["visualize"] = {
+                    **base_config,
+                    "colorscale": {
+                        "mode": "continuous",
+                        "stops": "equidistant",
+                        "colors": [
+                            {"color": "#E9D8FA", "position": 0},      # Very Light Purple for low
+                            {"color": "#ad35fa", "position": 1.0}     # Purple for high
+                        ],
+                        "palette": 0,
+                        "stopCount": 2,
+                        "interpolation": "linear"
+                    },
+                    "legends": {
+                        "color": {
+                            "size": 170,
+                            "title": "VALUE",
+                            "labels": "ranges",
+                            "enabled": True,
+                            "offsetX": 0,
+                            "offsetY": 0,
+                            "reverse": False,
+                            "labelMax": "high",
+                            "labelMin": "low",
+                            "position": "above",
+                            "interactive": True,
+                            "labelCenter": "medium",
+                            "labelFormat": "0,0.[00]",  # Format as number
+                            "orientation": "horizontal",
+                            "titleEnabled": False
+                        }
+                    },
+                    "tooltip": {
+                        "body": "{{ value }}",
+                        "title": "District {{ district }}",
+                        "sticky": True,
+                        "enabled": True
+                    }
+                }
+            
+                # Add any custom colorscale if provided in metadata FOR NON-DELTA MAPS
+                if map_metadata and "colorscale" in map_metadata and not is_delta_map:
+                    styling_payload["metadata"]["visualize"]["colorscale"] = map_metadata["colorscale"]
+        
+        elif map_type == "symbol":
+            # Symbol map styling for cloned charts with coordinate-based data
+            symbol_color = map_metadata.get("color", "#0066cc") if map_metadata else "#0066cc"
+            min_size = map_metadata.get("min_size", 5) if map_metadata else 5
+            max_size = map_metadata.get("max_size", 30) if map_metadata else 30
+            
+            # For cloned symbol maps with coordinates, configure for location-based symbols
+            styling_payload["metadata"]["visualize"] = {
+                "symbol-size": {
+                    "column": "value",
+                    "min": min_size,
+                    "max": max_size,
+                    "scale": "sqrt"
+                },
+                "symbol-color": {
+                    "column": "color",  # Use color column from CSV
+                    "value": symbol_color  # Fallback color
+                },
+                "tooltip": {
+                    "title": "{{ name }}",
+                    "body": "Value: {{ value }}",
+                    "enabled": True
+                },
+                "legend": {
+                    "title": "Value", 
+                    "enabled": True,
+                    "position": "tr"
+                },
+                "symbol-opacity": 0.8,
+                "symbol-stroke": {
+                    "enabled": True,
+                    "color": "#ffffff",
+                    "width": 1
+                }
+            }
+            
+            # Apply custom tooltip if provided
+            if map_metadata and "tooltip" in map_metadata:
+                styling_payload["metadata"]["visualize"]["tooltip"]["body"] = map_metadata["tooltip"]
         
         # Apply the styling
         _make_dw_request(
@@ -1518,11 +1584,8 @@ def _apply_custom_map_styling(chart_id, map_type, map_metadata=None):
         )
         
         logger.info(f"Applied custom styling to chart {chart_id} (type: {map_type})")
-        return True
-        
     except Exception as e:
         logger.error(f"Error applying custom styling to chart {chart_id}: {str(e)}", exc_info=True)
-        return False
 
 def get_db_connection():
     """Get a connection to the PostgreSQL database."""
@@ -1557,12 +1620,11 @@ def generate_map(context_variables, map_title, map_type, location_data, map_meta
     Args:
         context_variables (dict): Dictionary of context variables (e.g., for database connection).
         map_title (str): Desired title for the map.
-        map_type (str): Type of map (e.g., 'supervisor_district', 'police_district', 'point', 'address', 'intersection').
-                        'point', 'address', and 'intersection' will use the new locator map creation flow.
+        map_type (str): Type of map (e.g., 'supervisor_district', 'police_district', 'point', 'address', 'intersection', 'symbol').
         location_data (list or str): Data for the map. 
                                    For locator maps ('point', 'address', 'intersection'): list of dicts with point/address details.
                                    For district maps: list of dicts [{"district": "1", "value": 120}] OR CSV string.
-                                   For other maps: CSV string or path to CSV file.
+                                   For symbol maps: list of dicts [{"district": "1", "value": 120}] OR CSV string.
         map_metadata (dict or str, optional): Additional metadata for the map (e.g., center, zoom for locator).
         reference_chart_id (str, optional): Datawrapper chart ID to use as a template for non-locator maps.
         metric_id (str, optional): Identifier for the metric being mapped (for storage).
@@ -1589,9 +1651,9 @@ def generate_map(context_variables, map_title, map_type, location_data, map_meta
             # If it's not JSON, treat as CSV data and pass through
             logger.info(f"location_data appears to be CSV string, using as-is")
     
-    # Handle location_data format conversion for district maps
+    # Handle location_data format conversion for district maps and symbol maps
     if map_type in ["supervisor_district", "police_district"] and isinstance(location_data, list):
-        # Convert list of dictionaries to CSV format
+        # Convert list of dictionaries to CSV format for district-based maps
         logger.info(f"Converting list format to CSV for {map_type} map")
         
         # Check if this is enhanced change data (with current, previous, delta fields)
@@ -1662,7 +1724,8 @@ def generate_map(context_variables, map_title, map_type, location_data, map_meta
     chart_args = {
         "chart_title": map_title,
         "location_data": location_data,
-        "map_type": map_type
+        "map_type": map_type,
+        "map_metadata": map_metadata
     }
 
     # For locator maps, pass center and zoom if provided in map_metadata
@@ -1674,8 +1737,14 @@ def generate_map(context_variables, map_title, map_type, location_data, map_meta
             zoom_level = map_metadata.get("zoom")
             chart_args["center_coords"] = center_coords
             chart_args["zoom_level"] = zoom_level
-        # For other map types, map_metadata might be used differently or passed as 'external_metadata'
-        # For now, let's assume other map types don't use center/zoom from here directly for creation
+        # For symbol maps, pass color and size settings
+        elif map_type == "symbol":
+            if "color" in map_metadata:
+                chart_args["color_palette"] = map_metadata["color"]
+            # Remove these lines as they should be handled in _apply_custom_map_styling
+            # if "min_size" in map_metadata and "max_size" in map_metadata:
+            #     chart_args["min_size"] = map_metadata["min_size"]
+            #     chart_args["max_size"] = map_metadata["max_size"]
     
     # Add series support for locator maps
     if map_type in ["point", "address", "intersection"]:
@@ -1685,7 +1754,7 @@ def generate_map(context_variables, map_title, map_type, location_data, map_meta
             chart_args["color_palette"] = color_palette
     
     # For non-locator maps, pass reference_chart_id if provided
-    if map_type not in ["point", "address", "intersection"] and reference_chart_id:
+    if map_type not in ["point", "address", "intersection"]:
         chart_args["reference_chart_id"] = reference_chart_id
 
     chart_id = None
@@ -1712,7 +1781,7 @@ def generate_map(context_variables, map_title, map_type, location_data, map_meta
                 except json.JSONDecodeError:
                     map_metadata = {}
             map_metadata['executed_url'] = executed_url
-            
+        
         _apply_custom_map_styling(chart_id, map_type, map_metadata)
 
         # Publish the chart once with all styling applied
@@ -1727,10 +1796,6 @@ def generate_map(context_variables, map_title, map_type, location_data, map_meta
         logger.info(f"Chart {chart_id} published successfully.")
 
         edit_url = f"https://app.datawrapper.de/edit/{chart_id}"
-        # Construct public URL (format may vary based on your Datawrapper setup/account)
-        # Example: chart_data = _make_dw_request("GET", f"/charts/{chart_id}")
-        # public_url = chart_data.get("publicUrl", f"https://datawrapper.dwcdn.net/{chart_id}/")
-        # For simplicity, using the common DW CDN structure:
         public_url = f"https://datawrapper.dwcdn.net/{chart_id}/"
 
         # Store map metadata in the database
@@ -1801,6 +1866,8 @@ def generate_map(context_variables, map_title, map_type, location_data, map_meta
             map_subtype = "density"  # Default to density
             if metadata_json.get("map_type") == "delta":
                 map_subtype = "delta"
+            elif map_type == "symbol":
+                map_subtype = "symbol"
             
             # Before inserting, deactivate previous maps of the same type for this metric/group_field
             if metric_id and group_field:
@@ -1863,7 +1930,7 @@ def generate_map(context_variables, map_title, map_type, location_data, map_meta
     
     except Exception as e:
         logger.error(f"An error occurred during map generation for '{map_title}': {str(e)}", exc_info=True)
-        # If chart_id was created but subsequent steps failed, it might exist in Datawrapper
+        # If chart_id exists, the chart may have been partially created in Datawrapper
         if chart_id:
             logger.error(f"Chart {chart_id} may have been partially created in Datawrapper.")
         return None
@@ -2258,24 +2325,132 @@ def create_sample_series_data():
     ]
     return sample_data
 
+def _create_and_configure_symbol_map(chart_title, csv_data, map_metadata=None):
+    """
+    Creates a symbol map from scratch with proper configuration.
+
+    Args:
+        chart_title (str): The title for the new map.
+        csv_data (str): CSV data for the symbol map.
+        map_metadata (dict, optional): Additional metadata for styling.
+
+    Returns:
+        str: The ID of the newly created and configured chart, or None on failure.
+    """
+    try:
+        # 1. Create a new d3-maps-symbols chart
+        logger.info(f"Creating symbol map with title: {chart_title}")
+        create_chart_payload = {
+            "title": chart_title,
+            "type": "d3-maps-symbols"
+        }
+        create_chart_response = _make_dw_request(
+            "POST",
+            "/charts",
+            json_payload=create_chart_payload
+        )
+        if not create_chart_response or "id" not in create_chart_response:
+            logger.error(f"Failed to create symbol map. Response: {create_chart_response}")
+            return None
+        chart_id = create_chart_response["id"]
+        logger.info(f"Successfully created symbol map with ID: {chart_id}")
+
+        # 2. Upload CSV data
+        logger.info(f"Uploading CSV data to symbol map ID: {chart_id}")
+        add_data_response = _make_dw_request(
+            "PUT",
+            f"/charts/{chart_id}/data",
+            headers={'Content-Type': 'text/csv'},
+            data=csv_data
+        )
+        logger.info(f"CSV data uploaded to symbol map ID: {chart_id}")
+
+        # 3. Configure the map with proper metadata
+        logger.info(f"Configuring symbol map ID: {chart_id}")
+        
+        symbol_color = map_metadata.get("color", "#0066cc") if map_metadata else "#0066cc"
+        min_size = map_metadata.get("min_size", 5) if map_metadata else 5
+        max_size = map_metadata.get("max_size", 30) if map_metadata else 30
+        
+        config_payload = {
+            "metadata": {
+                "data": {
+                    "csv": True
+                },
+                "visualize": {
+                    "map": "sf-supervisorial-districts",
+                    "symbol-size": {
+                        "column": "value",
+                        "min": min_size,
+                        "max": max_size,
+                        "scale": "sqrt"
+                    },
+                    "symbol-color": {
+                        "column": None,
+                        "value": symbol_color
+                    },
+                    "tooltip": {
+                        "title": "District {{ district }}",
+                        "body": "Value: {{ value }}",
+                        "enabled": True
+                    },
+                    "legend": {
+                        "title": "Value",
+                        "enabled": True,
+                        "position": "tr"
+                    },
+                    "symbol-opacity": 0.8,
+                    "symbol-stroke": {
+                        "enabled": True,
+                        "color": "#ffffff",
+                        "width": 1
+                    }
+                },
+                "describe": {
+                    "intro": map_metadata.get("description", "") if map_metadata else "",
+                    "source-name": "DataSF",
+                    "source-url": map_metadata.get("executed_url", "") if map_metadata else "",
+                    "byline": "TransparentSF"
+                }
+            }
+        }
+        
+        _make_dw_request(
+            "PATCH",
+            f"/charts/{chart_id}",
+            json_payload=config_payload
+        )
+        logger.info(f"Configuration applied to symbol map ID: {chart_id}")
+
+        logger.info(f"Successfully created and configured symbol map with ID: {chart_id}")
+        return chart_id
+    
+    except Exception as e:
+        logger.error(f"Error in _create_and_configure_symbol_map: {str(e)}", exc_info=True)
+        if 'chart_id' in locals() and chart_id:
+            logger.error(f"An error occurred after chart {chart_id} was created. The chart might be in an incomplete state.")
+            return chart_id
+        return None
+
 # Testing
 if __name__ == "__main__":
     # Initialize logging for testing
     logging.basicConfig(level=logging.INFO)
     
     # Sample data for a supervisor district map
-    test_location_data_csv = """district,value
-1,120
-2,85
-3,65
-4,95
-5,75
-6,50
-7,80
-8,70
-9,60
-10,90
-11,55"""
+    test_location_data = [
+        {"district": "1", "value": 120},
+        {"district": "2", "value": 85},
+        {"district": "3", "value": 65},
+        {"district": "4", "value": 95},
+        {"district": "5", "value": 75},
+        {"district": "6", "value": 50},
+        {"district": "7", "value": 80},
+        {"district": "8", "value": 70},
+        {"district": "9", "value": 60},
+        {"district": "10", "value": 90},
+        {"district": "11", "value": 55}
+    ]
     
     test_metadata = {
         "description": "Test map showing values by supervisor district",
@@ -2283,12 +2458,12 @@ if __name__ == "__main__":
         "date_created": datetime.now().isoformat()
     }
     
-    # Test generating a map
+    # Test generating a basic choropleth map
     result = generate_map(
         {},
         map_title="Test Supervisor District Map",
         map_type="supervisor_district",
-        location_data=test_location_data_csv,
+        location_data=test_location_data,
         map_metadata=test_metadata
     )
     
@@ -2301,208 +2476,3 @@ if __name__ == "__main__":
         print(f"Public URL: {result['publish_url']}")
     else:
         print("❌ Failed to create supervisor district map")
-        
-    # Test enhanced change map with detailed tooltips
-    enhanced_change_data = [
-        {"district": "1", "current_value": 120, "previous_value": 100, "delta": 20, "percent_change": 0.20},
-        {"district": "2", "current_value": 85, "previous_value": 90, "delta": -5, "percent_change": -0.056},
-        {"district": "3", "current_value": 65, "previous_value": 70, "delta": -5, "percent_change": -0.071},
-        {"district": "4", "current_value": 95, "previous_value": 80, "delta": 15, "percent_change": 0.188},
-        {"district": "5", "current_value": 75, "previous_value": 75, "delta": 0, "percent_change": 0.0}
-    ]
-    
-    enhanced_metadata = {
-        "map_type": "delta",
-        "description": "Change in incidents from previous month",
-        "source": "Test enhanced data"
-    }
-    
-    result = generate_map(
-        {},
-        map_title="Test Enhanced Change Map - District Crime Changes",
-        map_type="supervisor_district",
-        location_data=enhanced_change_data,
-        map_metadata=enhanced_metadata
-    )
-    
-    print(f"Generate enhanced change map result: {result}")
-    
-    if result and "map_id" in result:
-        print("✅ Enhanced change map created successfully!")
-        print(f"Map ID: {result['map_id']}")
-        print(f"Edit URL: {result['edit_url']}")
-        print(f"Public URL: {result['publish_url']}")
-        print("🔍 This map should show detailed tooltips with current, previous, delta, and % change values")
-    else:
-        print("❌ Failed to create enhanced change map")
-        
-    # Test data for a locator map with points - single point with minimal styling
-    test_point_data = [
-        {
-            "lat": 37.7749, 
-            "lon": -122.4194, 
-            "title": "Test Point", 
-            "description": "Test Description"
-        }
-    ]
-    
-    # Test generating a point map
-    result = generate_map(
-        {},
-        map_title="Test Single Point Map",
-        map_type="point",
-        location_data=test_point_data,
-        map_metadata={"description": "Test single point map"}
-    )
-    
-    print(f"Generate point map result: {result}")
-    
-    # Test data for a locator map with addresses - single address
-    test_address_data = [
-        {
-            "address": "1 Dr Carlton B Goodlett Pl, San Francisco, CA", 
-            "title": "Test Address", 
-            "description": "Test Description"
-        }
-    ]
-    
-    # Test generating an address map
-    result = generate_map(
-        {},
-        map_title="Test Single Address Map",
-        map_type="address",
-        location_data=test_address_data,
-        map_metadata={"description": "Test single address map"}
-    )
-    
-    print(f"Generate address map result: {result}")
-    
-    # Test data for a locator map with series - multiple categories with different colors
-    test_series_data = create_sample_series_data()
-    
-    # Test generating a series map with default categorical colors
-    result = generate_map(
-        {},
-        map_title="Test Multi-Series Map - SF Public Services",
-        map_type="point",
-        location_data=test_series_data,
-        map_metadata={"description": "Test multi-series map with different colored categories"},
-        series_field="series",
-        color_palette="categorical"
-    )
-    
-    print(f"Generate series map result: {result}")
-    
-    if result and "map_id" in result:
-        print("✅ Multi-series map created successfully!")
-        print(f"Map ID: {result['map_id']}")
-        print(f"Edit URL: {result['edit_url']}")
-        print(f"Public URL: {result['publish_url']}")
-        print("🎨 This map should show different colored markers for each series with a legend")
-    else:
-        print("❌ Failed to create multi-series map")
-    
-    # Test with custom color palette
-    custom_colors = ["#FF0000", "#00FF00", "#0000FF", "#FFFF00"]  # Red, Green, Blue, Yellow
-    result = generate_map(
-        {},
-        map_title="Test Custom Colors Map - SF Public Services",
-        map_type="point",
-        location_data=test_series_data,
-        map_metadata={"description": "Test map with custom color palette"},
-        series_field="series",
-        color_palette=custom_colors
-    )
-    
-    print(f"Generate custom colors map result: {result}")
-
-    # Duplicate dRKcH but do not upload data
-    duplicate_response = _make_dw_request(
-        "POST",
-        "/charts/dRKcH/copy"
-    )
-    print("Duplicate response:", duplicate_response)
-    if duplicate_response and "id" in duplicate_response:
-        chart_id = duplicate_response["id"]
-        print("New chart ID:", chart_id)
-        print("Edit URL:", f"https://app.datawrapper.de/map/{chart_id}/visualize") 
-
-    # Test GeoJSON with SF landmarks
-    test_geojson = {
-        "type": "FeatureCollection",
-        "features": [
-            {
-                "type": "Feature",
-                "properties": {
-                    "title": "City Hall",
-                    "description": "San Francisco City Hall",
-                    "color": "#0066cc",
-                    "icon": "building",
-                    "scale": "1.5"
-                },
-                "geometry": {
-                    "type": "Point",
-                    "coordinates": [-122.4194, 37.7749]
-                }
-            },
-            {
-                "type": "Feature",
-                "properties": {
-                    "title": "Golden Gate Bridge",
-                    "description": "Iconic suspension bridge",
-                    "color": "#cc0000",
-                    "icon": "bridge",
-                    "scale": "1.2"
-                },
-                "geometry": {
-                    "type": "Point",
-                    "coordinates": [-122.4783, 37.8199]
-                }
-            },
-            {
-                "type": "Feature",
-                "properties": {
-                    "title": "Ferry Building",
-                    "description": "Historic ferry terminal and marketplace",
-                    "color": "#006600",
-                    "icon": "building",
-                    "scale": "1.3"
-                },
-                "geometry": {
-                    "type": "Point",
-                    "coordinates": [-122.3937, 37.7956]
-                }
-            },
-            {
-                "type": "Feature",
-                "properties": {
-                    "title": "Dolores Park",
-                    "description": "Popular park in the Mission District",
-                    "color": "#009900",
-                    "icon": "park",
-                    "scale": "1.4"
-                },
-                "geometry": {
-                    "type": "Point",
-                    "coordinates": [-122.4265, 37.7597]
-                }
-            },
-            {
-                "type": "Feature",
-                "properties": {
-                    "title": "Sutro Tower",
-                    "description": "TV and radio transmission tower",
-                    "color": "#666666",
-                    "icon": "tower",
-                    "scale": "1.2"
-                },
-                "geometry": {
-                    "type": "Point",
-                    "coordinates": [-122.4527, 37.7552]
-                }
-            }
-        ]
-    }
-    
-    print("\nTest GeoJSON for SF landmarks:")
-    print(json.dumps(test_geojson, indent=2)) 

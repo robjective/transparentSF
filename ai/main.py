@@ -439,48 +439,67 @@ async def get_metric_id_mapping():
 @app.get("/api/metric/{metric_id}")
 async def get_metric_by_id(metric_id: int):
     """Get metric details by its numeric ID."""
-    # First, load the metric ID mapping
-    mapping_file = os.path.join(current_dir, "data", "dashboard", "metric_id_mapping.json")
-    enhanced_queries_file = os.path.join(current_dir, "data", "dashboard", "dashboard_queries_enhanced.json")
-    
     try:
-        # Load the mapping file
-        with open(mapping_file, 'r') as f:
-            mapping = json.load(f)
+        from tools.db_utils import get_postgres_connection
+        import psycopg2.extras
         
-        # Check if the metric ID exists in the mapping
-        metric_id_str = str(metric_id)
-        if metric_id_str not in mapping:
-            logger.error(f"Metric ID {metric_id} not found in mapping")
+        connection = get_postgres_connection()
+        if not connection:
+            raise HTTPException(status_code=500, detail="Database connection failed")
+        
+        cursor = connection.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        
+        # Get the metric details from the database
+        cursor.execute("""
+            SELECT 
+                m.id,
+                m.metric_name as name,
+                m.metric_key,
+                m.category,
+                m.subcategory,
+                m.endpoint,
+                m.summary,
+                m.definition,
+                m.data_sf_url,
+                m.ytd_query,
+                m.metric_query,
+                m.dataset_title,
+                m.dataset_category,
+                m.show_on_dash,
+                m.item_noun,
+                m.greendirection,
+                m.location_fields,
+                m.category_fields,
+                m.metadata,
+                m.is_active
+            FROM metrics m
+            WHERE m.id = %s
+        """, (metric_id,))
+        
+        metric = cursor.fetchone()
+        cursor.close()
+        connection.close()
+        
+        if not metric:
+            logger.error(f"Metric ID {metric_id} not found in database")
             raise HTTPException(status_code=404, detail=f"Metric ID {metric_id} not found")
         
-        # Get the metric details from the mapping
-        metric_info = mapping[metric_id_str]
-        category = metric_info["category"]
-        subcategory = metric_info["subcategory"]
-        metric_name = metric_info["name"]
+        # Convert to dictionary and handle JSON fields
+        metric_dict = dict(metric)
         
-        # Load the enhanced queries file
-        with open(enhanced_queries_file, 'r') as f:
-            queries = json.load(f)
+        # Ensure location_fields and category_fields are lists
+        if metric_dict.get('location_fields') is None:
+            metric_dict['location_fields'] = []
+        if metric_dict.get('category_fields') is None:
+            metric_dict['category_fields'] = []
+            
+        return JSONResponse(content=metric_dict)
         
-        # Get the metric details from the enhanced queries
-        if category in queries and subcategory in queries[category] and "queries" in queries[category][subcategory] and metric_name in queries[category][subcategory]["queries"]:
-            metric_data = queries[category][subcategory]["queries"][metric_name]
-            return JSONResponse(content=metric_data)
-        else:
-            logger.error(f"Metric {metric_name} not found in enhanced queries")
-            raise HTTPException(status_code=404, detail=f"Metric {metric_name} not found in enhanced queries")
-    
-    except FileNotFoundError as e:
-        logger.error(f"File not found: {str(e)}")
-        raise HTTPException(status_code=404, detail="Required files not found")
-    except json.JSONDecodeError as e:
-        logger.error(f"Invalid JSON: {str(e)}")
-        raise HTTPException(status_code=500, detail="Invalid JSON in required files")
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Error getting metric by ID: {str(e)}")
-        raise HTTPException(status_code=500, detail="Internal server error")
+        logger.error(f"Error getting metric {metric_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error getting metric: {str(e)}")
 
 @app.get("/api/district/{district_id}/metric/{metric_id}")
 async def get_district_metric(district_id: str, metric_id: str):
@@ -960,6 +979,6 @@ if __name__ == "__main__":
     uvicorn.run("main:app", 
                 host="0.0.0.0", 
                 port=8000, 
-                reload=True, 
-                workers=4,
+                reload=False,  # Disable reload for deployment
+                workers=1,     # Use single worker for deployment stability
                 log_config=LOGGING_CONFIG) 

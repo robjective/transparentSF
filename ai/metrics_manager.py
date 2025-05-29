@@ -49,12 +49,12 @@ async def get_enhanced_queries_db():
                 m.location_fields,
                 m.category_fields,
                 m.metadata,
+                m.is_active,
                 d.title as dataset_title_from_datasets,
                 d.category as dataset_category_from_datasets,
                 d.columns as dataset_columns
             FROM metrics m
             LEFT JOIN datasets d ON m.endpoint = d.endpoint AND d.is_active = true
-            WHERE m.is_active = true
             ORDER BY m.category, m.subcategory, m.id
         """)
         
@@ -99,7 +99,8 @@ async def get_enhanced_queries_db():
                 "dataset_category": dataset_category,
                 "greendirection": row['greendirection'] or "up",
                 "location_fields": row['location_fields'] or [],
-                "category_fields": row['category_fields'] or []
+                "category_fields": row['category_fields'] or [],
+                "is_active": row['is_active'] if row['is_active'] is not None else True
             }
             
             # Add metadata if available
@@ -457,7 +458,7 @@ async def run_specific_metric_db(metric_id: int, district_id: int = 0, period_ty
 
 
 @router.post("/api/metrics")
-async def create_metric_db(request: Request):
+async def create_new_metric(request: Request):
     """Create a new metric in the database."""
     try:
         from tools.db_utils import get_postgres_connection
@@ -465,7 +466,7 @@ async def create_metric_db(request: Request):
         data = await request.json()
         
         # Validate required fields
-        required_fields = ['metric_name', 'category', 'endpoint']
+        required_fields = ['name', 'key', 'category', 'endpoint']
         for field in required_fields:
             if not data.get(field):
                 raise HTTPException(status_code=400, detail=f"Missing required field: {field}")
@@ -476,22 +477,19 @@ async def create_metric_db(request: Request):
         
         cursor = connection.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         
-        # Generate metric_key from metric_name
-        metric_key = data['metric_name'].lower().replace(' ', '_').replace('(', '').replace(')', '').replace('-', '_')
-        
         # Insert the new metric
         cursor.execute("""
             INSERT INTO metrics (
                 metric_name, metric_key, category, subcategory, endpoint,
                 summary, definition, data_sf_url, ytd_query, metric_query,
                 dataset_title, dataset_category, show_on_dash, item_noun,
-                location_fields, category_fields, metadata, greendirection
+                location_fields, category_fields, metadata, greendirection, is_active
             ) VALUES (
-                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
             ) RETURNING id
         """, (
-            data['metric_name'],
-            metric_key,
+            data['name'],
+            data['key'],
             data['category'],
             data.get('subcategory', data['category']),
             data['endpoint'],
@@ -507,7 +505,8 @@ async def create_metric_db(request: Request):
             json.dumps(data.get('location_fields', [])),
             json.dumps(data.get('category_fields', [])),
             json.dumps(data.get('metadata', {})),
-            data.get('greendirection', 'up')
+            data.get('greendirection', 'up'),
+            True
         ))
         
         new_metric_id = cursor.fetchone()['id']
@@ -515,11 +514,11 @@ async def create_metric_db(request: Request):
         cursor.close()
         connection.close()
         
-        logger.info(f"Created new metric with ID {new_metric_id}: {data['metric_name']}")
+        logger.info(f"Created new metric with ID {new_metric_id}: {data['name']}")
         
         return JSONResponse({
             "status": "success",
-            "message": f"Created metric: {data['metric_name']}",
+            "message": f"Created metric: {data['name']}",
             "metric_id": new_metric_id
         })
         
@@ -643,4 +642,542 @@ async def hard_delete_metric(metric_id: int):
         raise
     except Exception as e:
         logger.error(f"Error hard deleting metric {metric_id}: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Error hard deleting metric: {str(e)}") 
+        raise HTTPException(status_code=500, detail=f"Error hard deleting metric: {str(e)}")
+
+
+@router.post("/api/migrate-dashboard-to-metrics")
+async def migrate_dashboard_to_metrics_api():
+    """Run the dashboard to metrics migration script."""
+    try:
+        logger.info("Starting dashboard to metrics migration via API")
+        
+        # Import and run the migration function
+        import sys
+        import os
+        
+        # Add the tools directory to the Python path
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        tools_dir = os.path.join(script_dir, 'tools')
+        if tools_dir not in sys.path:
+            sys.path.insert(0, tools_dir)
+        
+        try:
+            from migrate_dashboard_to_metrics import migrate_dashboard_to_metrics
+            
+            # Run the migration
+            success = migrate_dashboard_to_metrics()
+            
+            if success:
+                logger.info("Dashboard migration completed successfully")
+                return JSONResponse({
+                    "status": "success",
+                    "message": "Dashboard queries successfully migrated to metrics table"
+                })
+            else:
+                logger.error("Dashboard migration failed")
+                return JSONResponse({
+                    "status": "error",
+                    "message": "Dashboard migration failed - check logs for details"
+                }, status_code=500)
+                
+        except ImportError as e:
+            logger.error(f"Could not import migration script: {str(e)}")
+            return JSONResponse({
+                "status": "error",
+                "message": f"Could not import migration script: {str(e)}"
+            }, status_code=500)
+            
+    except Exception as e:
+        logger.error(f"Error during dashboard migration: {str(e)}")
+        return JSONResponse({
+            "status": "error",
+            "message": f"Error during migration: {str(e)}"
+        }, status_code=500)
+
+
+@router.put("/api/metrics/{metric_identifier}")
+async def edit_metric(metric_identifier: str, request: Request):
+    """Update an existing metric."""
+    try:
+        from tools.db_utils import get_postgres_connection
+        
+        data = await request.json()
+        logger.info(f"Updating metric {metric_identifier} with data: {data}")
+        
+        connection = get_postgres_connection()
+        if not connection:
+            raise HTTPException(status_code=500, detail="Database connection failed")
+        
+        cursor = connection.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        
+        # Try to convert to integer for ID lookup
+        try:
+            metric_id = int(metric_identifier)
+            cursor.execute("SELECT id, metric_name FROM metrics WHERE id = %s", (metric_id,))
+        except ValueError:
+            # If not an integer, treat as metric_key
+            cursor.execute("SELECT id, metric_name FROM metrics WHERE metric_key = %s", (metric_identifier,))
+        
+        metric = cursor.fetchone()
+        if not metric:
+            cursor.close()
+            connection.close()
+            raise HTTPException(status_code=404, detail=f"Metric not found: {metric_identifier}")
+        
+        # Build update query dynamically based on provided fields
+        update_fields = []
+        params = []
+        
+        for field, value in data.items():
+            if field in ['name', 'category', 'subcategory', 'endpoint', 'summary', 'definition',
+                        'data_sf_url', 'ytd_query', 'metric_query', 'dataset_title', 'dataset_category',
+                        'show_on_dash', 'item_noun', 'location_fields', 'category_fields', 'metadata',
+                        'greendirection', 'is_active']:
+                if field == 'name':
+                    update_fields.append("metric_name = %s")
+                elif field == 'key':
+                    continue  # Don't allow updating the key
+                elif field in ['location_fields', 'category_fields', 'metadata']:
+                    update_fields.append(f"{field} = %s")
+                    params.append(json.dumps(value))
+                else:
+                    update_fields.append(f"{field} = %s")
+                    params.append(value)
+        
+        if not update_fields:
+            cursor.close()
+            connection.close()
+            raise HTTPException(status_code=400, detail="No valid fields to update")
+        
+        update_fields.append("updated_at = CURRENT_TIMESTAMP")
+        params.append(metric['id'])
+        
+        query = f"""
+            UPDATE metrics 
+            SET {', '.join(update_fields)}
+            WHERE id = %s
+            RETURNING id, metric_name
+        """
+        
+        cursor.execute(query, params)
+        updated_metric = cursor.fetchone()
+        
+        if not updated_metric:
+            connection.rollback()
+            cursor.close()
+            connection.close()
+            raise HTTPException(status_code=500, detail="Failed to update metric")
+        
+        connection.commit()
+        cursor.close()
+        connection.close()
+        
+        logger.info(f"Successfully updated metric {metric_identifier}: {updated_metric['metric_name']}")
+        
+        return JSONResponse({
+            "status": "success",
+            "message": f"Updated metric: {updated_metric['metric_name']}",
+            "metric_id": updated_metric['id']
+        })
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating metric {metric_identifier}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error updating metric: {str(e)}")
+
+
+@router.post("/api/metrics/{metric_identifier}/disable")
+async def disable_metric(metric_identifier: str):
+    """Deactivate a metric (soft delete)."""
+    try:
+        from tools.db_utils import get_postgres_connection
+        
+        connection = get_postgres_connection()
+        if not connection:
+            raise HTTPException(status_code=500, detail="Database connection failed")
+        
+        cursor = connection.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        
+        # Try to convert to integer for ID lookup
+        try:
+            metric_id = int(metric_identifier)
+            cursor.execute("SELECT id, metric_name FROM metrics WHERE id = %s", (metric_id,))
+        except ValueError:
+            # If not an integer, treat as metric_key
+            cursor.execute("SELECT id, metric_name FROM metrics WHERE metric_key = %s", (metric_identifier,))
+        
+        metric = cursor.fetchone()
+        if not metric:
+            cursor.close()
+            connection.close()
+            raise HTTPException(status_code=404, detail=f"Metric not found: {metric_identifier}")
+        
+        cursor.execute("""
+            UPDATE metrics 
+            SET is_active = false, updated_at = CURRENT_TIMESTAMP 
+            WHERE id = %s
+            RETURNING id, metric_name
+        """, (metric['id'],))
+        
+        updated_metric = cursor.fetchone()
+        connection.commit()
+        cursor.close()
+        connection.close()
+        
+        logger.info(f"Successfully disabled metric {metric_identifier}: {updated_metric['metric_name']}")
+        
+        return JSONResponse({
+            "status": "success",
+            "message": f"Disabled metric: {updated_metric['metric_name']}",
+            "metric_id": updated_metric['id']
+        })
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error disabling metric {metric_identifier}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error disabling metric: {str(e)}")
+
+
+@router.post("/api/metrics/{metric_identifier}/enable")
+async def enable_metric(metric_identifier: str):
+    """Reactivate a previously disabled metric."""
+    try:
+        from tools.db_utils import get_postgres_connection
+        
+        connection = get_postgres_connection()
+        if not connection:
+            raise HTTPException(status_code=500, detail="Database connection failed")
+        
+        cursor = connection.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        
+        # Try to convert to integer for ID lookup
+        try:
+            metric_id = int(metric_identifier)
+            cursor.execute("SELECT id, metric_name FROM metrics WHERE id = %s", (metric_id,))
+        except ValueError:
+            # If not an integer, treat as metric_key
+            cursor.execute("SELECT id, metric_name FROM metrics WHERE metric_key = %s", (metric_identifier,))
+        
+        metric = cursor.fetchone()
+        if not metric:
+            cursor.close()
+            connection.close()
+            raise HTTPException(status_code=404, detail=f"Metric not found: {metric_identifier}")
+        
+        cursor.execute("""
+            UPDATE metrics 
+            SET is_active = true, updated_at = CURRENT_TIMESTAMP 
+            WHERE id = %s
+            RETURNING id, metric_name
+        """, (metric['id'],))
+        
+        updated_metric = cursor.fetchone()
+        connection.commit()
+        cursor.close()
+        connection.close()
+        
+        logger.info(f"Successfully enabled metric {metric_identifier}: {updated_metric['metric_name']}")
+        
+        return JSONResponse({
+            "status": "success",
+            "message": f"Enabled metric: {updated_metric['metric_name']}",
+            "metric_id": updated_metric['id']
+        })
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error enabling metric {metric_identifier}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error enabling metric: {str(e)}")
+
+
+@router.get("/api/metrics/by-endpoint/{endpoint}")
+async def find_metrics_by_endpoint(endpoint: str):
+    """Find all metrics using a specific DataSF endpoint."""
+    try:
+        from tools.db_utils import get_postgres_connection
+        
+        connection = get_postgres_connection()
+        if not connection:
+            raise HTTPException(status_code=500, detail="Database connection failed")
+        
+        cursor = connection.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        
+        cursor.execute("""
+            SELECT 
+                id, metric_name, metric_key, category, subcategory,
+                summary, definition, show_on_dash, is_active
+            FROM metrics 
+            WHERE endpoint = %s
+            ORDER BY category, subcategory, id
+        """, (endpoint,))
+        
+        metrics = cursor.fetchall()
+        cursor.close()
+        connection.close()
+        
+        return JSONResponse({
+            "status": "success",
+            "endpoint": endpoint,
+            "metrics": metrics
+        })
+        
+    except Exception as e:
+        logger.error(f"Error finding metrics by endpoint: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error finding metrics by endpoint: {str(e)}")
+
+
+@router.get("/api/metrics")
+async def query_metrics(
+    category: str = None,
+    search_term: str = None,
+    active_only: bool = True,
+    dashboard_only: bool = False
+):
+    """Search and filter metrics in the database."""
+    try:
+        from tools.db_utils import get_postgres_connection
+        
+        connection = get_postgres_connection()
+        if not connection:
+            raise HTTPException(status_code=500, detail="Database connection failed")
+        
+        cursor = connection.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        
+        # Build the query
+        query = """
+            SELECT 
+                m.id,
+                m.metric_name,
+                m.metric_key,
+                m.category,
+                m.subcategory,
+                m.endpoint,
+                m.summary,
+                m.definition,
+                m.data_sf_url,
+                m.ytd_query,
+                m.metric_query,
+                m.dataset_title,
+                m.dataset_category,
+                m.show_on_dash,
+                m.item_noun,
+                m.greendirection,
+                m.location_fields,
+                m.category_fields,
+                m.metadata,
+                m.is_active
+            FROM metrics m
+            WHERE 1=1
+        """
+        params = []
+        
+        if category:
+            query += " AND m.category = %s"
+            params.append(category)
+        
+        if search_term:
+            query += """ AND (
+                m.metric_name ILIKE %s OR
+                m.metric_key ILIKE %s OR
+                m.summary ILIKE %s OR
+                m.definition ILIKE %s
+            )"""
+            search_pattern = f"%{search_term}%"
+            params.extend([search_pattern, search_pattern, search_pattern, search_pattern])
+        
+        if active_only:
+            query += " AND m.is_active = true"
+        
+        if dashboard_only:
+            query += " AND m.show_on_dash = true"
+        
+        query += " ORDER BY m.category, m.subcategory, m.id"
+        
+        cursor.execute(query, params)
+        metrics = cursor.fetchall()
+        cursor.close()
+        connection.close()
+        
+        return JSONResponse({
+            "status": "success",
+            "metrics": metrics
+        })
+        
+    except Exception as e:
+        logger.error(f"Error querying metrics: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error querying metrics: {str(e)}")
+
+
+@router.get("/api/metric/{metric_identifier}")
+async def get_metric_details(metric_identifier: str):
+    """Get detailed information about a specific metric by ID or key."""
+    try:
+        from tools.db_utils import get_postgres_connection
+        
+        connection = get_postgres_connection()
+        if not connection:
+            raise HTTPException(status_code=500, detail="Database connection failed")
+        
+        cursor = connection.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        
+        # Try to convert to integer for ID lookup
+        try:
+            metric_id = int(metric_identifier)
+            cursor.execute("""
+                SELECT * FROM metrics 
+                WHERE id = %s
+            """, (metric_id,))
+        except ValueError:
+            # If not an integer, treat as metric_key
+            cursor.execute("""
+                SELECT * FROM metrics 
+                WHERE metric_key = %s
+            """, (metric_identifier,))
+        
+        metric = cursor.fetchone()
+        cursor.close()
+        connection.close()
+        
+        if not metric:
+            raise HTTPException(status_code=404, detail=f"Metric not found: {metric_identifier}")
+        
+        return JSONResponse({
+            "status": "success",
+            "metric": metric
+        })
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting metric details: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error getting metric details: {str(e)}")
+
+
+@router.get("/api/metrics/categories")
+async def list_categories():
+    """Get all available metric categories and subcategories."""
+    try:
+        from tools.db_utils import get_postgres_connection
+        
+        connection = get_postgres_connection()
+        if not connection:
+            raise HTTPException(status_code=500, detail="Database connection failed")
+        
+        cursor = connection.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        
+        cursor.execute("""
+            SELECT DISTINCT category, subcategory 
+            FROM metrics 
+            WHERE is_active = true 
+            ORDER BY category, subcategory
+        """)
+        
+        categories = cursor.fetchall()
+        cursor.close()
+        connection.close()
+        
+        # Group by category
+        category_map = {}
+        for row in categories:
+            if row['category'] not in category_map:
+                category_map[row['category']] = []
+            if row['subcategory'] and row['subcategory'] != row['category']:
+                category_map[row['category']].append(row['subcategory'])
+        
+        return JSONResponse({
+            "status": "success",
+            "categories": category_map
+        })
+        
+    except Exception as e:
+        logger.error(f"Error listing categories: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error listing categories: {str(e)}")
+
+
+@router.get("/api/metrics/overview")
+async def get_metrics_overview():
+    """Get summary statistics about the metrics system."""
+    try:
+        from tools.db_utils import get_postgres_connection
+        
+        connection = get_postgres_connection()
+        if not connection:
+            raise HTTPException(status_code=500, detail="Database connection failed")
+        
+        cursor = connection.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        
+        cursor.execute("""
+            SELECT 
+                COUNT(*) as total_metrics,
+                COUNT(*) FILTER (WHERE is_active = true) as active_metrics,
+                COUNT(*) FILTER (WHERE show_on_dash = true) as dashboard_metrics,
+                COUNT(DISTINCT category) as total_categories,
+                COUNT(DISTINCT endpoint) as total_endpoints
+            FROM metrics
+        """)
+        
+        overview = cursor.fetchone()
+        cursor.close()
+        connection.close()
+        
+        return JSONResponse({
+            "status": "success",
+            "overview": overview
+        })
+        
+    except Exception as e:
+        logger.error(f"Error getting metrics overview: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error getting metrics overview: {str(e)}")
+
+
+@router.post("/api/restore-metrics-from-backup")
+async def restore_metrics_from_backup_api():
+    """Run the metrics table restore script."""
+    try:
+        logger.info("Starting metrics table restore via API")
+        
+        # Import and run the restore function
+        import sys
+        import os
+        
+        # Add the tools directory to the Python path
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        tools_dir = os.path.join(script_dir, 'tools')
+        if tools_dir not in sys.path:
+            sys.path.insert(0, tools_dir)
+        
+        try:
+            from migrate_dashboard_to_metrics import restore_metrics_from_backup
+            
+            # Run the restore
+            success = restore_metrics_from_backup()
+            
+            if success:
+                logger.info("Metrics table restore completed successfully")
+                return JSONResponse({
+                    "status": "success",
+                    "message": "Metrics table successfully restored from backup"
+                })
+            else:
+                logger.error("Metrics table restore failed")
+                return JSONResponse({
+                    "status": "error",
+                    "message": "Metrics table restore failed - check logs for details"
+                }, status_code=500)
+                
+        except ImportError as e:
+            logger.error(f"Could not import restore script: {str(e)}")
+            return JSONResponse({
+                "status": "error",
+                "message": f"Could not import restore script: {str(e)}"
+            }, status_code=500)
+            
+    except Exception as e:
+        logger.error(f"Error during metrics table restore: {str(e)}")
+        return JSONResponse({
+            "status": "error",
+            "message": f"Error during restore: {str(e)}"
+        }, status_code=500) 

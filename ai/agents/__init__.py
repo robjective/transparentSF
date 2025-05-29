@@ -8,13 +8,11 @@ from anywhere in the application.
 from .explainer_agent import (
     ExplainerAgent,
     create_explainer_agent,
-    explain_metric_change,
-    EXPLAINER_INSTRUCTIONS
+    explain_metric_change
 )
 
 __all__ = [
     'ExplainerAgent',
     'create_explainer_agent', 
-    'explain_metric_change',
-    'EXPLAINER_INSTRUCTIONS'
+    'explain_metric_change'
 ] 

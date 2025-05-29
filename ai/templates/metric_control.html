@@ -21,6 +21,18 @@
             margin-bottom: 20px;
             align-items: flex-end;
         }
+        .metric-management-row {
+            margin-bottom: 20px;
+            padding: 15px;
+            background-color: #f8f9fa;
+            border-radius: 4px;
+            border: 1px solid #e9ecef;
+        }
+        .metric-actions {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
         .form-group {
             flex: 1;
         }
@@ -61,6 +73,29 @@
             max-height: 400px;
             overflow-y: auto;
             line-height: 1.6;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .tool-call {
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            padding: 10px;
+            margin: 10px 0;
+            font-family: monospace;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+        .tool-response {
+            background-color: #e9ecef;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            padding: 10px;
+            margin: 10px 0;
+            font-family: monospace;
+            white-space: pre-wrap;
+            word-break: break-word;
         }
         .output-content.markdown {
             padding: 15px;
@@ -133,6 +168,25 @@
         }
         .btn-secondary:hover {
             background-color: #5a6268;
+        }
+        .btn-subtle {
+            background-color: #ffffff;
+            color: #495057;
+            border: 1px solid #dee2e6;
+        }
+        .btn-subtle:hover {
+            background-color: #e9ecef;
+            border-color: #adb5bd;
+        }
+        .btn-subtle:disabled {
+            background-color: #f8f9fa;
+            color: #adb5bd;
+            border-color: #e9ecef;
+            cursor: not-allowed;
+            opacity: 0.6;
+        }
+        .btn-subtle:hover:not(:disabled) {
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
         }
         .spinner {
             border: 4px solid rgba(0, 0, 0, 0.1);
@@ -313,6 +367,25 @@
             max-height: 90vh;
             overflow-y: auto;
         }
+        
+        .close-modal-btn {
+            position: absolute;
+            right: 20px;
+            top: 20px;
+            font-size: 24px;
+            font-weight: bold;
+            color: #666;
+            cursor: pointer;
+            background: none;
+            border: none;
+            padding: 0;
+            line-height: 1;
+        }
+        
+        .close-modal-btn:hover {
+            color: #000;
+        }
+        
         .metric-form-group {
             margin-bottom: 20px;
         }
@@ -483,10 +556,7 @@
             border-radius: 4px;
             width: 100%;
         }
-        .chart-actions {
-            margin-top: 10px;
-            text-align: center;
-        }
+       
         .btn-subtle-primary {
             background-color: #6c757d;
             color: white;
@@ -511,16 +581,22 @@
             border-color: #dee2e6;
             cursor: not-allowed;
         }
-        .metric-actions {
-            display: flex;
-            gap: 10px;
-            align-items: center;
+        .btn-warning {
+            background-color: #ffc107;
+            color: #212529;
+            border: 1px solid #ffc107;
         }
-        .btn-small {
-            padding: 6px 12px;
-            font-size: 12px;
-            line-height: 1.4;
+        .btn-warning:hover {
+            background-color: #e0a800;
+            border-color: #d39e00;
         }
+        .btn-warning:disabled {
+            background-color: #e9ecef;
+            color: #6c757d;
+            border-color: #dee2e6;
+            cursor: not-allowed;
+        }
+        
         
         /* Chart tabs styles */
         .chart-tabs {
@@ -629,17 +705,23 @@
                     <span class="btn-spinner"></span>
                 </button>
             </div>
-            
-            <!-- Metric action buttons row -->
-            <div class="form-group">
-                <div class="metric-actions">
-                    <button id="delete-metric-btn" class="btn btn-subtle-danger btn-small" disabled>
-                        Delete Metric
-                    </button>
-                    <button id="define-metric-btn" class="btn btn-subtle-primary btn-small">
-                        Create New Metric
-                    </button>
-                </div>
+        </div>
+        
+        <!-- Metric management buttons row -->
+        <div class="metric-management-row">
+            <div class="metric-actions">
+                <button id="delete-metric-btn" class="btn btn-subtle btn-small" disabled>
+                    Delete Metric
+                </button>
+                <button id="edit-metric-btn" class="btn btn-subtle btn-small" disabled>
+                    Edit Metric
+                </button>
+                <button id="define-metric-btn" class="btn btn-subtle btn-small">
+                    Create New Metric
+                </button>
+                <button id="migrate-dashboard-btn" class="btn btn-subtle btn-small">
+                    Restore Metrics from Backup
+                </button>
             </div>
         </div>
         
@@ -743,8 +825,10 @@
     <!-- Add the metric definition modal -->
     <div id="metricDefinitionModal" class="metric-definition-modal">
         <div class="metric-definition-content">
-            <h2>Define New Metric</h2>
+            <button type="button" class="close-modal-btn" onclick="closeMetricDefinitionModal()">&times;</button>
+            <h2 id="metricModalTitle">Define New Metric</h2>
             <form id="metricDefinitionForm">
+                <input type="hidden" id="isEditMode" value="false">
                 <div class="metric-form-group">
                     <label for="metricName">Metric Name (with emoji)</label>
                     <input type="text" id="metricName" name="metricName" required>
@@ -796,6 +880,22 @@
                 </div>
                 
                 <div class="metric-form-group">
+                    <label for="isActive">Status</label>
+                    <select id="isActive" name="isActive" required>
+                        <option value="true">Active</option>
+                        <option value="false">Inactive</option>
+                    </select>
+                </div>
+                
+                <div class="metric-form-group">
+                    <label for="showOnDash">Show on Dashboard</label>
+                    <select id="showOnDash" name="showOnDash" required>
+                        <option value="true">Yes</option>
+                        <option value="false">No</option>
+                    </select>
+                </div>
+                
+                <div class="metric-form-group">
                     <label>Location Fields</label>
                     <div id="locationFields" class="field-list">
                         <!-- Location fields will be added here dynamically -->
@@ -820,6 +920,82 @@
     </div>
     
     <script>
+        // Define modal functions in global scope
+        function openMetricDefinitionModal() {
+            const isEditMode = document.getElementById('isEditMode').value === 'true';
+            if (!isEditMode) {
+                // Reset form for new metrics
+                document.getElementById('metricDefinitionForm').reset();
+                document.getElementById('locationFields').innerHTML = '';
+                document.getElementById('categoryFields').innerHTML = '';
+                document.getElementById('metricModalTitle').textContent = 'Define New Metric';
+            }
+            document.getElementById('metricDefinitionModal').style.display = 'block';
+        }
+
+        function closeMetricDefinitionModal() {
+            const modal = document.getElementById('metricDefinitionModal');
+            const form = document.getElementById('metricDefinitionForm');
+            
+            // Hide the modal
+            if (modal) {
+                modal.style.display = 'none';
+            }
+            
+            // Reset the form
+            if (form) {
+                form.reset();
+            }
+            
+            // Reset the edit mode flag
+            const editModeInput = document.getElementById('isEditMode');
+            if (editModeInput) {
+                editModeInput.value = 'false';
+            }
+            
+            // Clear any dynamic fields
+            const locationFields = document.getElementById('locationFields');
+            const categoryFields = document.getElementById('categoryFields');
+            if (locationFields) {
+                locationFields.innerHTML = '';
+            }
+            if (categoryFields) {
+                categoryFields.innerHTML = '';
+            }
+            
+            // Reset the modal title
+            const modalTitle = document.getElementById('metricModalTitle');
+            if (modalTitle) {
+                modalTitle.textContent = 'Define New Metric';
+            }
+        }
+
+        function addLocationField() {
+            const fieldList = document.getElementById('locationFields');
+            const fieldItem = document.createElement('div');
+            fieldItem.className = 'field-item';
+            fieldItem.innerHTML = `
+                <input type="text" placeholder="Name" required>
+                <input type="text" placeholder="Field Name" required>
+                <input type="text" placeholder="Description" required>
+                <button type="button" onclick="this.parentElement.remove()">Remove</button>
+            `;
+            fieldList.appendChild(fieldItem);
+        }
+
+        function addCategoryField() {
+            const fieldList = document.getElementById('categoryFields');
+            const fieldItem = document.createElement('div');
+            fieldItem.className = 'field-item';
+            fieldItem.innerHTML = `
+                <input type="text" placeholder="Name" required>
+                <input type="text" placeholder="Field Name" required>
+                <input type="text" placeholder="Description" required>
+                <button type="button" onclick="this.parentElement.remove()">Remove</button>
+            `;
+            fieldList.appendChild(fieldItem);
+        }
+
         document.addEventListener('DOMContentLoaded', function() {
             const districtSelect = document.getElementById('district-select');
             const metricSelect = document.getElementById('metric-select');
@@ -854,23 +1030,65 @@
                                         name: metricName,
                                         category: category,
                                         subcategory: subcategory,
-                                        endpoint: metricData.endpoint
+                                        endpoint: metricData.endpoint,
+                                        is_active: metricData.is_active
                                     });
                                 });
                             }
                         });
                     });
                     
-                    // Sort metrics by ID
-                    metrics.sort((a, b) => a.id - b.id);
+                    // Sort metrics by category, then by ID
+                    metrics.sort((a, b) => {
+                        if (a.category !== b.category) {
+                            return a.category.localeCompare(b.category);
+                        }
+                        return a.id - b.id;
+                    });
                     
-                    // Populate metric select
-                    metricSelect.innerHTML = `
-                        <option value="all">All Metrics</option>
-                        ${metrics.map(metric => 
-                            `<option value="${metric.id}">${metric.id} - ${metric.name}</option>`
-                        ).join('')}
-                    `;
+                    // Group metrics by category and active status
+                    const groupedMetrics = metrics.reduce((acc, metric) => {
+                        if (!acc[metric.category]) {
+                            acc[metric.category] = {
+                                active: [],
+                                inactive: []
+                            };
+                        }
+                        if (metric.is_active) {
+                            acc[metric.category].active.push(metric);
+                        } else {
+                            acc[metric.category].inactive.push(metric);
+                        }
+                        return acc;
+                    }, {});
+                    
+                    // Build the select options HTML
+                    let optionsHtml = '<option value="all">All Metrics</option>';
+                    
+                    // Add active metrics first
+                    Object.entries(groupedMetrics).forEach(([category, {active, inactive}]) => {
+                        if (active.length > 0) {
+                            optionsHtml += `<optgroup label="${category}">`;
+                            active.forEach(metric => {
+                                optionsHtml += `<option value="${metric.id}">${metric.id} - ${metric.name}</option>`;
+                            });
+                            optionsHtml += '</optgroup>';
+                        }
+                    });
+                    
+                    // Add inactive metrics in grey
+                    Object.entries(groupedMetrics).forEach(([category, {active, inactive}]) => {
+                        if (inactive.length > 0) {
+                            optionsHtml += `<optgroup label="${category} (Inactive)" style="color: #6c757d; font-style: italic;">`;
+                            inactive.forEach(metric => {
+                                optionsHtml += `<option value="${metric.id}" style="color: #6c757d; font-style: italic;">${metric.id} - ${metric.name}</option>`;
+                            });
+                            optionsHtml += '</optgroup>';
+                        }
+                    });
+                    
+                    // Update the select element
+                    metricSelect.innerHTML = optionsHtml;
                     
                     // Load initial outputs
                     loadOutputs();
@@ -1281,6 +1499,9 @@
                     columnSelection.style.display = 'block';
                     columnGrid.innerHTML = '<div class="spinner"></div> Loading columns...';
                     
+                    // Update the header with endpoint information
+                    columnSelection.querySelector('h3').textContent = `Select Columns for analysis from: ${metric.endpoint}`;
+                    
                     // Fetch columns from the endpoint
                     const response = await fetch(`/backend/get-endpoint-columns/${encodeURIComponent(metric.endpoint)}`);
                     if (!response.ok) {
@@ -1387,12 +1608,15 @@
                 loadOutputs();
                 loadAllCharts(metricSelect.value, districtSelect.value);
                 
-                // Enable/disable delete button based on selection
+                // Enable/disable delete and edit buttons based on selection
                 const deleteBtn = document.getElementById('delete-metric-btn');
+                const editBtn = document.getElementById('edit-metric-btn');
                 const metricId = metricSelect.value;
                 
-                // Enable delete button only if a specific metric is selected (not "all" or empty)
-                deleteBtn.disabled = !metricId || metricId === 'all' || metricId === '';
+                // Enable buttons only if a specific metric is selected (not "all" or empty)
+                const shouldEnable = metricId && metricId !== 'all' && metricId !== '';
+                deleteBtn.disabled = !shouldEnable;
+                editBtn.disabled = !shouldEnable;
                 
                 // Load columns for the selected metric
                 if (metricId && metricId !== 'all') {
@@ -1779,93 +2003,77 @@
             // Load charts initially
             loadAllCharts(metricSelect.value, districtSelect.value);
 
-            // Add functions for the metric definition modal
-            function openMetricDefinitionModal() {
-                document.getElementById('metricDefinitionModal').style.display = 'block';
-            }
-
-            function closeMetricDefinitionModal() {
-                document.getElementById('metricDefinitionModal').style.display = 'none';
-            }
-
-            function addLocationField() {
-                const fieldList = document.getElementById('locationFields');
-                const fieldItem = document.createElement('div');
-                fieldItem.className = 'field-item';
-                fieldItem.innerHTML = `
-                    <input type="text" placeholder="Name" required>
-                    <input type="text" placeholder="Field Name" required>
-                    <input type="text" placeholder="Description" required>
-                    <button type="button" onclick="this.parentElement.remove()">Remove</button>
-                `;
-                fieldList.appendChild(fieldItem);
-            }
-
-            function addCategoryField() {
-                const fieldList = document.getElementById('categoryFields');
-                const fieldItem = document.createElement('div');
-                fieldItem.className = 'field-item';
-                fieldItem.innerHTML = `
-                    <input type="text" placeholder="Name" required>
-                    <input type="text" placeholder="Field Name" required>
-                    <input type="text" placeholder="Description" required>
-                    <button type="button" onclick="this.parentElement.remove()">Remove</button>
-                `;
-                fieldList.appendChild(fieldItem);
-            }
-
-            document.getElementById('metricDefinitionForm').addEventListener('submit', async function(e) {
-                e.preventDefault();
+            // Add event listener for the define metric button
+            document.getElementById('define-metric-btn').addEventListener('click', openMetricDefinitionModal);
+            
+            // Add event listener for clicking outside the modal to close it
+            window.addEventListener('click', function(event) {
+                const modal = document.getElementById('metricDefinitionModal');
+                if (event.target === modal) {
+                    closeMetricDefinitionModal();
+                }
+            });
+            
+            // Add event listener for the migrate dashboard button
+            document.getElementById('migrate-dashboard-btn').addEventListener('click', async function() {
+                const migrateBtn = document.getElementById('migrate-dashboard-btn');
                 
-                // Collect form data
-                const formData = {
-                    name: document.getElementById('metricName').value,
-                    id: parseInt(document.getElementById('metricId').value),
-                    endpoint: document.getElementById('endpoint').value,
-                    summary: document.getElementById('summary').value,
-                    definition: document.getElementById('definition').value,
-                    data_sf_url: document.getElementById('dataSfUrl').value,
-                    ytd_query: document.getElementById('ytdQuery').value,
-                    metric_query: document.getElementById('metricQuery').value,
-                    dataset_title: document.getElementById('datasetTitle').value,
-                    dataset_category: document.getElementById('datasetCategory').value,
-                    location_fields: Array.from(document.getElementById('locationFields').children).map(field => ({
-                        name: field.children[0].value,
-                        fieldName: field.children[1].value,
-                        description: field.children[2].value
-                    })),
-                    category_fields: Array.from(document.getElementById('categoryFields').children).map(field => ({
-                        name: field.children[0].value,
-                        fieldName: field.children[1].value,
-                        description: field.children[2].value
-                    }))
-                };
+                // Confirm restoration
+                const confirmRestore = confirm(
+                    'This will restore the metrics table from the backup file.\n\n' +
+                    'This will replace all existing metrics in the database.\n\n' +
+                    'Are you sure you want to proceed?'
+                );
+                
+                if (!confirmRestore) {
+                    return;
+                }
                 
                 try {
-                    const response = await fetch('/api/metrics', {
+                    // Show loading state
+                    migrateBtn.disabled = true;
+                    migrateBtn.textContent = 'Restoring...';
+                    
+                    // Add spinner if button has spinner support
+                    if (migrateBtn.classList.contains('btn-with-spinner')) {
+                        migrateBtn.classList.add('loading');
+                    }
+                    
+                    // Call the restore API
+                    const response = await fetch('/api/restore-metrics-from-backup', {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json'
-                        },
-                        body: JSON.stringify(formData)
+                        }
                     });
                     
-                    if (response.ok) {
-                        alert('Metric created successfully!');
-                        closeMetricDefinitionModal();
+                    const result = await response.json();
+                    
+                    if (response.ok && result.status === 'success') {
+                        alert('Metrics table successfully restored from backup!');
+                        
                         // Refresh the metrics list
-                        loadMetrics();
+                        await loadMetrics();
+                        
+                        // Reset selection to "All Metrics"
+                        metricSelect.value = 'all';
+                        metricSelect.dispatchEvent(new Event('change'));
+                        
                     } else {
-                        const error = await response.json();
-                        alert('Error creating metric: ' + error.message);
+                        alert(`Restore failed: ${result.message || 'Unknown error'}`);
                     }
                 } catch (error) {
-                    alert('Error creating metric: ' + error.message);
+                    console.error('Error during restore:', error);
+                    alert(`Error during restore: ${error.message}`);
+                } finally {
+                    // Reset button state
+                    migrateBtn.disabled = false;
+                    migrateBtn.textContent = 'Restore Metrics from Backup';
+                    if (migrateBtn.classList.contains('btn-with-spinner')) {
+                        migrateBtn.classList.remove('loading');
+                    }
                 }
             });
-
-            // Add event listener for the define metric button
-            document.getElementById('define-metric-btn').addEventListener('click', openMetricDefinitionModal);
             
             // Function to generate DW time series chart for individual chart
             window.generateDWTimeSeriesChart = async function(chartId) {
@@ -2027,6 +2235,202 @@
                     dwPane.classList.add('active');
                 }
             };
+
+            // Add event listener for the edit metric button
+            document.getElementById('edit-metric-btn').addEventListener('click', async function() {
+                const metricId = metricSelect.value;
+                
+                if (!metricId || metricId === 'all' || metricId === '') {
+                    alert('Please select a specific metric to edit.');
+                    return;
+                }
+                
+                try {
+                    // Fetch the metric data using the correct endpoint
+                    const response = await fetch(`/api/metric/${metricId}`);
+                    if (!response.ok) {
+                        throw new Error('Failed to fetch metric data');
+                    }
+                    
+                    const metricData = await response.json();
+                    console.log('Received metric data:', metricData); // Debug log
+                    
+                    // Set modal title and edit mode
+                    document.getElementById('metricModalTitle').textContent = 'Edit Metric';
+                    document.getElementById('isEditMode').value = 'true';
+                    
+                    // Populate form fields with null checks
+                    document.getElementById('metricName').value = metricData.name || '';
+                    document.getElementById('metricId').value = metricData.id || '';
+                    document.getElementById('endpoint').value = metricData.endpoint || '';
+                    document.getElementById('summary').value = metricData.summary || '';
+                    document.getElementById('definition').value = metricData.definition || '';
+                    document.getElementById('dataSfUrl').value = metricData.data_sf_url || '';
+                    document.getElementById('ytdQuery').value = metricData.ytd_query || '';
+                    document.getElementById('metricQuery').value = metricData.metric_query || '';
+                    document.getElementById('datasetTitle').value = metricData.dataset_title || '';
+                    document.getElementById('datasetCategory').value = metricData.dataset_category || '';
+                    document.getElementById('isActive').value = metricData.is_active !== false ? 'true' : 'false';
+                    document.getElementById('showOnDash').value = metricData.show_on_dash !== false ? 'true' : 'false';
+                    
+                    // Clear existing location fields
+                    const locationFields = document.getElementById('locationFields');
+                    locationFields.innerHTML = '';
+                    
+                    // Add location fields with null check
+                    if (metricData.location_fields && Array.isArray(metricData.location_fields)) {
+                        metricData.location_fields.forEach(field => {
+                            if (field) {
+                                const fieldItem = document.createElement('div');
+                                fieldItem.className = 'field-item';
+                                fieldItem.innerHTML = `
+                                    <input type="text" placeholder="Name" value="${field.name || ''}" required>
+                                    <input type="text" placeholder="Field Name" value="${field.fieldName || ''}" required>
+                                    <input type="text" placeholder="Description" value="${field.description || ''}" required>
+                                    <button type="button" onclick="this.parentElement.remove()">Remove</button>
+                                `;
+                                locationFields.appendChild(fieldItem);
+                            }
+                        });
+                    }
+                    
+                    // Clear existing category fields
+                    const categoryFields = document.getElementById('categoryFields');
+                    categoryFields.innerHTML = '';
+                    
+                    // Add category fields with null check
+                    if (metricData.category_fields && Array.isArray(metricData.category_fields)) {
+                        metricData.category_fields.forEach(field => {
+                            if (field) {
+                                const fieldItem = document.createElement('div');
+                                fieldItem.className = 'field-item';
+                                fieldItem.innerHTML = `
+                                    <input type="text" placeholder="Name" value="${field.name || ''}" required>
+                                    <input type="text" placeholder="Field Name" value="${field.fieldName || ''}" required>
+                                    <input type="text" placeholder="Description" value="${field.description || ''}" required>
+                                    <button type="button" onclick="this.parentElement.remove()">Remove</button>
+                                `;
+                                categoryFields.appendChild(fieldItem);
+                            }
+                        });
+                    }
+                    
+                    // Open the modal
+                    openMetricDefinitionModal();
+                    
+                } catch (error) {
+                    console.error('Error loading metric data:', error);
+                    console.error('Error details:', {
+                        message: error.message,
+                        stack: error.stack
+                    });
+                    alert(`Error loading metric data: ${error.message}`);
+                }
+            });
+
+            // Add event listener for the metric definition form
+            document.getElementById('metricDefinitionForm').addEventListener('submit', async function(e) {
+                e.preventDefault();
+                
+                const form = e.target;
+                const isEditMode = document.getElementById('isEditMode').value === 'true';
+                const metricId = document.getElementById('metricId').value;
+                
+                // Collect form data
+                const formData = {
+                    metric_name: document.getElementById('metricName').value,
+                    metric_key: document.getElementById('metricId').value,
+                    category: document.getElementById('datasetCategory').value,
+                    endpoint: document.getElementById('endpoint').value,
+                    summary: document.getElementById('summary').value,
+                    definition: document.getElementById('definition').value,
+                    data_sf_url: document.getElementById('dataSfUrl').value,
+                    ytd_query: document.getElementById('ytdQuery').value,
+                    metric_query: document.getElementById('metricQuery').value,
+                    dataset_title: document.getElementById('datasetTitle').value,
+                    dataset_category: document.getElementById('datasetCategory').value,
+                    is_active: document.getElementById('isActive').value === 'true',
+                    show_on_dash: document.getElementById('showOnDash').value === 'true',
+                    location_fields: [],
+                    category_fields: []
+                };
+                
+                // Collect location fields
+                document.querySelectorAll('#locationFields .field-item').forEach(item => {
+                    const inputs = item.querySelectorAll('input');
+                    if (inputs.length === 3) {
+                        formData.location_fields.push({
+                            name: inputs[0].value,
+                            fieldName: inputs[1].value,
+                            description: inputs[2].value
+                        });
+                    }
+                });
+                
+                // Collect category fields
+                document.querySelectorAll('#categoryFields .field-item').forEach(item => {
+                    const inputs = item.querySelectorAll('input');
+                    if (inputs.length === 3) {
+                        formData.category_fields.push({
+                            name: inputs[0].value,
+                            fieldName: inputs[1].value,
+                            description: inputs[2].value
+                        });
+                    }
+                });
+                
+                try {
+                    const saveBtn = form.querySelector('.save-btn');
+                    saveBtn.disabled = true;
+                    saveBtn.textContent = 'Saving...';
+                    
+                    const url = isEditMode ? `/api/metrics/${metricId}` : '/api/metrics';
+                    const method = isEditMode ? 'PUT' : 'POST';
+                    
+                    console.log('Sending request:', { url, method, formData }); // Debug log
+                    
+                    const response = await fetch(url, {
+                        method: method,
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify(formData)
+                    });
+                    
+                    if (!response.ok) {
+                        const errorData = await response.json();
+                        throw new Error(errorData.detail || 'Failed to save metric');
+                    }
+                    
+                    const result = await response.json();
+                    alert(`Successfully ${isEditMode ? 'updated' : 'created'} metric: ${result.message}`);
+                    
+                    // Close the modal
+                    closeMetricDefinitionModal();
+                    
+                    // Refresh the metrics list
+                    await loadMetrics();
+                    
+                    // If editing, keep the same metric selected
+                    if (isEditMode) {
+                        metricSelect.value = metricId;
+                    } else {
+                        // For new metrics, select the newly created one
+                        metricSelect.value = result.metric_id;
+                    }
+                    
+                    // Trigger change event to update UI
+                    metricSelect.dispatchEvent(new Event('change'));
+                    
+                } catch (error) {
+                    console.error('Error saving metric:', error);
+                    alert(`Error saving metric: ${error.message}`);
+                } finally {
+                    const saveBtn = form.querySelector('.save-btn');
+                    saveBtn.disabled = false;
+                    saveBtn.textContent = 'Save Metric';
+                }
+            });
         });
     </script>
 </body>

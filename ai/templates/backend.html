@@ -317,9 +317,9 @@
         /* Resize handle for explainer panel */
         .explainer-resize-handle {
             position: absolute;
-            left: 0;
+            left: -4px;
             top: 0;
-            width: 4px;
+            width: 8px;
             height: 100%;
             cursor: ew-resize;
             background: transparent;
@@ -334,6 +334,23 @@
         .explainer-resize-handle.resizing {
             background: var(--bright-purple);
             opacity: 0.8;
+        }
+        
+        .explainer-resize-handle::after {
+            content: '';
+            position: absolute;
+            left: 50%;
+            top: 0;
+            width: 2px;
+            height: 100%;
+            background: var(--bright-purple);
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+        
+        .explainer-resize-handle:hover::after,
+        .explainer-resize-handle.resizing::after {
+            opacity: 0.5;
         }
         
         /* Disable transitions during resize */
@@ -387,6 +404,33 @@
             margin: 0;
             font-size: 16px;
             color: var(--ink-black);
+        }
+        
+        .explainer-header-right {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .explainer-settings {
+            background: none;
+            border: none;
+            cursor: pointer;
+            padding: 4px;
+            color: #666;
+            transition: color 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .explainer-settings:hover {
+            color: #333;
+        }
+
+        .explainer-settings svg {
+            width: 16px;
+            height: 16px;
         }
         
         .explainer-close {
@@ -1043,6 +1087,230 @@
             60% { content: ".."; }
             80%, 100% { content: "..."; }
         }
+        
+        /* Settings interface styles */
+        .explainer-settings-overlay {
+            position: fixed;
+            top: 60px;
+            right: 0;
+            width: var(--explainer-width);
+            height: calc(100vh - 60px);
+            background: #ffffff;
+            z-index: 20;
+            display: flex;
+            flex-direction: column;
+            transform: translateX(100%);
+            transition: transform 0.3s ease;
+            border-left: 1px solid var(--cloud-gray);
+        }
+        
+        .explainer-settings-overlay.show {
+            transform: translateX(0);
+        }
+        
+        .explainer-settings-overlay.resizing {
+            transition: none !important;
+        }
+        
+        .settings-header {
+            padding: 15px 20px;
+            border-bottom: 1px solid var(--cloud-gray);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background: #ffffff;
+        }
+        
+        .settings-header h3 {
+            font-family: 'Inter', sans-serif;
+            font-weight: 600;
+            margin: 0;
+            font-size: 16px;
+            color: var(--ink-black);
+        }
+        
+        .settings-close {
+            background: none;
+            border: none;
+            font-size: 24px;
+            cursor: pointer;
+            color: var(--ink-black);
+            padding: 0;
+            width: 30px;
+            height: 30px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 15px;
+            transition: background 0.2s ease;
+        }
+        
+        .settings-close:hover {
+            background: var(--cloud-gray);
+        }
+        
+        .settings-content {
+            flex: 1;
+            display: flex;
+            overflow: hidden;
+        }
+        
+        .settings-sidebar {
+            width: 180px;
+            background: #ffffff;
+            border-right: 1px solid var(--cloud-gray);
+            overflow-y: auto;
+            padding: 10px 0;
+        }
+        
+        .settings-section {
+            display: block;
+            width: 100%;
+            padding: 10px 15px;
+            background: none;
+            border: none;
+            text-align: left;
+            cursor: pointer;
+            font-family: 'IBM Plex Sans', sans-serif;
+            font-size: 13px;
+            color: var(--ink-black);
+            transition: background 0.2s ease;
+        }
+        
+        .settings-section:hover {
+            background: var(--cloud-gray);
+        }
+        
+        .settings-section.active {
+            background: var(--cloud-gray);
+            border-left: 3px solid var(--bright-purple);
+        }
+        
+        .settings-section-name {
+            font-weight: 500;
+            margin-bottom: 2px;
+        }
+        
+        .settings-section-desc {
+            font-size: 11px;
+            opacity: 0.7;
+            line-height: 1.3;
+        }
+        
+        .settings-main {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        
+        .settings-editor {
+            flex: 1;
+            padding: 20px;
+            overflow-y: auto;
+            background: #ffffff;
+        }
+        
+        .settings-editor h4 {
+            font-family: 'Inter', sans-serif;
+            font-weight: 600;
+            margin: 0 0 8px 0;
+            font-size: 16px;
+            color: var(--ink-black);
+        }
+        
+        .settings-editor p {
+            margin: 0 0 15px 0;
+            font-size: 13px;
+            color: var(--ink-black);
+            opacity: 0.8;
+        }
+        
+        .settings-textarea {
+            width: 100%;
+            min-height: 400px;
+            padding: 15px;
+            border: 1px solid var(--cloud-gray);
+            border-radius: 6px;
+            font-family: 'IBM Plex Mono', 'Courier New', monospace;
+            font-size: 12px;
+            line-height: 1.4;
+            background: #ffffff;
+            color: var(--ink-black);
+            resize: vertical;
+            box-sizing: border-box;
+        }
+        
+        .settings-textarea:focus {
+            outline: none;
+            border-color: var(--bright-purple);
+            box-shadow: 0 0 0 2px rgba(173, 53, 250, 0.1);
+        }
+        
+        .settings-actions {
+            padding: 15px 20px;
+            border-top: 1px solid var(--cloud-gray);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: #ffffff;
+        }
+        
+        .settings-info {
+            font-size: 12px;
+            color: var(--ink-black);
+            opacity: 0.7;
+        }
+        
+        .settings-buttons {
+            display: flex;
+            gap: 10px;
+        }
+        
+        .settings-button {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 6px;
+            font-family: 'IBM Plex Sans', sans-serif;
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        
+        .settings-button.cancel {
+            background: var(--cloud-gray);
+            color: var(--ink-black);
+        }
+        
+        .settings-button.cancel:hover {
+            background: #d5d6d8;
+        }
+        
+        .settings-button.save {
+            background: var(--bright-purple);
+            color: white;
+        }
+        
+        .settings-button.save:hover {
+            background: #8e2bbf;
+        }
+        
+        .settings-button.save:disabled {
+            background: var(--cloud-gray);
+            color: var(--ink-black);
+            cursor: not-allowed;
+            opacity: 0.5;
+        }
+        
+        .settings-button.reload {
+            background: var(--warm-coral);
+            color: white;
+        }
+        
+        .settings-button.reload:hover {
+            background: #e55a4a;
+        }
     </style>
 </head>
 <body>
@@ -1112,7 +1380,22 @@
                     <button class="explainer-new-chat" id="explainer-new-chat" title="Start New Chat">+</button>
                     <h3>Seymour</h3>
                 </div>
-                <button class="explainer-close" id="explainer-close">&times;</button>
+                <div class="explainer-header-right">
+                    <button class="explainer-settings" id="explainer-settings" title="Settings">
+                        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M8.5 2.5C8.5 2.22386 8.27614 2 8 2C7.72386 2 7.5 2.22386 7.5 2.5V3.5C7.5 3.77614 7.72386 4 8 4C8.27614 4 8.5 3.77614 8.5 3.5V2.5Z" fill="currentColor"/>
+                            <path d="M8.5 12.5C8.5 12.2239 8.27614 12 8 12C7.72386 12 7.5 12.2239 7.5 12.5V13.5C7.5 13.7761 7.72386 14 8 14C8.27614 14 8.5 13.7761 8.5 13.5V12.5Z" fill="currentColor"/>
+                            <path d="M13.5 7.5C13.5 7.22386 13.2761 7 13 7H12C11.7239 7 11.5 7.22386 11.5 7.5C11.5 7.77614 11.7239 8 12 8H13C13.2761 8 13.5 7.77614 13.5 7.5Z" fill="currentColor"/>
+                            <path d="M4.5 7.5C4.5 7.22386 4.27614 7 4 7H3C2.72386 7 2.5 7.22386 2.5 7.5C2.5 7.77614 2.72386 8 3 8H4C4.27614 8 4.5 7.77614 4.5 7.5Z" fill="currentColor"/>
+                            <path d="M11.5 3.5C11.5 3.22386 11.2761 3 11 3C10.7239 3 10.5 3.22386 10.5 3.5V4.5C10.5 4.77614 10.7239 5 11 5C11.2761 5 11.5 4.77614 11.5 4.5V3.5Z" fill="currentColor"/>
+                            <path d="M5.5 3.5C5.5 3.22386 5.27614 3 5 3C4.72386 3 4.5 3.22386 4.5 3.5V4.5C4.5 4.77614 4.72386 5 5 5C5.27614 5 5.5 4.77614 5.5 4.5V3.5Z" fill="currentColor"/>
+                            <path d="M11.5 11.5C11.5 11.2239 11.2761 11 11 11C10.7239 11 10.5 11.2239 10.5 11.5V12.5C10.5 12.7761 10.7239 13 11 13C11.2761 13 11.5 12.7761 11.5 12.5V11.5Z" fill="currentColor"/>
+                            <path d="M5.5 11.5C5.5 11.2239 5.27614 11 5 11C4.72386 11 4.5 11.2239 4.5 11.5V12.5C4.5 12.7761 4.72386 13 5 13C5.27614 13 5.5 12.7761 5.5 12.5V11.5Z" fill="currentColor"/>
+                            <path d="M10.5 7.5C10.5 8.88071 9.38071 10 8 10C6.61929 10 5.5 8.88071 5.5 7.5C5.5 6.11929 6.61929 5 8 5C9.38071 5 10.5 6.11929 10.5 7.5Z" fill="currentColor"/>
+                        </svg>
+                    </button>
+                    <button class="explainer-close" id="explainer-close">&times;</button>
+                </div>
             </div>
             <div class="explainer-content">
                 <div class="explainer-messages" id="explainer-messages">
@@ -1139,6 +1422,41 @@
                             rows="1"
                         ></textarea>
                         <button class="explainer-send" id="explainer-send">Send</button>
+                    </div>
+                </div>
+                
+                <!-- Settings Interface Overlay -->
+                <div class="explainer-settings-overlay" id="explainer-settings-overlay">
+                    <div class="settings-header">
+                        <h3>Seymour Settings</h3>
+                        <button class="settings-close" id="settings-close">&times;</button>
+                    </div>
+                    <div class="settings-content">
+                        <div class="settings-sidebar">
+                            <!-- Settings sections will be loaded dynamically -->
+                        </div>
+                        <div class="settings-main">
+                            <div class="settings-editor">
+                                <h4 id="settings-section-title">Select a section to edit</h4>
+                                <p id="settings-section-description">Choose a prompt section from the sidebar to view and edit its instructions.</p>
+                                <textarea 
+                                    class="settings-textarea" 
+                                    id="settings-textarea"
+                                    placeholder="Select a section to edit..."
+                                    disabled
+                                ></textarea>
+                            </div>
+                            <div class="settings-actions">
+                                <div class="settings-info">
+                                    <span id="settings-status">No changes</span>
+                                </div>
+                                <div class="settings-buttons">
+                                    <button class="settings-button cancel" id="settings-cancel">Cancel</button>
+                                    <button class="settings-button save" id="settings-save" disabled>Save</button>
+                                    <button class="settings-button reload" id="settings-reload">Reload Agent</button>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -1237,9 +1555,95 @@
         let isExplainerProcessing = false;
         let explainerSessionId = null; // Track current session ID
         
+        // Settings functionality
+        let settingsOpen = false;
+        let currentSettingsSection = null;
+        let promptSections = {};
+        let originalSectionContent = '';
+        let hasUnsavedChanges = false;
+        
         // Resize functionality
         let isResizing = false;
         let explainerWidth = 400; // Default width
+        let resizeStartX = 0;
+        let resizeStartWidth = 0;
+        
+        function updateExplainerWidth(newWidth) {
+            // Constrain width between min and max
+            const minWidth = 300;
+            const maxWidth = Math.min(800, window.innerWidth - 220 - 50); // Account for sidebar and some margin
+            explainerWidth = Math.max(minWidth, Math.min(maxWidth, newWidth));
+            
+            // Update CSS variable
+            document.documentElement.style.setProperty('--explainer-width', explainerWidth + 'px');
+            
+            // If settings panel is open, adjust its width too
+            if (settingsOpen) {
+                const settingsOverlay = document.getElementById('explainer-settings-overlay');
+                if (settingsOverlay) {
+                    settingsOverlay.style.width = explainerWidth + 'px';
+                }
+            }
+        }
+        
+        function startResize(e) {
+            if (isResizing) return;
+            
+            isResizing = true;
+            const resizeHandle = document.getElementById('explainer-resize-handle');
+            const panel = document.getElementById('explainer-panel');
+            const mainContent = document.getElementById('main-content');
+            const settingsOverlay = document.getElementById('explainer-settings-overlay');
+            
+            resizeHandle.classList.add('resizing');
+            panel.classList.add('resizing');
+            mainContent.classList.add('resizing');
+            if (settingsOverlay) {
+                settingsOverlay.classList.add('resizing');
+            }
+            
+            // Store initial mouse position and panel width
+            resizeStartX = e.clientX;
+            resizeStartWidth = explainerWidth;
+            
+            // Prevent text selection during resize
+            document.body.style.userSelect = 'none';
+            document.body.style.cursor = 'ew-resize';
+            
+            e.preventDefault();
+        }
+        
+        function doResize(e) {
+            if (!isResizing) return;
+            
+            // Calculate new width based on the difference from start position
+            const deltaX = resizeStartX - e.clientX;
+            const newWidth = resizeStartWidth + deltaX;
+            updateExplainerWidth(newWidth);
+            
+            e.preventDefault();
+        }
+        
+        function stopResize() {
+            if (!isResizing) return;
+            
+            isResizing = false;
+            const resizeHandle = document.getElementById('explainer-resize-handle');
+            const panel = document.getElementById('explainer-panel');
+            const mainContent = document.getElementById('main-content');
+            const settingsOverlay = document.getElementById('explainer-settings-overlay');
+            
+            resizeHandle.classList.remove('resizing');
+            panel.classList.remove('resizing');
+            mainContent.classList.remove('resizing');
+            if (settingsOverlay) {
+                settingsOverlay.classList.remove('resizing');
+            }
+            
+            // Restore normal cursor and text selection
+            document.body.style.userSelect = '';
+            document.body.style.cursor = '';
+        }
         
         // Add utility functions to show/hide loading indicator
         function showLoading(operationText) {
@@ -1294,61 +1698,6 @@
             } else {
                 openExplainerPanel();
             }
-        }
-        
-        // Resize functionality for explainer panel
-        function updateExplainerWidth(newWidth) {
-            // Constrain width between min and max
-            const minWidth = 300;
-            const maxWidth = Math.min(800, window.innerWidth - 220 - 50); // Account for sidebar and some margin
-            explainerWidth = Math.max(minWidth, Math.min(maxWidth, newWidth));
-            
-            // Update CSS variable
-            document.documentElement.style.setProperty('--explainer-width', explainerWidth + 'px');
-        }
-        
-        function startResize(e) {
-            isResizing = true;
-            const resizeHandle = document.getElementById('explainer-resize-handle');
-            const panel = document.getElementById('explainer-panel');
-            const mainContent = document.getElementById('main-content');
-            
-            resizeHandle.classList.add('resizing');
-            panel.classList.add('resizing');
-            mainContent.classList.add('resizing');
-            
-            // Prevent text selection during resize
-            document.body.style.userSelect = 'none';
-            document.body.style.cursor = 'ew-resize';
-            
-            e.preventDefault();
-        }
-        
-        function doResize(e) {
-            if (!isResizing) return;
-            
-            // Calculate new width based on mouse position
-            const newWidth = window.innerWidth - e.clientX;
-            updateExplainerWidth(newWidth);
-            
-            e.preventDefault();
-        }
-        
-        function stopResize() {
-            if (!isResizing) return;
-            
-            isResizing = false;
-            const resizeHandle = document.getElementById('explainer-resize-handle');
-            const panel = document.getElementById('explainer-panel');
-            const mainContent = document.getElementById('main-content');
-            
-            resizeHandle.classList.remove('resizing');
-            panel.classList.remove('resizing');
-            mainContent.classList.remove('resizing');
-            
-            // Restore normal cursor and text selection
-            document.body.style.userSelect = '';
-            document.body.style.cursor = '';
         }
         
         // Clear explainer chat history
@@ -1708,15 +2057,12 @@
                                 
                                 // Handle content
                                 if (data.content) {
-                                    // If we have a tool call in progress or just completed, create a new message
-                                    if (window.activeToolCalls && window.activeToolCalls.size > 0) {
+                                    // Create a new message bubble only if we don't have one or if we just had a tool call
+                                    if (!assistantMessage || (window.activeToolCalls && window.activeToolCalls.size > 0)) {
                                         assistantMessage = addExplainerMessage('', 'assistant');
-                                    }
-                                    
-                                    currentContent += data.content;
-                                    
-                                    if (!assistantMessage) {
-                                        assistantMessage = addExplainerMessage('', 'assistant');
+                                        currentContent = data.content;
+                                    } else {
+                                        currentContent += data.content;
                                     }
                                     
                                     // Process chart placeholders and update content with markdown parsing
@@ -1807,11 +2153,31 @@
             document.getElementById('explainer-close').addEventListener('click', closeExplainerPanel);
             document.getElementById('explainer-new-chat').addEventListener('click', clearExplainerChat);
             
+            // Settings event listeners
+            document.getElementById('explainer-settings').addEventListener('click', openExplainerSettings);
+            document.getElementById('settings-close').addEventListener('click', closeExplainerSettings);
+            
+            // Settings action handlers
+            document.getElementById('settings-cancel').addEventListener('click', closeExplainerSettings);
+            document.getElementById('settings-save').addEventListener('click', saveSettingsSection);
+            document.getElementById('settings-reload').addEventListener('click', reloadExplainerAgent);
+            
+            // Settings textarea change detection
+            document.getElementById('settings-textarea').addEventListener('input', function() {
+                if (this.value !== originalSectionContent) {
+                    hasUnsavedChanges = true;
+                } else {
+                    hasUnsavedChanges = false;
+                }
+                updateSettingsUI();
+            });
+            
             // Resize event listeners
             const resizeHandle = document.getElementById('explainer-resize-handle');
             resizeHandle.addEventListener('mousedown', startResize);
             document.addEventListener('mousemove', doResize);
             document.addEventListener('mouseup', stopResize);
+            document.addEventListener('mouseleave', stopResize);
             
             // Handle window resize to update max width constraints
             window.addEventListener('resize', function() {
@@ -2374,6 +2740,199 @@
                 }
             });
         });
+
+        // Settings functionality
+        function openExplainerSettings() {
+            const overlay = document.getElementById('explainer-settings-overlay');
+            overlay.classList.add('show');
+            settingsOpen = true;
+            
+            // Load prompt sections if not already loaded
+            if (Object.keys(promptSections).length === 0) {
+                loadPromptSections();
+            }
+        }
+        
+        function closeExplainerSettings() {
+            // Check for unsaved changes
+            if (hasUnsavedChanges) {
+                if (!confirm('You have unsaved changes. Are you sure you want to close without saving?')) {
+                    return;
+                }
+            }
+            
+            const overlay = document.getElementById('explainer-settings-overlay');
+            overlay.classList.remove('show');
+            settingsOpen = false;
+            resetSettingsState();
+        }
+        
+        function resetSettingsState() {
+            currentSettingsSection = null;
+            originalSectionContent = '';
+            hasUnsavedChanges = false;
+            updateSettingsUI();
+        }
+        
+        async function loadPromptSections() {
+            try {
+                const response = await fetch('/backend/api/explainer-prompt-sections');
+                const data = await response.json();
+                
+                if (data.status === 'success' && data.sections) {
+                    promptSections = data.sections;
+                    populateSettingsSidebar();
+                } else {
+                    console.error('Failed to load prompt sections:', data);
+                    document.getElementById('settings-section-description').textContent = 
+                        'Error loading prompt sections: Invalid response format';
+                }
+            } catch (error) {
+                console.error('Error loading prompt sections:', error);
+                document.getElementById('settings-section-description').textContent = 
+                    'Error loading prompt sections: ' + error.message;
+            }
+        }
+        
+        function populateSettingsSidebar() {
+            const sidebar = document.querySelector('.settings-sidebar');
+            sidebar.innerHTML = '';
+            
+            for (const [key, section] of Object.entries(promptSections)) {
+                const button = document.createElement('button');
+                button.className = 'settings-section';
+                button.dataset.section = key;
+                button.innerHTML = `
+                    <div class="settings-section-name">${section.name}</div>
+                    <div class="settings-section-desc">${section.description}</div>
+                `;
+                
+                button.addEventListener('click', () => selectSettingsSection(key));
+                sidebar.appendChild(button);
+            }
+        }
+        
+        function selectSettingsSection(sectionKey) {
+            // Check for unsaved changes
+            if (hasUnsavedChanges) {
+                if (!confirm('You have unsaved changes. Are you sure you want to switch sections without saving?')) {
+                    return;
+                }
+            }
+            
+            // Update active section in sidebar
+            document.querySelectorAll('.settings-section').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            document.querySelector(`[data-section="${sectionKey}"]`).classList.add('active');
+            
+            // Load section content
+            currentSettingsSection = sectionKey;
+            const section = promptSections[sectionKey];
+            
+            document.getElementById('settings-section-title').textContent = section.name;
+            document.getElementById('settings-section-description').textContent = section.description;
+            
+            const textarea = document.getElementById('settings-textarea');
+            textarea.disabled = false;
+            textarea.value = section.content;
+            originalSectionContent = section.content;
+            
+            hasUnsavedChanges = false;
+            updateSettingsUI();
+        }
+        
+        function updateSettingsUI() {
+            const statusElement = document.getElementById('settings-status');
+            const saveButton = document.getElementById('settings-save');
+            
+            if (hasUnsavedChanges) {
+                statusElement.textContent = 'Unsaved changes';
+                statusElement.style.color = '#ad35fa';
+                saveButton.disabled = false;
+            } else {
+                statusElement.textContent = 'No changes';
+                statusElement.style.color = '#777';
+                saveButton.disabled = true;
+            }
+        }
+        
+        async function saveSettingsSection() {
+            if (!currentSettingsSection) return;
+            
+            const textarea = document.getElementById('settings-textarea');
+            const newContent = textarea.value;
+            
+            try {
+                const response = await fetch('/backend/api/explainer-update-prompt-section', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        section_key: currentSettingsSection,
+                        content: newContent
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    // Update local state
+                    promptSections[currentSettingsSection].content = newContent;
+                    originalSectionContent = newContent;
+                    hasUnsavedChanges = false;
+                    updateSettingsUI();
+                    
+                    // Show success message briefly
+                    const statusElement = document.getElementById('settings-status');
+                    const originalText = statusElement.textContent;
+                    statusElement.textContent = 'Saved successfully!';
+                    statusElement.style.color = '#28a745';
+                    
+                    setTimeout(() => {
+                        updateSettingsUI();
+                    }, 2000);
+                } else {
+                    alert('Error saving: ' + (data.message || 'Unknown error'));
+                }
+            } catch (error) {
+                console.error('Error saving section:', error);
+                alert('Error saving: ' + error.message);
+            }
+        }
+        
+        async function reloadExplainerAgent() {
+            try {
+                const response = await fetch('/backend/api/explainer-reload-prompts', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    }
+                });
+                
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    // Show success message
+                    const statusElement = document.getElementById('settings-status');
+                    statusElement.textContent = 'Agent reloaded successfully!';
+                    statusElement.style.color = '#28a745';
+                    
+                    // Also reload the sections in case they were updated
+                    await loadPromptSections();
+                    
+                    setTimeout(() => {
+                        updateSettingsUI();
+                    }, 2000);
+                } else {
+                    alert('Error reloading agent: ' + (data.message || 'Unknown error'));
+                }
+            } catch (error) {
+                console.error('Error reloading agent:', error);
+                alert('Error reloading agent: ' + error.message);
+            }
+        }
     </script>
 </body>
 </html>

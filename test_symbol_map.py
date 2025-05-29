@@ -1,73 +1,53 @@
-import json
-from ai.tools.generate_map import generate_map
+#!/usr/bin/env python3
 
-# Test data for a symbol map with SF landmarks
-test_symbol_data = [
-    {
-        "title": "City Hall",
-        "lat": 37.7749,
-        "lon": -122.4194,
-        "tooltip": "San Francisco City Hall - Civic Center",
-        "icon": "building",
-        "scale": 1.5,
-        "color": "#0066cc"
-    },
-    {
-        "title": "Golden Gate Bridge",
-        "lat": 37.8199,
-        "lon": -122.4783,
-        "tooltip": "Iconic suspension bridge connecting SF to Marin",
-        "icon": "bridge",
-        "scale": 1.2,
-        "color": "#cc0000"
-    },
-    {
-        "title": "Ferry Building",
-        "lat": 37.7956,
-        "lon": -122.3937,
-        "tooltip": "Historic ferry terminal and marketplace",
-        "icon": "building",
-        "scale": 1.3,
-        "color": "#006600"
-    },
-    {
-        "title": "Dolores Park",
-        "lat": 37.7597,
-        "lon": -122.4265,
-        "tooltip": "Popular park in the Mission District",
-        "icon": "park",
-        "scale": 1.4,
-        "color": "#009900"
-    },
-    {
-        "title": "Sutro Tower",
-        "lat": 37.7552,
-        "lon": -122.4527,
-        "tooltip": "TV and radio transmission tower",
-        "icon": "tower",
-        "scale": 1.2,
-        "color": "#666666"
+import sys
+import os
+sys.path.append('ai/tools')
+from generate_map import generate_map
+import logging
+
+# Set up logging
+logging.basicConfig(level=logging.INFO, format='%(levelname)s - %(message)s')
+
+def test_symbol_map():
+    """Test symbol map creation using clone approach"""
+    
+    # Test data for a symbol map
+    test_symbol_data = [
+        {'district': '1', 'value': 450},
+        {'district': '2', 'value': 380},
+        {'district': '3', 'value': 620},
+        {'district': '4', 'value': 290},
+        {'district': '5', 'value': 510}
+    ]
+
+    test_metadata = {
+        'description': 'Test symbol map using clone approach',
+        'color': '#0066cc',
+        'min_size': 5,
+        'max_size': 30
     }
-]
 
-# Generate the map
-result = generate_map(
-    {},
-    map_title="San Francisco Landmarks",
-    map_type="point",
-    location_data=test_symbol_data,
-    map_metadata={
-        "description": "Map showing notable landmarks in San Francisco",
-        "center": [-122.44, 37.77],  # SF center coordinates
-        "zoom": 12
-    }
-)
+    print('Testing symbol map with clone approach...')
+    result = generate_map(
+        {},
+        map_title='Test Symbol Map - Clone Approach',
+        map_type='symbol',
+        location_data=test_symbol_data,
+        map_metadata=test_metadata
+    )
 
-# Print results
-if result and "map_id" in result:
-    print("✅ Symbol map created successfully!")
-    print(f"Map ID: {result['map_id']}")
-    print(f"Edit URL: {result['edit_url']}")
-    print(f"Public URL: {result['publish_url']}")
-else:
-    print("❌ Failed to create symbol map") 
+    print(f'Result: {result}')
+    if result and 'map_id' in result:
+        print('✅ Symbol map created successfully!')
+        print(f'Map ID: {result["map_id"]}')
+        print(f'Edit URL: {result["edit_url"]}')
+        print(f'Public URL: {result["publish_url"]}')
+        return True
+    else:
+        print('❌ Failed to create symbol map')
+        return False
+
+if __name__ == "__main__":
+    success = test_symbol_map()
+    sys.exit(0 if success else 1) 
