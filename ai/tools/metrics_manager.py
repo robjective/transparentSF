@@ -338,7 +338,14 @@ def update_metric(metric_id: int, updates: Dict[str, Any]) -> Dict[str, Any]:
         params = []
         
         for field, value in updates.items():
-            if field in ['location_fields', 'category_fields', 'metadata']:
+            # Map field names to actual DB columns or skip disallowed fields
+            if field == 'name':
+                set_clauses.append("metric_name = %s")
+                params.append(value)
+            elif field == 'key':
+                # Do NOT allow changing the unique key
+                continue
+            elif field in ['location_fields', 'category_fields', 'metadata']:
                 set_clauses.append(f"{field} = %s")
                 params.append(json.dumps(value))
             else:
@@ -472,14 +479,30 @@ def get_metrics_summary() -> Dict[str, Any]:
             ORDER BY count DESC
         """)
         category_breakdown = cursor.fetchall()
-        
+
+        # Fetch basic detail list for each metric (name, endpoint, queries)
+        cursor.execute(
+            """
+            SELECT 
+                metric_name, 
+                endpoint, 
+                metric_query, 
+                ytd_query
+            FROM metrics
+            WHERE is_active = TRUE
+            ORDER BY metric_name
+            """
+        )
+        metric_details = cursor.fetchall()
+
         cursor.close()
         return {
             'total_metrics': total,
             'active_metrics': active,
             'dashboard_metrics': dashboard,
             'inactive_metrics': total - active,
-            'category_breakdown': [dict(row) for row in category_breakdown]
+            'category_breakdown': [dict(row) for row in category_breakdown],
+            'metric_details': [dict(row) for row in metric_details]
         }
     
     result = execute_with_connection(operation=get_summary_operation)

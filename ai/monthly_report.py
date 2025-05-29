@@ -741,6 +741,14 @@ def prioritize_deltas(deltas, max_items=10):
                 # Get the item index to match with original data
                 item_index = item.get("index")
                 if item_index is not None:
+                    # Convert index to integer if it's a string
+                    if isinstance(item_index, str):
+                        try:
+                            item_index = int(item_index)
+                        except ValueError:
+                            logger.warning(f"Invalid index format: {item_index}")
+                            continue
+                    
                     # Find the original change data by index
                     original_change = None
                     for change in combined_changes:
@@ -766,6 +774,34 @@ def prioritize_deltas(deltas, max_items=10):
                         })
                     else:
                         logger.warning(f"Could not find original data for item index {item_index}")
+                        # Try to find by metric name and group as fallback
+                        metric_name = item.get("metric", "").strip()
+                        group_value = item.get("group", "All").strip()
+                        
+                        # Find the original change data
+                        original_change = None
+                        for change in combined_changes:
+                            if change.get("metric") == metric_name and (change.get("group") == group_value or (change.get("group") is None and group_value == "All")):
+                                original_change = change
+                                break
+                        
+                        if original_change:
+                            logger.info(f"Found original data for metric: {metric_name} by name matching")
+                            prioritized_items.append({
+                                "metric": metric_name,
+                                "metric_id": original_change.get("metric_id", "Unknown"),
+                                "group": group_value,
+                                "priority": item.get("priority", 999),
+                                "recent_mean": original_change.get("recent_mean", 0),
+                                "comparison_mean": original_change.get("comparison_mean", 0),
+                                "difference": original_change.get("difference_value", 0),
+                                "district": original_change.get("district", "0"),
+                                "rationale": item.get("explanation", ""),
+                                "trend_analysis": item.get("trend_analysis", ""),
+                                "follow_up": item.get("follow_up", "")
+                            })
+                        else:
+                            logger.warning(f"Could not find original data for metric: {metric_name}, group: {group_value}")
                 else:
                     # Fallback to matching by name if no index
                     metric_name = item.get("metric", "").strip()
@@ -780,7 +816,6 @@ def prioritize_deltas(deltas, max_items=10):
                     
                     if original_change:
                         logger.info(f"Found original data for metric: {metric_name} by name matching")
-                        # Create prioritized item with data from both the AI response and original change
                         prioritized_items.append({
                             "metric": metric_name,
                             "metric_id": original_change.get("metric_id", "Unknown"),

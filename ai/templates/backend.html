@@ -317,9 +317,9 @@
         /* Resize handle for explainer panel */
         .explainer-resize-handle {
             position: absolute;
-            left: -4px;
+            left: -6px; /* Center the wider handle */
             top: 0;
-            width: 8px;
+            width: 12px; /* Easier to grab */
             height: 100%;
             cursor: ew-resize;
             background: transparent;
@@ -1617,9 +1617,13 @@
         function doResize(e) {
             if (!isResizing) return;
             
-            // Calculate new width based on the difference from start position
-            const deltaX = resizeStartX - e.clientX;
-            const newWidth = resizeStartWidth + deltaX;
+            /*
+             * Make the resize feel snappier by basing the width directly on
+             * the current mouse position relative to the viewport's right
+             * edge, rather than the initial drag offset. This keeps the
+             * cursor aligned with the handle throughout the drag.
+             */
+            const newWidth = window.innerWidth - e.clientX;
             updateExplainerWidth(newWidth);
             
             e.preventDefault();
@@ -2033,6 +2037,11 @@
                                         window.activeToolCalls = new Map();
                                     }
                                     window.activeToolCalls.set(data.tool_call_start, data.tool_id);
+                                    // Reset the current assistant bubble so that any content that streams
+                                    // after the tool-call placeholder starts will appear *after* the
+                                    // placeholder, even if it arrives before the tool finishes.
+                                    assistantMessage = null;
+                                    currentContent = '';
                                     continue; // Don't process as content
                                 }
                                 
@@ -2059,7 +2068,7 @@
                                 // Handle content
                                 if (data.content) {
                                     // Create a new message bubble only if we don't have one or if we just had a tool call
-                                    if (!assistantMessage || (window.activeToolCalls && window.activeToolCalls.size > 0)) {
+                                    if (!assistantMessage) {
                                         assistantMessage = addExplainerMessage('', 'assistant');
                                         currentContent = data.content;
                                     } else {
@@ -2953,21 +2962,26 @@
                 const data = await response.json();
                 
                 if (data.status === 'success') {
-                    // Update local state
+                    // Update local state immediately
                     promptSections[currentSettingsSection].content = newContent;
                     originalSectionContent = newContent;
                     hasUnsavedChanges = false;
-                    updateSettingsUI();
-                    
-                    // Show success message briefly
+
+                    // Visual feedback
                     const statusElement = document.getElementById('settings-status');
-                    const originalText = statusElement.textContent;
-                    statusElement.textContent = 'Saved successfully!';
+                    statusElement.textContent = 'Saved ✔';
                     statusElement.style.color = '#28a745';
-                    
+
+                    // Disable save button until further edits
+                    updateSettingsUI();
+
+                    // Refresh sidebar data to reflect any name changes, etc.
+                    await loadPromptSections();
+
                     setTimeout(() => {
-                        updateSettingsUI();
-                    }, 2000);
+                        statusElement.textContent = 'No changes';
+                        statusElement.style.color = '#777';
+                    }, 2500);
                 } else {
                     alert('Error saving: ' + (data.message || 'Unknown error'));
                 }

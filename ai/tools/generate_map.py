@@ -1017,7 +1017,30 @@ def create_datawrapper_chart(chart_title, location_data, map_type="supervisor_di
                 # If it's not JSON, treat as CSV data and pass through
                 logger.info(f"location_data appears to be CSV string, using as-is")
         
-        # Handle location_data format conversion for district maps
+        # NEW: Attempt to parse string-formatted location_data for locator maps (point, address, intersection)
+        if isinstance(location_data, str) and map_type in ["point", "address", "intersection"]:
+            # First, try JSON parsing
+            try:
+                possible_list = json.loads(location_data)
+                if isinstance(possible_list, list):
+                    location_data = possible_list
+                    logger.info(f"Successfully parsed JSON string location_data into list with {len(location_data)} items for {map_type} map")
+                else:
+                    raise ValueError("Parsed JSON is not a list")
+            except (json.JSONDecodeError, ValueError):
+                # Fallback to ast.literal_eval for Python literal strings (single quotes, etc.)
+                try:
+                    import ast
+                    possible_list = ast.literal_eval(location_data)
+                    if isinstance(possible_list, list):
+                        location_data = possible_list
+                        logger.info(f"Successfully parsed location_data using ast.literal_eval with {len(location_data)} items for {map_type} map")
+                    else:
+                        logger.error("ast.literal_eval output is not a list; cannot process location_data for locator map")
+                except (ValueError, SyntaxError) as parse_err:
+                    logger.error(f"Failed to parse location_data string for locator map ({map_type}): {parse_err}")
+        
+        # Handle location_data format conversion for district maps and symbol maps
         if map_type in ["supervisor_district", "police_district"] and isinstance(location_data, list):
             # Convert list of dictionaries to CSV format for district-based maps
             logger.info(f"Converting list format to CSV for {map_type} map")
@@ -1087,28 +1110,62 @@ def create_datawrapper_chart(chart_title, location_data, map_type="supervisor_di
             logger.info(f"Converted to CSV format: {location_data}")
         
         # Handle location_data format conversion for symbol maps (coordinate-based)
-        elif map_type == "symbol" and isinstance(location_data, list):
-            # Convert list of dictionaries to CSV format for coordinate-based symbol maps
-            logger.info(f"Converting list format to CSV for symbol map with coordinates")
-            csv_data = "name,latitude,longitude,value,color\n"
-            for item in location_data:
-                if isinstance(item, dict):
-                    name = item.get('name', item.get('title', 'Unknown'))
-                    lat = item.get('lat', item.get('latitude'))
-                    lon = item.get('lon', item.get('longitude'))
-                    value = item.get('value', 1)
-                    color = item.get('color', '#0066cc')
-                    
-                    if lat is not None and lon is not None:
-                        csv_data += f"{name},{lat},{lon},{value},{color}\n"
+        elif map_type == "symbol":
+            # If location_data is a JSON string representing a list, parse it first
+            if isinstance(location_data, str):
+                try:
+                    possible_list = json.loads(location_data)
+                    if isinstance(possible_list, list):
+                        location_data = possible_list
+                        logger.info(f"Parsed JSON string location_data into list with {len(location_data)} items for symbol map")
+                except json.JSONDecodeError:
+                    # Not a JSON string representing a list – assume caller already provided CSV string
+                    pass
+
+            if isinstance(location_data, list):
+                # Convert list of dictionaries to CSV format for coordinate-based symbol maps
+                logger.info(f"Converting list format to CSV for symbol map with coordinates")
+                csv_data = "name,latitude,longitude,value,color\n"
+                for item in location_data:
+                    if isinstance(item, dict):
+                        name = item.get('name', item.get('title', 'Unknown'))
+                        lat = item.get('lat', item.get('latitude'))
+                        lon = item.get('lon', item.get('longitude'))
+                        value = item.get('value', 1)
+                        color = item.get('color', '#0066cc')
+
+                        # Attempt geocoding if coords missing
+                        if (lat is None or lon is None) and item.get('address'):
+                            address_to_geocode = item['address']
+                            logger.info(f"Attempting to geocode address for symbol map item: {address_to_geocode}")
+                            lat_gc, lon_gc = geocode_address(address_to_geocode)
+                            if lat_gc is not None and lon_gc is not None:
+                                lat, lon = lat_gc, lon_gc
+                                logger.debug(f"Geocoded '{address_to_geocode}' to ({lat_gc}, {lon_gc})")
+                            else:
+                                logger.warning(f"Failed to geocode address '{address_to_geocode}' – item will be skipped if no coordinates are available")
+
+                        if lat is not None and lon is not None:
+                            csv_data += f"{name},{lat},{lon},{value},{color}\n"
+                        else:
+                            logger.warning(f"Skipping symbol map item missing coordinates: {item}")
                     else:
-                        logger.warning(f"Skipping symbol map item missing coordinates: {item}")
+                        logger.warning(f"Skipping invalid symbol map data item: {item}")
+
+                location_data = csv_data
+                logger.info(f"Converted to CSV format for symbol map: {location_data[:200]}... (truncated)")
+            # At this point, location_data should be a CSV string for symbol maps
+
+            # === NEW: Create symbol map using dedicated helper instead of cloning ===
+            if map_type == "symbol" and isinstance(location_data, str):
+                logger.info("Creating symbol map via _create_and_configure_symbol_map helper")
+                chart_id = _create_and_configure_symbol_map(chart_title, location_data, map_metadata=map_metadata)
+                if chart_id:
+                    logger.info(f"Symbol map created successfully with ID: {chart_id}")
+                    return chart_id  # Early return after successful creation
                 else:
-                    logger.warning(f"Skipping invalid symbol map data item: {item}")
-            
-            location_data = csv_data
-            logger.info(f"Converted to CSV format for symbol map: {location_data}")
-        
+                    logger.error("Failed to create symbol map via helper – falling back to cloning approach")
+
         # Handle locator maps (point, address, intersection) with the new logic
         if map_type in ["point", "address", "intersection"]:
             logger.info(f"Preparing locator map: {chart_title} (type: {map_type})")
@@ -1397,6 +1454,11 @@ def _apply_custom_map_styling(chart_id, map_type, map_metadata=None):
         response.raise_for_status()
         chart_data = response.json()
         
+        # Get metric info from metadata if available
+        metric_info = map_metadata.get('metric_info') if map_metadata else None
+        item_noun = metric_info.get('item_noun', 'Items') if metric_info else 'Items'
+        greendirection = metric_info.get('greendirection', 'up') if metric_info else 'up'
+        
         # Initialize styling payload
         styling_payload = {
             "metadata": {
@@ -1440,18 +1502,32 @@ def _apply_custom_map_styling(chart_id, map_type, map_metadata=None):
             
             if is_delta_map:
                 # Delta map styling (for showing changes) - ALWAYS APPLY THIS FOR DELTA MAPS
+                # Determine colors based on greendirection
+                if greendirection == 'down':
+                    # For metrics where decrease is good (e.g., crime)
+                    colors = [
+                        {"color": "#00dca6", "position": 0},      # Strong Green (for -100%)
+                        {"color": "#a7e9d8", "position": 0.25},   # Light Green
+                        {"color": "#eeeeee", "position": 0.5},    # Neutral Gray (for 0%)
+                        {"color": "#f87171", "position": 0.75},   # Light Red
+                        {"color": "#dc2626", "position": 1.0}     # Strong Red (for +100%)
+                    ]
+                else:
+                    # For metrics where increase is good (e.g., housing units)
+                    colors = [
+                        {"color": "#dc2626", "position": 0},      # Strong Red (for -100%)
+                        {"color": "#f87171", "position": 0.25},   # Light Red
+                        {"color": "#eeeeee", "position": 0.5},    # Neutral Gray (for 0%)
+                        {"color": "#a7e9d8", "position": 0.75},   # Light Teal/Green
+                        {"color": "#00dca6", "position": 1.0}     # Strong Teal/Green (for +100%)
+                    ]
+                
                 styling_payload["metadata"]["visualize"] = {
                     **base_config,
                     "colorscale": {
                         "mode": "continuous",
                         "stops": "equidistant",
-                        "colors": [
-                            {"color": "#dc2626", "position": 0},      # Strong Red (for -100%)
-                            {"color": "#f87171", "position": 0.25},   # Light Red
-                            {"color": "#eeeeee", "position": 0.5},    # Neutral Gray (for 0%)
-                            {"color": "#a7e9d8", "position": 0.75},   # Light Teal/Green
-                            {"color": "#00dca6", "position": 1.0}     # Strong Teal/Green (for +100%)
-                        ],
+                        "colors": colors,
                         "palette": 0,
                         "stopCount": 5,
                         "interpolation": "equidistant",
@@ -1466,7 +1542,7 @@ def _apply_custom_map_styling(chart_id, map_type, map_metadata=None):
                     "legends": {
                         "color": {
                             "size": 170,
-                            "title": "CHANGE",
+                            "title": f"CHANGE IN {item_noun.upper()}",
                             "labels": "ranges",
                             "enabled": True,
                             "offsetX": 0,
@@ -1484,7 +1560,7 @@ def _apply_custom_map_styling(chart_id, map_type, map_metadata=None):
                         }
                     },
                     "tooltip": {
-                        "body": "Current: {{ current_value }}<br/>Previous: {{ previous_value }}<br/>Change: {{ delta }}<br/>% Change: {{ FORMAT(percent_change, '0,0.[0]%') }}",
+                        "body": f"{{{{value}}}} {item_noun}",
                         "title": "District {{ district }}",
                         "sticky": True,
                         "enabled": True
@@ -1508,7 +1584,7 @@ def _apply_custom_map_styling(chart_id, map_type, map_metadata=None):
                     "legends": {
                         "color": {
                             "size": 170,
-                            "title": "VALUE",
+                            "title": f"NUMBER OF {item_noun.upper()}",
                             "labels": "ranges",
                             "enabled": True,
                             "offsetX": 0,
@@ -1525,7 +1601,7 @@ def _apply_custom_map_styling(chart_id, map_type, map_metadata=None):
                         }
                     },
                     "tooltip": {
-                        "body": "{{ value }}",
+                        "body": f"{{{{value}}}} {item_noun}",
                         "title": "District {{ district }}",
                         "sticky": True,
                         "enabled": True
@@ -1556,11 +1632,11 @@ def _apply_custom_map_styling(chart_id, map_type, map_metadata=None):
                 },
                 "tooltip": {
                     "title": "{{ name }}",
-                    "body": "Value: {{ value }}",
+                    "body": f"Value: {{ value }} {item_noun}",
                     "enabled": True
                 },
                 "legend": {
-                    "title": "Value", 
+                    "title": f"Number of {item_noun}", 
                     "enabled": True,
                     "position": "tr"
                 },
@@ -1637,6 +1713,18 @@ def generate_map(context_variables, map_title, map_type, location_data, map_meta
     """
     logger.info(f"Generating map: '{map_title}' of type '{map_type}'")
     
+    # Get metric information if metric_id is provided
+    metric_info = None
+    if metric_id:
+        try:
+            from tools.metrics_manager import get_metric_by_id
+            metric_result = get_metric_by_id(metric_id)
+            if metric_result["status"] == "success":
+                metric_info = metric_result["metric"]
+                logger.info(f"Retrieved metric info for ID {metric_id}")
+        except Exception as e:
+            logger.warning(f"Failed to get metric info for ID {metric_id}: {str(e)}")
+    
     # Handle location_data that might be passed as JSON string from LLM
     if isinstance(location_data, str) and map_type in ["supervisor_district", "police_district"]:
         try:
@@ -1650,6 +1738,29 @@ def generate_map(context_variables, map_title, map_type, location_data, map_meta
         except json.JSONDecodeError:
             # If it's not JSON, treat as CSV data and pass through
             logger.info(f"location_data appears to be CSV string, using as-is")
+    
+    # NEW: Attempt to parse string-formatted location_data for locator maps (point, address, intersection)
+    if isinstance(location_data, str) and map_type in ["point", "address", "intersection"]:
+        # First, try JSON parsing
+        try:
+            possible_list = json.loads(location_data)
+            if isinstance(possible_list, list):
+                location_data = possible_list
+                logger.info(f"Successfully parsed JSON string location_data into list with {len(location_data)} items for {map_type} map")
+            else:
+                raise ValueError("Parsed JSON is not a list")
+        except (json.JSONDecodeError, ValueError):
+            # Fallback to ast.literal_eval for Python literal strings (single quotes, etc.)
+            try:
+                import ast
+                possible_list = ast.literal_eval(location_data)
+                if isinstance(possible_list, list):
+                    location_data = possible_list
+                    logger.info(f"Successfully parsed location_data using ast.literal_eval with {len(location_data)} items for {map_type} map")
+                else:
+                    logger.error("ast.literal_eval output is not a list; cannot process location_data for locator map")
+            except (ValueError, SyntaxError) as parse_err:
+                logger.error(f"Failed to parse location_data string for locator map ({map_type}): {parse_err}")
     
     # Handle location_data format conversion for district maps and symbol maps
     if map_type in ["supervisor_district", "police_district"] and isinstance(location_data, list):
@@ -1781,6 +1892,17 @@ def generate_map(context_variables, map_title, map_type, location_data, map_meta
                 except json.JSONDecodeError:
                     map_metadata = {}
             map_metadata['executed_url'] = executed_url
+        
+        # Add metric info to map_metadata if available
+        if metric_info:
+            if map_metadata is None:
+                map_metadata = {}
+            elif isinstance(map_metadata, str):
+                try:
+                    map_metadata = json.loads(map_metadata)
+                except json.JSONDecodeError:
+                    map_metadata = {}
+            map_metadata['metric_info'] = metric_info
         
         _apply_custom_map_styling(chart_id, map_type, map_metadata)
 

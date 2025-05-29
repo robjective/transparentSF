@@ -880,6 +880,19 @@
                 </div>
                 
                 <div class="metric-form-group">
+                    <label for="itemNoun">Item Noun</label>
+                    <input type="text" id="itemNoun" name="itemNoun" required placeholder="e.g. Items, Cases, Incidents">
+                </div>
+                
+                <div class="metric-form-group">
+                    <label for="greenDirection">Green Direction</label>
+                    <select id="greenDirection" name="greenDirection" required>
+                        <option value="up">Up (higher is better)</option>
+                        <option value="down">Down (lower is better)</option>
+                    </select>
+                </div>
+                
+                <div class="metric-form-group">
                     <label for="isActive">Status</label>
                     <select id="isActive" name="isActive" required>
                         <option value="true">Active</option>
@@ -893,22 +906,6 @@
                         <option value="true">Yes</option>
                         <option value="false">No</option>
                     </select>
-                </div>
-                
-                <div class="metric-form-group">
-                    <label>Location Fields</label>
-                    <div id="locationFields" class="field-list">
-                        <!-- Location fields will be added here dynamically -->
-                    </div>
-                    <button type="button" class="add-field-btn" onclick="addLocationField()">Add Location Field</button>
-                </div>
-                
-                <div class="metric-form-group">
-                    <label>Category Fields</label>
-                    <div id="categoryFields" class="field-list">
-                        <!-- Category fields will be added here dynamically -->
-                    </div>
-                    <button type="button" class="add-field-btn" onclick="addCategoryField()">Add Category Field</button>
                 </div>
                 
                 <div class="metric-form-actions">
@@ -2272,48 +2269,8 @@
                     document.getElementById('datasetCategory').value = metricData.dataset_category || '';
                     document.getElementById('isActive').value = metricData.is_active !== false ? 'true' : 'false';
                     document.getElementById('showOnDash').value = metricData.show_on_dash !== false ? 'true' : 'false';
-                    
-                    // Clear existing location fields
-                    const locationFields = document.getElementById('locationFields');
-                    locationFields.innerHTML = '';
-                    
-                    // Add location fields with null check
-                    if (metricData.location_fields && Array.isArray(metricData.location_fields)) {
-                        metricData.location_fields.forEach(field => {
-                            if (field) {
-                                const fieldItem = document.createElement('div');
-                                fieldItem.className = 'field-item';
-                                fieldItem.innerHTML = `
-                                    <input type="text" placeholder="Name" value="${field.name || ''}" required>
-                                    <input type="text" placeholder="Field Name" value="${field.fieldName || ''}" required>
-                                    <input type="text" placeholder="Description" value="${field.description || ''}" required>
-                                    <button type="button" onclick="this.parentElement.remove()">Remove</button>
-                                `;
-                                locationFields.appendChild(fieldItem);
-                            }
-                        });
-                    }
-                    
-                    // Clear existing category fields
-                    const categoryFields = document.getElementById('categoryFields');
-                    categoryFields.innerHTML = '';
-                    
-                    // Add category fields with null check
-                    if (metricData.category_fields && Array.isArray(metricData.category_fields)) {
-                        metricData.category_fields.forEach(field => {
-                            if (field) {
-                                const fieldItem = document.createElement('div');
-                                fieldItem.className = 'field-item';
-                                fieldItem.innerHTML = `
-                                    <input type="text" placeholder="Name" value="${field.name || ''}" required>
-                                    <input type="text" placeholder="Field Name" value="${field.fieldName || ''}" required>
-                                    <input type="text" placeholder="Description" value="${field.description || ''}" required>
-                                    <button type="button" onclick="this.parentElement.remove()">Remove</button>
-                                `;
-                                categoryFields.appendChild(fieldItem);
-                            }
-                        });
-                    }
+                    document.getElementById('itemNoun').value = metricData.item_noun || 'Items';
+                    document.getElementById('greenDirection').value = metricData.greendirection || 'up';
                     
                     // Open the modal
                     openMetricDefinitionModal();
@@ -2351,33 +2308,9 @@
                     dataset_category: document.getElementById('datasetCategory').value,
                     is_active: document.getElementById('isActive').value === 'true',
                     show_on_dash: document.getElementById('showOnDash').value === 'true',
-                    location_fields: [],
-                    category_fields: []
+                    item_noun: document.getElementById('itemNoun').value,
+                    greendirection: document.getElementById('greenDirection').value
                 };
-                
-                // Collect location fields
-                document.querySelectorAll('#locationFields .field-item').forEach(item => {
-                    const inputs = item.querySelectorAll('input');
-                    if (inputs.length === 3) {
-                        formData.location_fields.push({
-                            name: inputs[0].value,
-                            fieldName: inputs[1].value,
-                            description: inputs[2].value
-                        });
-                    }
-                });
-                
-                // Collect category fields
-                document.querySelectorAll('#categoryFields .field-item').forEach(item => {
-                    const inputs = item.querySelectorAll('input');
-                    if (inputs.length === 3) {
-                        formData.category_fields.push({
-                            name: inputs[0].value,
-                            fieldName: inputs[1].value,
-                            description: inputs[2].value
-                        });
-                    }
-                });
                 
                 try {
                     const saveBtn = form.querySelector('.save-btn');

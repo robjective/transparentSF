@@ -132,6 +132,9 @@ GENERATE_MAP_INSTRUCTIONS = """- generate_map: Create a map visualization for ge
      * "intersection" - Map showing points at specific street intersections
      * "point" - Map showing points at specific lat/long coordinates
      * "address" - Map showing points at specific addresses (will be geocoded automatically by Datawrapper)
+     * "symbol"  - Scaled-symbol map for points. Use this **whenever you want marker size to represent a value** (e.g.
+       number of units, dollar amounts). Point/address/intersection maps do NOT support scaling — choose
+       "symbol" instead.
   - location_data: List of data objects containing location and value information (NOT a JSON string)
      * For basic district maps: [{"district": "1", "value": 120}, {"district": "2", "value": 85}]
      * For enhanced change/delta district maps: [{"district": "1", "current_value": 120, "previous_value": 100, "delta": 20, "percent_change": 0.20}, {"district": "2", "current_value": 85, "previous_value": 90, "delta": -5, "percent_change": -0.056}]
@@ -330,6 +333,14 @@ CORE_TOOLS_INSTRUCTIONS = """TOOLS YOU SHOULD USE:
 
 # Metrics management tools
 METRICS_TOOLS_INSTRUCTIONS = """METRICS MANAGEMENT TOOLS:
+Metrics Workflow:
+When you are asked about metrics, you should follow this workflow:
+
+1. ALWAYS START WITH get_metrics_overview() to see all metrics and their details.
+2. use get_metric_details() to get detailed information about a specific metric. If there are no metrics that are currently similar to the one that the user is asking about, you can create a new metric using create_new_metric(). If there are metrics that are similar, you can edit them using edit_metric().
+3. When creating or editing a metric, first ensure that the query you are going to use works.  You can do this by using the set_dataset to query the data using a narrow date range.  
+4. use get_dataset to show the resutls to the user and ask the if they was to reate or edut the metric before you do it. 
+5. When editing a metric use the metrics's numeric identifier, not the key.
 
 - query_metrics: Search and filter metrics in the database
   USAGE: query_metrics(context_variables, category="crime", search_term="police", active_only=True, dashboard_only=False)

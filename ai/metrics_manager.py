@@ -1109,23 +1109,44 @@ async def get_metrics_overview():
         
         cursor = connection.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         
-        cursor.execute("""
+        # First gather high-level counts
+        cursor.execute(
+            """
             SELECT 
-                COUNT(*) as total_metrics,
-                COUNT(*) FILTER (WHERE is_active = true) as active_metrics,
-                COUNT(*) FILTER (WHERE show_on_dash = true) as dashboard_metrics,
-                COUNT(DISTINCT category) as total_categories,
-                COUNT(DISTINCT endpoint) as total_endpoints
+                COUNT(*)                                 AS total_metrics,
+                COUNT(*) FILTER (WHERE is_active = true) AS active_metrics,
+                COUNT(*) FILTER (WHERE show_on_dash = true) AS dashboard_metrics,
+                COUNT(DISTINCT category)                 AS total_categories,
+                COUNT(DISTINCT endpoint)                 AS total_endpoints
             FROM metrics
-        """)
-        
+            """
+        )
+
         overview = cursor.fetchone()
+
+        # Next, fetch a concise list of each metric's key details
+        cursor.execute(
+            """
+            SELECT 
+                metric_name,
+                endpoint,
+                metric_query,
+                ytd_query
+            FROM metrics
+            WHERE is_active = true
+            ORDER BY metric_name
+            """
+        )
+
+        metric_details = cursor.fetchall()
+
         cursor.close()
         connection.close()
-        
+
         return JSONResponse({
             "status": "success",
-            "overview": overview
+            "overview": overview,
+            "metrics": metric_details
         })
         
     except Exception as e:

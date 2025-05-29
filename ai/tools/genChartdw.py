@@ -477,7 +477,7 @@ def create_time_series_chart_from_data(chart_data, metadata):
     logger.info("Creating new chart in Datawrapper...")
     
     # Use area chart for multi-line data, line chart for single series
-    chart_type = "d3-area" if has_groups else "d3-lines"
+    chart_type = "multiple-lines" if has_groups else "d3-lines" # Use multiple-lines for multi-series to get separate panels
     logger.info(f"Using chart type: {chart_type} (has_groups: {has_groups})")
     
     create_payload = {
@@ -553,6 +553,25 @@ def create_time_series_chart_from_data(chart_data, metadata):
             }
         }
     }
+    
+    # Add grid layout configuration for multiple-lines charts
+    if has_groups:
+        # Ensure visualize key exists
+        if "visualize" not in customization_payload:
+            customization_payload["visualize"] = {}
+            
+        # Add grid layout settings
+        customization_payload["visualize"].update({
+            "gridLayout": "fixedCount",
+            "gridColumnCount": 2,  # Show 2 charts per row
+            "gridRowHeightFixed": 140,  # Fixed height for each panel
+            "plotHeightFixed": 300,  # Fixed height for the plot area
+            "independentYScales": True,  # Each panel gets its own Y scale
+            "yGridLabelAllColumns": True,  # Show Y axis labels for all panels
+            "xGridLabelAllColumns": True,  # Show X axis labels for all panels
+            "gridColumnMinWidth": 200,  # Minimum width for each panel
+            "gridColumnCountMobile": 1  # Single column on mobile
+        })
     
     update_response = _make_dw_request("PATCH", f"/charts/{chart_id}", json_payload=customization_payload)
     if update_response:

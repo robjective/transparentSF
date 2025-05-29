@@ -23,6 +23,7 @@ CREATE TABLE metrics (
     show_on_dash BOOLEAN DEFAULT true,
     item_noun TEXT,
     greendirection TEXT,
+    display_order INTEGER,
     location_fields JSONB,
     category_fields JSONB,
     metadata JSONB,
@@ -58,7 +59,7 @@ INSERT INTO metrics (
     metric_name, metric_key, category, subcategory, endpoint,
     summary, definition, data_sf_url, ytd_query, metric_query,
     dataset_title, dataset_category, show_on_dash, item_noun,
-    greendirection, location_fields, category_fields, metadata, is_active
+    greendirection, display_order, location_fields, category_fields, metadata, is_active
 ) VALUES (
     '👮 Total Police Incidents',
     'police_total_police_incidents_1',
@@ -75,6 +76,7 @@ INSERT INTO metrics (
     true,
     'Incidents',
     'down',
+    1,
     '[
         {
             "name": "District",
@@ -100,7 +102,7 @@ INSERT INTO metrics (
     metric_name, metric_key, category, subcategory, endpoint,
     summary, definition, data_sf_url, ytd_query, metric_query,
     dataset_title, dataset_category, show_on_dash, item_noun,
-    greendirection, location_fields, category_fields, metadata, is_active
+    greendirection, display_order, location_fields, category_fields, metadata, is_active
 ) VALUES (
     '🚨 Violent Crime Incidents',
     'violent_violent_crime_incidents_2',
@@ -117,6 +119,7 @@ INSERT INTO metrics (
     True,
     'Incidents',
     'down',
+    2,
     '[]'::jsonb,
     '[{"name": "report_type_description", "fieldName": "report_type_description", "description": "Selected column for enhanced dashboard queries"}, {"name": "incident_category", "fieldName": "incident_category", "description": "Selected column for enhanced dashboard queries"}, {"name": "incident_subcategory", "fieldName": "incident_subcategory", "description": "Selected column for enhanced dashboard queries"}, {"name": "supervisor_district", "fieldName": "supervisor_district", "description": "Selected column for enhanced dashboard queries"}]'::jsonb,
     '{"id": 2, "original_category": "crime", "original_subcategory": "Crime", "original_subsubcategory": null}'::jsonb,
@@ -136,6 +139,7 @@ INSERT INTO metrics (
     show_on_dash = EXCLUDED.show_on_dash,
     item_noun = EXCLUDED.item_noun,
     greendirection = EXCLUDED.greendirection,
+    display_order = EXCLUDED.display_order,
     location_fields = EXCLUDED.location_fields,
     category_fields = EXCLUDED.category_fields,
     metadata = EXCLUDED.metadata,
@@ -146,7 +150,7 @@ INSERT INTO metrics (
     metric_name, metric_key, category, subcategory, endpoint,
     summary, definition, data_sf_url, ytd_query, metric_query,
     dataset_title, dataset_category, show_on_dash, item_noun,
-    greendirection, location_fields, category_fields, metadata, is_active
+    greendirection, display_order, location_fields, category_fields, metadata, is_active
 ) VALUES (
     '🏠 Property Crime Incidents',
     'property_property_crime_incidents_3',
@@ -163,6 +167,7 @@ INSERT INTO metrics (
     True,
     'Incidents',
     'down',
+    3,
     '[]'::jsonb,
     '[{"name": "report_type_description", "fieldName": "report_type_description", "description": "Selected column for enhanced dashboard queries"}, {"name": "incident_category", "fieldName": "incident_category", "description": "Selected column for enhanced dashboard queries"}, {"name": "incident_subcategory", "fieldName": "incident_subcategory", "description": "Selected column for enhanced dashboard queries"}, {"name": "supervisor_district", "fieldName": "supervisor_district", "description": "Selected column for enhanced dashboard queries"}]'::jsonb,
     '{"id": 3, "original_category": "crime", "original_subcategory": "Crime", "original_subsubcategory": null}'::jsonb,
@@ -182,6 +187,7 @@ INSERT INTO metrics (
     show_on_dash = EXCLUDED.show_on_dash,
     item_noun = EXCLUDED.item_noun,
     greendirection = EXCLUDED.greendirection,
+    display_order = EXCLUDED.display_order,
     location_fields = EXCLUDED.location_fields,
     category_fields = EXCLUDED.category_fields,
     metadata = EXCLUDED.metadata,
@@ -192,7 +198,7 @@ INSERT INTO metrics (
     metric_name, metric_key, category, subcategory, endpoint,
     summary, definition, data_sf_url, ytd_query, metric_query,
     dataset_title, dataset_category, show_on_dash, item_noun,
-    greendirection, location_fields, category_fields, metadata, is_active
+    greendirection, display_order, location_fields, category_fields, metadata, is_active
 ) VALUES (
     '💊 Drug Crime Incidents',
     'drug_drug_crime_incidents_4',
@@ -209,6 +215,7 @@ INSERT INTO metrics (
     True,
     'Incidents',
     'down',
+    4,
     '[]'::jsonb,
     '[{"name": "report_type_description", "fieldName": "report_type_description", "description": "Selected column for enhanced dashboard queries"}, {"name": "incident_category", "fieldName": "incident_category", "description": "Selected column for enhanced dashboard queries"}, {"name": "incident_subcategory", "fieldName": "incident_subcategory", "description": "Selected column for enhanced dashboard queries"}, {"name": "supervisor_district", "fieldName": "supervisor_district", "description": "Selected column for enhanced dashboard queries"}]'::jsonb,
     '{"id": 4, "original_category": "crime", "original_subcategory": "Crime", "original_subsubcategory": null}'::jsonb,
@@ -228,6 +235,7 @@ INSERT INTO metrics (
     show_on_dash = EXCLUDED.show_on_dash,
     item_noun = EXCLUDED.item_noun,
     greendirection = EXCLUDED.greendirection,
+    display_order = EXCLUDED.display_order,
     location_fields = EXCLUDED.location_fields,
     category_fields = EXCLUDED.category_fields,
     metadata = EXCLUDED.metadata,
@@ -238,7 +246,7 @@ INSERT INTO metrics (
     metric_name, metric_key, category, subcategory, endpoint,
     summary, definition, data_sf_url, ytd_query, metric_query,
     dataset_title, dataset_category, show_on_dash, item_noun,
-    greendirection, location_fields, category_fields, metadata, is_active
+    greendirection, display_order, location_fields, category_fields, metadata, is_active
 ) VALUES (
     '🔒 Jail Bookings',
     'jail_jail_bookings_5',
@@ -255,6 +263,7 @@ INSERT INTO metrics (
     True,
     'Bookings',
     'down',
+    5,
     '[]'::jsonb,
     '[{"name": "age_group", "fieldName": "age_group", "description": "Age range of the booked individual"}]'::jsonb,
     '{"id": 5, "original_category": "crime", "original_subcategory": "jail", "original_subsubcategory": null}'::jsonb,
@@ -274,6 +283,7 @@ INSERT INTO metrics (
     show_on_dash = EXCLUDED.show_on_dash,
     item_noun = EXCLUDED.item_noun,
     greendirection = EXCLUDED.greendirection,
+    display_order = EXCLUDED.display_order,
     location_fields = EXCLUDED.location_fields,
     category_fields = EXCLUDED.category_fields,
     metadata = EXCLUDED.metadata,
@@ -284,7 +294,7 @@ INSERT INTO metrics (
     metric_name, metric_key, category, subcategory, endpoint,
     summary, definition, data_sf_url, ytd_query, metric_query,
     dataset_title, dataset_category, show_on_dash, item_noun,
-    greendirection, location_fields, category_fields, metadata, is_active
+    greendirection, display_order, location_fields, category_fields, metadata, is_active
 ) VALUES (
     '🚓 Arrests Presented to DA',
     'arrests_arrests_presented_to_da_6',
@@ -301,6 +311,7 @@ INSERT INTO metrics (
     True,
     'Arrests',
     'down',
+    6,
     '[]'::jsonb,
     '[{"name": "arresting_agency", "fieldName": "arresting_agency", "description": "Selected column for enhanced dashboard queries"}, {"name": "crime_type", "fieldName": "crime_type", "description": "Selected column for enhanced dashboard queries"}, {"name": "booked_case_type", "fieldName": "booked_case_type", "description": "Selected column for enhanced dashboard queries"}, {"name": "da_action_taken", "fieldName": "da_action_taken", "description": "Selected column for enhanced dashboard queries"}]'::jsonb,
     '{"id": 6, "original_category": "crime", "original_subcategory": "DA", "original_subsubcategory": null}'::jsonb,
@@ -320,6 +331,7 @@ INSERT INTO metrics (
     show_on_dash = EXCLUDED.show_on_dash,
     item_noun = EXCLUDED.item_noun,
     greendirection = EXCLUDED.greendirection,
+    display_order = EXCLUDED.display_order,
     location_fields = EXCLUDED.location_fields,
     category_fields = EXCLUDED.category_fields,
     metadata = EXCLUDED.metadata,
