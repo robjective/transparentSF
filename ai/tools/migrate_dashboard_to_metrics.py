@@ -26,11 +26,27 @@ def restore_metrics_from_backup():
         cursor = connection.cursor()
         try:
             # Read the backup file
-            with open(backup_file, 'r') as f:
+            with open(backup_file, 'r', encoding='utf-8') as f:
                 backup_sql = f.read()
             
-            # Execute the backup SQL
-            cursor.execute(backup_sql)
+            # Split the SQL file into individual statements
+            statements = backup_sql.split(';')
+            
+            # Execute each statement separately
+            for statement in statements:
+                # Skip empty statements
+                if not statement.strip():
+                    continue
+                    
+                # Add back the semicolon for execution
+                statement = statement.strip() + ';'
+                
+                try:
+                    cursor.execute(statement)
+                except Exception as e:
+                    logger.error(f"Error executing statement: {statement[:100]}... Error: {str(e)}")
+                    raise
+            
             connection.commit()
             logger.info("Successfully restored metrics table from backup file.")
             return True
