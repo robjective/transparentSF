@@ -17,6 +17,61 @@ SET client_min_messages = warning;
 SET row_security = off;
 
 --
+-- Name: metrics; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE IF NOT EXISTS public.metrics (
+    id SERIAL PRIMARY KEY,
+    metric_name TEXT NOT NULL,
+    metric_key TEXT UNIQUE NOT NULL,
+    category TEXT NOT NULL,
+    subcategory TEXT,
+    endpoint TEXT NOT NULL,
+    summary TEXT,
+    definition TEXT,
+    data_sf_url TEXT,
+    ytd_query TEXT,
+    metric_query TEXT,
+    dataset_title TEXT,
+    dataset_category TEXT,
+    show_on_dash BOOLEAN DEFAULT TRUE,
+    item_noun TEXT DEFAULT 'Items',
+    greendirection TEXT DEFAULT 'up',
+    location_fields JSONB DEFAULT '[]'::jsonb,
+    category_fields JSONB DEFAULT '[]'::jsonb,
+    metadata JSONB DEFAULT '{}'::jsonb,
+    city_id INTEGER,
+    display_order INTEGER DEFAULT 1000,
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Create indexes for metrics table
+CREATE INDEX IF NOT EXISTS metrics_category_idx ON metrics (category);
+CREATE INDEX IF NOT EXISTS metrics_subcategory_idx ON metrics (subcategory);
+CREATE INDEX IF NOT EXISTS metrics_endpoint_idx ON metrics (endpoint);
+CREATE INDEX IF NOT EXISTS metrics_active_idx ON metrics (is_active);
+CREATE INDEX IF NOT EXISTS metrics_show_on_dash_idx ON metrics (show_on_dash);
+CREATE INDEX IF NOT EXISTS metrics_city_id_idx ON metrics (city_id);
+CREATE INDEX IF NOT EXISTS metrics_display_order_idx ON metrics (display_order);
+CREATE INDEX IF NOT EXISTS metrics_category_display_order_idx ON metrics (category, display_order);
+
+-- Create trigger for updating timestamps
+CREATE OR REPLACE FUNCTION update_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = CURRENT_TIMESTAMP;
+    RETURN NEW;
+END;
+$$ language 'plpgsql';
+
+CREATE TRIGGER update_metrics_updated_at
+    BEFORE UPDATE ON metrics
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
+--
 -- Data for Name: metrics; Type: TABLE DATA; Schema: public; Owner: postgres
 --
 
@@ -48,7 +103,7 @@ INSERT INTO public.metrics (id, metric_name, metric_key, category, subcategory, 
 -- Name: metrics_id_seq; Type: SEQUENCE SET; Schema: public; Owner: postgres
 --
 
-SELECT pg_catalog.setval('public.metrics_id_seq', 136, true);
+SELECT pg_catalog.setval('public.metrics_id_seq', 25, true);
 
 
 --
