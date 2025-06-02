@@ -1260,7 +1260,6 @@ async def backup_metrics_table_api():
             "-U", db_user,
             "-d", db_name,
             "--table=public.metrics",
-            "--data-only",
             "--inserts",
             "--column-inserts",
             "-f", backup_file
