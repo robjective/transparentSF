@@ -33,7 +33,11 @@ def init_database():
             DROP TABLE IF EXISTS reports CASCADE;
             DROP TABLE IF EXISTS charts CASCADE;
             DROP TABLE IF EXISTS anomalies CASCADE;
+            DROP TABLE IF EXISTS time_series_data CASCADE;
+            DROP TABLE IF EXISTS time_series_metadata CASCADE;
             DROP TABLE IF EXISTS metrics CASCADE;
+            DROP TABLE IF EXISTS datasets CASCADE;
+            DROP TABLE IF EXISTS cities CASCADE;
         """)
 
         # Create trigger function for updating timestamps
@@ -45,6 +49,23 @@ def init_database():
                 RETURN NEW;
             END;
             $$ language 'plpgsql';
+        """)
+
+        # Create cities table for census data (moved up to avoid dependency issues)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS cities (
+                id SERIAL PRIMARY KEY,
+                city TEXT NOT NULL,
+                state_code TEXT NOT NULL,
+                place_code TEXT NOT NULL,
+                full_name TEXT NOT NULL,
+                population INTEGER NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        # Create index for fast lookup by city and state
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS cities_city_state_idx ON cities (city, state_code)
         """)
 
         # Create metrics table
@@ -315,23 +336,6 @@ def init_database():
                 BEFORE UPDATE ON metrics
                 FOR EACH ROW
                 EXECUTE FUNCTION update_updated_at_column()
-        """)
-
-        # Create cities table for census data
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS cities (
-                id SERIAL PRIMARY KEY,
-                city TEXT NOT NULL,
-                state_code TEXT NOT NULL,
-                place_code TEXT NOT NULL,
-                full_name TEXT NOT NULL,
-                population INTEGER NOT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-        # Create index for fast lookup by city and state
-        cursor.execute("""
-            CREATE INDEX IF NOT EXISTS cities_city_state_idx ON cities (city, state_code)
         """)
 
         # Create datasets table for storing dataset metadata
