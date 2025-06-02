@@ -50,12 +50,14 @@ async def get_enhanced_queries_db():
                 m.category_fields,
                 m.metadata,
                 m.is_active,
+                m.display_order,
                 d.title as dataset_title_from_datasets,
                 d.category as dataset_category_from_datasets,
                 d.columns as dataset_columns
             FROM metrics m
             LEFT JOIN datasets d ON m.endpoint = d.endpoint AND d.is_active = true
-            ORDER BY m.category, m.subcategory, m.id
+            WHERE m.is_active = true
+            ORDER BY m.display_order NULLS LAST, m.id
         """)
         
         metrics_rows = cursor.fetchall()
@@ -100,12 +102,10 @@ async def get_enhanced_queries_db():
                 "greendirection": row['greendirection'] or "up",
                 "location_fields": row['location_fields'] or [],
                 "category_fields": row['category_fields'] or [],
-                "is_active": row['is_active'] if row['is_active'] is not None else True
+                "is_active": row['is_active'] if row['is_active'] is not None else True,
+                "display_order": row['display_order'],
+                "metadata": row['metadata']
             }
-            
-            # Add metadata if available
-            if row['metadata']:
-                metric_data["metadata"] = row['metadata']
             
             # Add the metric to the enhanced queries
             enhanced_queries[category][subcategory]["queries"][metric_name] = metric_data
@@ -1201,4 +1201,195 @@ async def restore_metrics_from_backup_api():
         return JSONResponse({
             "status": "error",
             "message": f"Error during restore: {str(e)}"
-        }, status_code=500) 
+        }, status_code=500)
+
+
+@router.post("/api/backup-metrics-table")
+async def backup_metrics_table_api():
+    """Create a backup of the metrics table, moving any existing backup to history."""
+    try:
+        import subprocess
+        import os
+        import shutil
+        from datetime import datetime
+        
+        logger.info("Starting metrics table backup via API")
+        
+        # Get project root directory (3 levels up from this file)
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        project_root = os.path.dirname(script_dir)
+        
+        # Define paths
+        backup_file = os.path.join(project_root, 'metrics_backup.sql')
+        history_dir = os.path.join(project_root, 'backup_history')
+        
+        # Create history directory if it doesn't exist
+        os.makedirs(history_dir, exist_ok=True)
+        
+        # Move existing backup to history if it exists
+        old_backup_moved = False
+        old_backup_location = None
+        if os.path.exists(backup_file):
+            # Get the modification time of the existing backup
+            mod_time = datetime.fromtimestamp(os.path.getmtime(backup_file))
+            timestamp = mod_time.strftime("%Y%m%d_%H%M%S")
+            
+            # Move to history with timestamp
+            old_backup_location = os.path.join(history_dir, f'metrics_backup_{timestamp}.sql')
+            shutil.move(backup_file, old_backup_location)
+            old_backup_moved = True
+            logger.info(f"Moved existing backup to: {old_backup_location}")
+        
+        # Get database connection parameters from environment
+        db_host = os.getenv("POSTGRES_HOST", "localhost")
+        db_port = os.getenv("POSTGRES_PORT", "5432")
+        db_name = os.getenv("POSTGRES_DB", "transparentsf")
+        db_user = os.getenv("POSTGRES_USER", "postgres")
+        db_password = os.getenv("POSTGRES_PASSWORD", "postgres")
+        
+        # Set up environment for pg_dump
+        env = os.environ.copy()
+        if db_password:
+            env["PGPASSWORD"] = db_password
+        
+        # Create the backup using pg_dump
+        dump_cmd = [
+            "pg_dump",
+            "-h", db_host,
+            "-p", str(db_port),
+            "-U", db_user,
+            "-d", db_name,
+            "--table=public.metrics",
+            "--data-only",
+            "--inserts",
+            "--column-inserts",
+            "-f", backup_file
+        ]
+        
+        logger.info("Creating new backup of metrics table...")
+        result = subprocess.run(dump_cmd, env=env, capture_output=True, text=True)
+        
+        if result.returncode != 0:
+            logger.error(f"pg_dump failed: {result.stderr}")
+            return JSONResponse({
+                "status": "error",
+                "message": f"Backup failed: {result.stderr}"
+            }, status_code=500)
+        
+        # Verify the backup file was created
+        if not os.path.exists(backup_file):
+            logger.error("Backup file was not created")
+            return JSONResponse({
+                "status": "error",
+                "message": "Backup file was not created"
+            }, status_code=500)
+        
+        # Get file size for confirmation
+        file_size = os.path.getsize(backup_file)
+        logger.info(f"Backup created successfully: {backup_file} ({file_size} bytes)")
+        
+        response_data = {
+            "status": "success",
+            "message": "Metrics table backup created successfully",
+            "backup_file": backup_file,
+            "backup_size_bytes": file_size,
+            "old_backup_moved": old_backup_moved
+        }
+        
+        if old_backup_moved:
+            response_data["old_backup_location"] = old_backup_location
+        
+        return JSONResponse(response_data)
+        
+    except Exception as e:
+        logger.error(f"Error during metrics table backup: {str(e)}")
+        return JSONResponse({
+            "status": "error",
+            "message": f"Error during backup: {str(e)}"
+        }, status_code=500)
+
+
+@router.get("/api/metrics-with-order")
+async def get_metrics_with_order():
+    """Get all metrics with their current display_order for reordering interface."""
+    try:
+        from tools.db_utils import get_postgres_connection
+        
+        connection = get_postgres_connection()
+        if not connection:
+            raise HTTPException(status_code=500, detail="Database connection failed")
+        
+        cursor = connection.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        
+        # Query all metrics with their display_order, including inactive ones for reordering
+        cursor.execute("""
+            SELECT 
+                id,
+                metric_name as name,
+                category,
+                subcategory,
+                endpoint,
+                is_active,
+                display_order
+            FROM metrics 
+            ORDER BY COALESCE(display_order, 999), id
+        """)
+        
+        metrics = cursor.fetchall()
+        cursor.close()
+        connection.close()
+        
+        return JSONResponse({
+            "status": "success",
+            "metrics": [dict(metric) for metric in metrics]
+        })
+        
+    except Exception as e:
+        logger.error(f"Error getting metrics with order: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error getting metrics with order: {str(e)}")
+
+
+@router.post("/api/update-metric-order")
+async def update_metric_order(request: Request):
+    """Update the display_order for multiple metrics."""
+    try:
+        from tools.db_utils import get_postgres_connection
+        
+        data = await request.json()
+        metrics = data.get('metrics', [])
+        
+        if not metrics:
+            raise HTTPException(status_code=400, detail="No metrics provided")
+        
+        connection = get_postgres_connection()
+        if not connection:
+            raise HTTPException(status_code=500, detail="Database connection failed")
+        
+        cursor = connection.cursor()
+        
+        # Update each metric's display_order
+        for metric in metrics:
+            metric_id = metric.get('id')
+            display_order = metric.get('display_order')
+            
+            if metric_id is None or display_order is None:
+                continue
+                
+            cursor.execute("""
+                UPDATE metrics 
+                SET display_order = %s 
+                WHERE id = %s
+            """, (display_order, metric_id))
+        
+        connection.commit()
+        cursor.close()
+        connection.close()
+        
+        return JSONResponse({
+            "status": "success",
+            "message": f"Updated display order for {len(metrics)} metrics"
+        })
+        
+    except Exception as e:
+        logger.error(f"Error updating metric order: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error updating metric order: {str(e)}") 

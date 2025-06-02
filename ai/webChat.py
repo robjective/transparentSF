@@ -567,9 +567,6 @@ def get_dataset_columns(context_variables, endpoint=None):
     Returns:
         Dictionary with columns information or error
     """
-    import os
-    import json
-    
     try:
         logger.info(f"""
 === get_dataset_columns called ===
@@ -585,66 +582,40 @@ Context variables keys: {list(context_variables.keys())}
         endpoint = endpoint.replace('.json', '')
         logger.info(f"Cleaned endpoint: {endpoint}")
         
-        # Look for dataset metadata in data/datasets directory
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        datasets_dir = os.path.join(script_dir, 'data', 'datasets')
-        logger.info(f"Looking for datasets in: {datasets_dir}")
+        # Import database utilities
+        from tools.db_utils import get_postgres_connection
+        import psycopg2.extras
         
-        # Check if the directory exists
-        if not os.path.exists(datasets_dir):
-            logger.error(f"Datasets directory not found: {datasets_dir}")
-            return {"error": f"Datasets directory not found: {datasets_dir}"}
+        # Get database connection
+        connection = get_postgres_connection()
+        if not connection:
+            logger.error("Database connection failed")
+            return {"error": "Database connection failed"}
         
-        # Try to find a metadata file for this endpoint
-        metadata_files = [
-            os.path.join(datasets_dir, f"{endpoint}.json"),
-            os.path.join(datasets_dir, f"{endpoint}_metadata.json"),
-            os.path.join(datasets_dir, f"{endpoint}_columns.json")
-        ]
-        logger.info(f"Checking for metadata files: {metadata_files}")
+        cursor = connection.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         
-        metadata_file = None
-        for file_path in metadata_files:
-            if os.path.exists(file_path):
-                metadata_file = file_path
-                logger.info(f"Found metadata file: {metadata_file}")
-                break
+        # Query the datasets table for this endpoint
+        cursor.execute("""
+            SELECT columns, title, description, category
+            FROM datasets 
+            WHERE endpoint = %s AND is_active = true
+        """, (endpoint,))
         
-        if not metadata_file:
-            logger.error(f"No metadata found for endpoint: {endpoint}")
-            return {"error": f"No metadata found for endpoint: {endpoint}"}
+        row = cursor.fetchone()
+        cursor.close()
+        connection.close()
         
-        # Read the metadata file
-        try:
-            with open(metadata_file, 'r', encoding='utf-8') as f:
-                metadata = json.load(f)
-            logger.info(f"""
-Successfully loaded metadata file:
-File size: {os.path.getsize(metadata_file)} bytes
-Metadata type: {type(metadata)}
-Metadata keys: {list(metadata.keys()) if isinstance(metadata, dict) else 'Not a dictionary'}
-""")
-        except Exception as e:
-            logger.error(f"Error reading metadata file: {str(e)}")
-            return {"error": f"Error reading metadata file: {str(e)}"}
+        if not row:
+            logger.error(f"No dataset found in database for endpoint: {endpoint}")
+            return {"error": f"No dataset found for endpoint: {endpoint}"}
         
-        # Extract columns information (adapt based on your metadata structure)
-        columns = []
-        if isinstance(metadata, dict):
-            if "columns" in metadata:
-                columns = metadata["columns"]
-                logger.info(f"Found {len(columns)} columns in 'columns' key")
-            elif "fields" in metadata:
-                columns = metadata["fields"]
-                logger.info(f"Found {len(columns)} columns in 'fields' key")
-            else:
-                logger.warning(f"No 'columns' or 'fields' key found in metadata. Available keys: {list(metadata.keys())}")
-        elif isinstance(metadata, list):
-            columns = metadata  # Assume it's a list of column objects
-            logger.info(f"Metadata is a list with {len(columns)} items")
-        else:
-            logger.error(f"Unexpected metadata type: {type(metadata)}")
-            return {"error": f"Unexpected metadata type: {type(metadata)}"}
+        if not row['columns']:
+            logger.error(f"No columns found in database for endpoint: {endpoint}")
+            return {"error": f"No columns found for endpoint: {endpoint}"}
+        
+        # Extract columns information from the database
+        columns = row['columns']
+        logger.info(f"Found {len(columns)} columns in database for endpoint {endpoint}")
         
         # Return simplified column info for agent use
         column_info = []
@@ -668,7 +639,10 @@ First few columns: {column_info[:3] if column_info else 'None'}
         result = {
             "endpoint": endpoint,
             "column_count": len(column_info),
-            "columns": column_info
+            "columns": column_info,
+            "dataset_title": row.get('title', ''),
+            "dataset_description": row.get('description', ''),
+            "dataset_category": row.get('category', '')
         }
         
         logger.info(f"""
@@ -676,6 +650,7 @@ First few columns: {column_info[:3] if column_info else 'None'}
 Endpoint: {result['endpoint']}
 Column count: {result['column_count']}
 Columns: {[col['name'] for col in result['columns']][:5]}... (showing first 5)
+Dataset title: {result['dataset_title']}
 """)
         
         return result

@@ -16,6 +16,8 @@ import ast
 import random
 import string
 from urllib.parse import quote
+import math
+import re
 
 """
 Enhanced Map Generation with Series Support
@@ -151,7 +153,7 @@ if not DATAWRAPPER_API_KEY:
 # Default reference chart for district maps
 DEFAULT_DISTRICT_CHART = os.getenv("DATAWRAPPER_REFERENCE_CHART", "j5vON")
 # Default reference chart for locator maps
-DEFAULT_LOCATOR_CHART = "dRKcH"
+DEFAULT_LOCATOR_CHART = "cMIaQ"
 # Default reference chart for symbol maps
 DEFAULT_SYMBOL_CHART = "K8LoR"
 
@@ -209,31 +211,8 @@ def _prepare_locator_marker_data(location_data, series_field=None, color_palette
         location_data: A list of dictionaries, where each dictionary contains
                        details for a point (e.g., title, coordinates, tooltip, color).
                        Can handle both coordinate-based and address-based data.
-                       Examples:
-                       [
-                           {
-                               "title": "Point A",
-                               "coordinates": [-122.4, 37.7],
-                               "tooltip": "This is Point A",
-                               "markerColor": "#ff0000", (optional)
-                               "series": "Category 1", (optional - for colored series)
-                           },
-                           {
-                               "title": "Point B",
-                               "lat": 37.7,
-                               "lon": -122.4,
-                               "tooltip": "This is Point B",
-                               "series": "Category 2", (optional)
-                           },
-                           {
-                               "title": "Address C", 
-                               "address": "123 Main St, San Francisco, CA",
-                               "tooltip": "This is Address C",
-                               "markerColor": "#0000ff", (optional)
-                           }
-                       ]
-        series_field (str, optional): Field name to use for series grouping (e.g., 'series', 'category', 'type')
-        color_palette (list, optional): List of colors to use for series. If not provided, uses default palette.
+        series_field (str, optional): Field name to use for series grouping
+        color_palette (list, optional): List of colors to use for series
         
     Returns:
         A JSON string representing the marker data for Datawrapper API.
@@ -243,7 +222,7 @@ def _prepare_locator_marker_data(location_data, series_field=None, color_palette
     # Define default color palettes for series
     default_color_palettes = {
         'categorical': [
-            '#ad35fa',  # Bright Purple (primary brand color)
+            '#ad35fa',  # Bright Purple
             '#FF6B5A',  # Warm Coral
             '#4A7463',  # Spruce Green
             '#71B2CA',  # Sky Blue
@@ -255,30 +234,6 @@ def _prepare_locator_marker_data(location_data, series_field=None, color_palette
             '#FF5722',  # Deep Orange
             '#795548',  # Brown
             '#607D8B',  # Blue Grey
-        ],
-        'status': [
-            '#4CAF50',  # Green - Good/Active
-            '#FFC107',  # Amber - Warning/Pending
-            '#F44336',  # Red - Error/Inactive
-            '#2196F3',  # Blue - Info/Processing
-            '#9C27B0',  # Purple - Special
-        ],
-        'priority': [
-            '#F44336',  # Red - High Priority
-            '#FF9800',  # Orange - Medium Priority
-            '#4CAF50',  # Green - Low Priority
-            '#9E9E9E',  # Grey - No Priority
-        ],
-        'sequential': [
-            '#f7fcf0',  # Very Light Green
-            '#e0f3db',  # Light Green
-            '#ccebc5',  # Medium Light Green
-            '#a8ddb5',  # Medium Green
-            '#7bccc4',  # Teal Green
-            '#4eb3d3',  # Light Blue
-            '#2b8cbe',  # Medium Blue
-            '#0868ac',  # Dark Blue
-            '#084081',  # Very Dark Blue
         ]
     }
     
@@ -288,55 +243,26 @@ def _prepare_locator_marker_data(location_data, series_field=None, color_palette
     elif isinstance(color_palette, str) and color_palette in default_color_palettes:
         color_palette = default_color_palettes[color_palette]
     
-    def generate_unique_id():
-        """Generate a unique ID similar to Datawrapper's format"""
-        # Generate a 10-character random string similar to Datawrapper's IDs
-        chars = string.ascii_lowercase + string.digits
-        return ''.join(random.choice(chars) for _ in range(10))
-    
     def parse_coordinates(coord_value):
-        """
-        Parse coordinates from various formats into [longitude, latitude] format.
-        
-        Args:
-            coord_value: Can be:
-                - List/tuple: [-122.4, 37.7] (already in lon, lat format)
-                - List/tuple: [37.7, -122.4] (lat, lon format - will be detected and swapped)
-                - String: "37.7749,-122.4194" (lat,lon format)
-                - String: "-122.4194,37.7749" (lon,lat format)
-                
-        Returns:
-            [longitude, latitude] list or None if parsing fails
-        """
+        """Parse coordinates from various formats into [longitude, latitude] format."""
         if not coord_value:
             return None
             
         try:
             if isinstance(coord_value, (list, tuple)) and len(coord_value) >= 2:
                 lon, lat = float(coord_value[0]), float(coord_value[1])
-                # Check if coordinates are in lat,lon format (lat should be between -90 and 90)
-                # and lon should be between -180 and 180
                 if -90 <= lon <= 90 and -180 <= lat <= 180:
-                    # This looks like lat,lon format, swap them
-                    return [lat, lon]  # Return as [longitude, latitude]
+                    return [lat, lon]
                 else:
-                    # Assume it's already in lon,lat format
                     return [lon, lat]
                     
             elif isinstance(coord_value, str):
-                # Parse string coordinates
                 parts = coord_value.split(',')
                 if len(parts) >= 2:
                     coord1, coord2 = float(parts[0].strip()), float(parts[1].strip())
-                    # Determine if this is lat,lon or lon,lat based on ranges
-                    # Latitude is typically between -90 and 90
-                    # Longitude is typically between -180 and 180
-                    # For SF area: lat ~37.7, lon ~-122.4
                     if -90 <= coord1 <= 90 and -180 <= coord2 <= 180:
-                        # First coordinate looks like latitude, second like longitude
-                        return [coord2, coord1]  # Return as [longitude, latitude]
+                        return [coord2, coord1]
                     else:
-                        # Assume first is longitude, second is latitude
                         return [coord1, coord2]
                         
         except (ValueError, TypeError, IndexError) as e:
@@ -353,10 +279,7 @@ def _prepare_locator_marker_data(location_data, series_field=None, color_palette
             if series_value is not None:
                 unique_series.add(str(series_value))
         
-        # Sort series for consistent color assignment
         sorted_series = sorted(list(unique_series))
-        
-        # Assign colors to each series
         for i, series_value in enumerate(sorted_series):
             series_color_map[series_value] = color_palette[i % len(color_palette)]
         
@@ -373,191 +296,86 @@ def _prepare_locator_marker_data(location_data, series_field=None, color_palette
         if "coordinates" in loc and loc["coordinates"]:
             parsed_coordinates = parse_coordinates(loc["coordinates"])
         
-        if not loc.get("title"):
-            logger.warning(f"Skipping location due to missing title: {loc}")
-            continue
-            
+        # Generate a title if none provided
+        title = loc.get("title")
+        if not title:
+            title=""
+        
+        # Skip if no valid location data
         if not parsed_coordinates and not has_lat_lon and not has_address:
             logger.warning(f"Skipping location due to missing valid coordinates, lat/lon, or address: {loc}")
             continue
 
-        # Determine marker color based on series or explicit color
-        marker_color = "#8b5cf6"  # Default purple
-        
-        if series_field and series_field in loc and loc[series_field] is not None:
-            # Use series-based color
-            series_value = str(loc[series_field])
-            marker_color = series_color_map.get(series_value, marker_color)
-            logger.debug(f"Using series color for '{loc['title']}' (series: {series_value}): {marker_color}")
-        elif loc.get("markerColor"):
-            # Use explicit marker color
-            marker_color = loc["markerColor"]
-        elif loc.get("color"):
-            # Use explicit color
-            marker_color = loc["color"]
-        
-        text_color = loc.get("textColor", "#333333")
-        text_halo = loc.get("textHalo", "#f2f3f0")
-        
-        # Create marker in the exact format that works
+        # Create marker object with complete structure matching working locator maps
         marker = {
             "type": "point",
-            "title": loc["title"],
+            "title": title,
             "icon": {
-                "id": loc.get("icon_id", "circle"),
-                "path": loc.get("icon_path", "M1000 350a500 500 0 0 0-500-500 500 500 0 0 0-500 500 500 500 0 0 0 500 500 500 500 0 0 0 500-500z"),
-                "height": loc.get("icon_height", 700),
-                "width": loc.get("icon_width", 1000),
+                "id": "circle",
+                "path": "M1000 350a500 500 0 0 0-500-500 500 500 0 0 0-500 500 500 500 0 0 0 500 500 500 500 0 0 0 500-500z",
+                "height": 700,
+                "width": 1000,
                 "horiz-adv-x": 1000,
                 "scale": 1
             },
-            "scale": loc.get("scale", 0.6),  # Even smaller markers by default
-            "markerColor": marker_color,
-            "opacity": loc.get("opacity", 0.5),  # 50% opacity by default
+            "scale": loc.get("scale", 1),
+            "markerColor": loc.get("markerColor", "#8b5cf6"),  # Use purple like working example
+            "opacity": loc.get("opacity", 1),  # Keep higher opacity for visibility
             "text": {
-                "color": text_color,
-                "fontSize": loc.get("fontSize", 14),
-                "halo": text_halo,
-                "bold": loc.get("bold", False),
-                "italic": loc.get("italic", False),
-                "uppercase": loc.get("uppercase", False),
-                "space": loc.get("space", False)
+                "color": "#333333",
+                "fontSize": 14,
+                "halo": "#f2f3f0",
+                "bold": False,
+                "italic": False,
+                "uppercase": False,
+                "space": False
             },
-            "id": generate_unique_id(),  # Generate unique ID like Datawrapper
-            "markerSymbol": loc.get("markerSymbol", ""),
-            "markerTextColor": text_color,
-            "anchor": "bottom-center",  # Use bottom-center like working format
-            "offsetY": loc.get("offsetY", 0),
-            "offsetX": loc.get("offsetX", 0),
-            "labelStyle": loc.get("labelStyle", "plain"),
-            "class": loc.get("class", ""),
-            "rotate": loc.get("rotate", 0),
-            "visible": loc.get("visible", True),
-            "locked": loc.get("locked", False),
-            "preset": loc.get("preset", "-"),
-            "alpha": loc.get("alpha", 0.5),  # Alternative opacity property
+            "id": str(uuid.uuid4())[:10],  # Shorter ID like working example
+            "markerSymbol": "",
+            "markerTextColor": "#333333",
+            "anchor": "bottom-center",
+            "offsetY": 0,
+            "offsetX": 0,
+            "labelStyle": "plain",
+            "class": "",
+            "rotate": 0,
+            "visible": True,
+            "locked": False,
+            "preset": "-",
+            "alpha": loc.get("opacity",1),  # Use alpha property as well
             "visibility": {
-                "mobile": loc.get("mobile_visible", True),
-                "desktop": loc.get("desktop_visible", True)
+                "mobile": True,
+                "desktop": True
             },
             "connectorLine": {
-                "enabled": loc.get("connector_enabled", False),
-                "arrowHead": loc.get("arrow_head", "lines"),
-                "type": loc.get("connector_type", "curveRight"),
-                "targetPadding": loc.get("target_padding", 3),
-                "stroke": loc.get("stroke", 1),
-                "lineLength": loc.get("line_length", 0)
+                "enabled": False,
+                "arrowHead": "lines",
+                "type": "curveRight",
+                "targetPadding": 3,
+                "stroke": 1,
+                "lineLength": 0
+            },
+            "coordinates": parsed_coordinates or [float(loc["lon"]), float(loc["lat"])],
+            "tooltip": {
+                "text": loc.get("tooltip", title),
+                "enabled": True
             }
         }
         
-        # Add series information to marker for reference
-        if series_field and series_field in loc:
-            marker["series"] = str(loc[series_field])
-        
-        # Use parsed coordinates, lat/lon, or address for geocoding
-        if parsed_coordinates:
-            marker["coordinates"] = parsed_coordinates
-            logger.debug(f"Using parsed coordinates for '{loc['title']}': {parsed_coordinates}")
-        elif has_lat_lon:
-            # Convert lat/lon to coordinates format [longitude, latitude]
-            marker["coordinates"] = [float(loc["lon"]), float(loc["lat"])]
-            logger.debug(f"Using lat/lon for '{loc['title']}': [{loc['lon']}, {loc['lat']}]")
-        elif has_address:
-            marker["address"] = loc["address"]
-            logger.debug(f"Using address for '{loc['title']}': {loc['address']}")
-        
-        # Add tooltip if provided - enhance with series information
-        tooltip_text = loc.get("tooltip") or loc.get("description", "")
-        if series_field and series_field in loc and loc[series_field] is not None:
-            series_info = f"Category: {loc[series_field]}"
-            if tooltip_text:
-                tooltip_text = f"{tooltip_text}<br>{series_info}"
-            else:
-                tooltip_text = series_info
-        
-        marker["tooltip"] = {
-            "text": tooltip_text,
-            "enabled": bool(tooltip_text)  # Enable tooltip only if there's text
-        }
+        # Add series information if available
+        if series_field and loc.get(series_field):
+            series_value = str(loc[series_field])
+            marker["markerColor"] = series_color_map.get(series_value, marker["markerColor"])
+            marker["series"] = series_value
         
         markers.append(marker)
-
-    logger.info(f"Prepared {len(markers)} markers for Datawrapper with series support")
-    if series_color_map:
-        logger.info(f"Series color mapping: {series_color_map}")
     
-    return json.dumps({"markers": markers})
-
-def _verify_and_fix_markers(chart_id, expected_markers_json, max_retries=3):
-    """
-    Verify that markers are properly loaded in the chart and fix if needed.
+    # Create the final marker data structure
+    marker_data = {
+        "markers": markers
+    }
     
-    Args:
-        chart_id: The Datawrapper chart ID
-        expected_markers_json: JSON string of expected marker data
-        max_retries: Maximum number of retry attempts
-        
-    Returns:
-        bool: True if markers are verified, False otherwise
-    """
-    import time
-    
-    logger = logging.getLogger(__name__)
-    
-    for attempt in range(max_retries):
-        logger.info(f"Verification attempt {attempt + 1}/{max_retries} for chart {chart_id}")
-        
-        # Wait a bit for Datawrapper to process the data
-        if attempt > 0:
-            wait_time = 2 * attempt  # Progressive delay: 2s, 4s, 6s
-            logger.info(f"Waiting {wait_time} seconds for Datawrapper to process markers...")
-            time.sleep(wait_time)
-        
-        # Get current chart data
-        chart_data_response = _make_dw_request("GET", f"/charts/{chart_id}/data")
-        
-        if chart_data_response:
-            # Parse the expected markers
-            expected_markers = json.loads(expected_markers_json)
-            expected_count = len(expected_markers.get("markers", []))
-            
-            # Check if the response contains marker data
-            if isinstance(chart_data_response, str):
-                try:
-                    current_data = json.loads(chart_data_response)
-                except json.JSONDecodeError:
-                    current_data = {}
-            elif isinstance(chart_data_response, dict):
-                current_data = chart_data_response
-            else:
-                current_data = {}
-            
-            current_markers = current_data.get("markers", [])
-            current_count = len(current_markers)
-            
-            logger.info(f"Found {current_count} markers in chart data, expected {expected_count}")
-            
-            if current_count == expected_count and current_count > 0:
-                logger.info(f"Markers verified successfully! Found all {current_count} expected markers.")
-                return True
-            elif current_count == 0:
-                logger.warning(f"No markers found in chart data on attempt {attempt + 1}")
-                # Re-upload the marker data
-                logger.info(f"Re-uploading marker data for chart {chart_id}")
-                upload_response = _make_dw_request("PUT", f"/charts/{chart_id}/data", headers={'Content-Type': 'application/json'}, data=expected_markers_json)
-                if upload_response:
-                    logger.info("Marker data re-uploaded successfully")
-                else:
-                    logger.error("Failed to re-upload marker data")
-            else:
-                logger.warning(f"Marker count mismatch: found {current_count}, expected {expected_count}")
-        else:
-            logger.error(f"Failed to retrieve chart data for verification on attempt {attempt + 1}")
-    
-    logger.error(f"Failed to verify markers after {max_retries} attempts")
-    return False
-
-def _refresh_chart_before_publish(chart_id):
+    return json.dumps(marker_data)
     """
     Forces a refresh of the chart to ensure all data and metadata is properly processed
     before publishing.
@@ -590,7 +408,7 @@ def _refresh_chart_before_publish(chart_id):
 
 def _fit_map_to_markers(chart_id, markers_json_string):
     """
-    Fit the map view to show all markers optimally.
+    Fit the map view to show all markers optimally using the proper Datawrapper view structure.
     
     Args:
         chart_id (str): The chart ID to update
@@ -631,12 +449,11 @@ def _fit_map_to_markers(chart_id, markers_json_string):
         center_coords = [center_lon, center_lat]
         
         # Calculate appropriate zoom level based on bounds
-        # This is a rough calculation - you might need to fine-tune
         lon_diff = max_lon - min_lon
         lat_diff = max_lat - min_lat
         max_diff = max(lon_diff, lat_diff)
         
-        # Zoom level calculation (rough approximation)
+        # Zoom level calculation for SF area
         if max_diff > 0.5:
             zoom_level = 9
         elif max_diff > 0.2:
@@ -652,25 +469,37 @@ def _fit_map_to_markers(chart_id, markers_json_string):
         else:
             zoom_level = 15
         
-        # Add some padding by reducing zoom slightly
-        zoom_level = max(8, zoom_level - 1)
+        # Add some padding by reducing zoom slightly for better view
+        zoom_level = max(10, zoom_level - 1)
         
-        logger.info(f"Fitting map to markers: center={center_coords}, zoom={zoom_level}")
+        # Add padding to bounds for better visualization
+        padding_factor = 0.1  # 10% padding
+        lon_padding = lon_diff * padding_factor
+        lat_padding = lat_diff * padding_factor
         
-        # Update the chart view
+        # Create the proper view structure matching the working reference chart
         view_payload = {
             "metadata": {
                 "visualize": {
                     "view": {
-                        "center": center_coords,
+                        "fit": {
+                            "top": [center_lon, max_lat + lat_padding],
+                            "left": [min_lon - lon_padding, center_lat],
+                            "right": [max_lon + lon_padding, center_lat],
+                            "bottom": [center_lon, min_lat - lat_padding]
+                        },
                         "zoom": zoom_level,
-                        "height": 75,
                         "pitch": 0,
+                        "center": center_coords,
+                        "height": 75,
                         "bearing": 0
                     }
                 }
             }
         }
+        
+        logger.info(f"Fitting map to markers: center={center_coords}, zoom={zoom_level}")
+        logger.info(f"Bounds: lon=[{min_lon:.4f}, {max_lon:.4f}], lat=[{min_lat:.4f}, {max_lat:.4f}]")
         
         _make_dw_request(
             "PATCH",
@@ -678,7 +507,7 @@ def _fit_map_to_markers(chart_id, markers_json_string):
             json_payload=view_payload
         )
         
-        logger.info(f"Successfully fitted map {chart_id} to markers")
+        logger.info(f"Successfully fitted map {chart_id} to markers with proper view structure")
         return True
         
     except Exception as e:
@@ -687,88 +516,117 @@ def _fit_map_to_markers(chart_id, markers_json_string):
 
 def _create_and_configure_locator_map(chart_title, markers_json_string, center_coords=None, zoom_level=None, series_info=None):
     """
-    Creates an empty locator map, adds markers, and configures its view.
+    Creates and configures a Datawrapper locator map with markers.
 
     Args:
-        chart_title (str): The title for the new map.
-        markers_json_string (str): A JSON string containing the marker data.
-        center_coords (list, optional): [longitude, latitude] for map center.
-        zoom_level (int/float, optional): Zoom level for the map.
-        series_info (dict, optional): Information about series including color mapping for legend.
+        chart_title (str): Title for the chart
+        markers_json_string (str): JSON string containing marker data
+        center_coords (list, optional): [longitude, latitude] for map center
+        zoom_level (int/float, optional): Zoom level for the map
+        series_info (dict, optional): Information about series for legend
 
     Returns:
-        str: The ID of the newly created and configured chart, or None on failure.
+        str: Chart ID if successful, None otherwise
     """
     try:
-        # 1. Create an empty locator map chart
+        # 1. Create empty locator map
         logger.info(f"Creating empty locator map with title: {chart_title}")
-        create_chart_payload = {
+        create_response = _make_dw_request(
+            "POST",
+            "/charts",
+            json_payload={
             "title": chart_title,
             "type": "locator-map"
         }
-        create_chart_response = _make_dw_request(
-            "POST",
-            "/charts",
-            json_payload=create_chart_payload
         )
-        if not create_chart_response or "id" not in create_chart_response:
-            logger.error(f"Failed to create empty locator map. Response: {create_chart_response}")
+        if not create_response or "id" not in create_response:
+            logger.error("Failed to create empty locator map")
             return None
-        chart_id = create_chart_response["id"]
+        chart_id = create_response["id"]
         logger.info(f"Successfully created empty locator map with ID: {chart_id}")
 
         # 2. Add markers to the map
         logger.info(f"Adding markers to map ID: {chart_id}")
-        add_markers_response = _make_dw_request(
+        logger.info(f"Marker data being uploaded: {markers_json_string[:500]}...")  # Show first 500 chars
+        
+        _make_dw_request(
             "PUT",
             f"/charts/{chart_id}/data",
-            headers={'Content-Type': 'application/json'}, # Ensure correct content type
+            headers={"Content-Type": "application/json"},
             data=markers_json_string
         )
-        # PUT /data returns 204 No Content on success, so response might be None or empty
-        # We rely on raise_for_status in _make_dw_request to catch errors
-        logger.info(f"Markers added to map ID: {chart_id}. Response status implies success if no error.")
+        logger.info(f"Markers uploaded to map ID: {chart_id}")
 
-        # 3. Set initial metadata and styling
-        logger.info(f"Setting initial metadata for map ID: {chart_id}")
-        
+        # Verify markers were uploaded correctly
+        try:
+            chart_data_response = _make_dw_request("GET", f"/charts/{chart_id}/data")
+            if chart_data_response:
+                if isinstance(chart_data_response, str):
+                    try:
+                        chart_data = json.loads(chart_data_response)
+                        markers = chart_data.get("markers", [])
+                        logger.info(f"Verification: Found {len(markers)} markers in chart data")
+                        if markers:
+                            logger.info(f"First marker: {markers[0]}")
+                        else:
+                            logger.warning("No markers found in chart data after upload!")
+                    except json.JSONDecodeError:
+                        logger.warning("Could not parse chart data response as JSON")
+                else:
+                    markers = chart_data_response.get("markers", [])
+                    logger.info(f"Verification: Found {len(markers)} markers in chart data")
+            else:
+                logger.warning("No response when verifying chart data")
+        except Exception as e:
+            logger.warning(f"Error verifying markers: {e}")
+
+        # 3. Set initial metadata and styling with comprehensive marker configuration
         initial_metadata_payload = {
             "metadata": {
                 "data": {
                     "json": True
                 },
                 "visualize": {
-                    "basemap": "osm",
                     "defaultMapSize": 600,
-                    "visibility": {
-                        "boundary_country": True,
-                        "boundary_state": False,
-                        "building": True,
-                        "green": True,
-                        "mountains": False,
-                        "roads": True,
-                        "urban": True,
-                        "water": True,
-                        "building3d": False
-                    },
                     "mapLabel": True,
                     "scale": False,
                     "compass": False,
+                    "style": "dw-light",
+                    "visibility": {
+                        "green": True,
+                        "roads": True,
+                        "urban": True,
+                        "water": True,
+                        "building": True,
+                        "glaciers": False,
+                        "mountains": False,
+                        "building3d": False,
+                        "boundary_state": False,
+                        "boundary_country": True
+                    },
                     "miniMap": {
-                        "enabled": False,
-                        "bounds": []
+                        "enabled": False
                     },
-                    "key": {
-                        "enabled": bool(series_info and series_info.get('color_mapping')),
-                        "title": series_info.get('legend_title', 'Categories') if series_info else "",
-                        "items": []
-                    },
-                    "zoom": {
-                        "enabled": True,
-                        "position": "topright"
-                    },
-                    "source-name": "TransparentSF",
-                    "source-url": "https://transparentsf.org",
+                    "upload": {
+                        "maxSize": 2000000,
+                        "maxMarkers": 100
+                    }
+                },
+                "publish": {
+                    "embed-width": 600,
+                    "embed-height": 400,
+                    "blocks": {
+                        "logo": {"enabled": False},
+                        "embed": False,
+                        "download-pdf": False,
+                        "download-svg": False,
+                        "get-the-data": True,
+                        "download-image": False
+                    }
+                },
+                "describe": {
+                    "source-name": "DataSF",
+                    "source-url": "https://data.sfgov.org",
                     "byline": "Generated by TransparentSF"
                 }
             }
@@ -780,16 +638,18 @@ def _create_and_configure_locator_map(chart_title, markers_json_string, center_c
         )
         logger.info(f"Initial metadata set for map ID: {chart_id}")
 
-        # Skip legend configuration for now to avoid breaking the map
-        # TODO: Re-implement legend functionality once basic series coloring works
-        if series_info and series_info.get('color_mapping'):
-            logger.info(f"Series detected but skipping legend configuration to ensure map renders properly")
-            logger.info(f"Color mapping: {series_info.get('color_mapping')}")
+        # Force a republish to ensure markers and metadata are processed
+        logger.info(f"Republishing chart {chart_id} to ensure markers are visible")
+        _make_dw_request(
+            "POST",
+            f"/charts/{chart_id}/publish"
+        )
 
         # 4. Fit map to markers (this will override center_coords and zoom_level if not provided)
         if center_coords is None or zoom_level is None:
             logger.info(f"Fitting map to markers for optimal view")
-            if not _fit_map_to_markers(chart_id, markers_json_string):
+            success = _fit_map_to_markers(chart_id, markers_json_string)
+            if not success:
                 logger.warning("Failed to fit map to markers, using fallback settings")
                 # Fallback to manual calculation
                 try:
@@ -799,29 +659,47 @@ def _create_and_configure_locator_map(chart_title, markers_json_string, center_c
                         lons = [m["coordinates"][0] for m in markers_data["markers"] if m.get("coordinates")]
                         if lats and lons:
                             center_coords = [(min(lons) + max(lons)) / 2, (min(lats) + max(lats)) / 2]
-                            zoom_level = 11
+                            zoom_level = 12
                         else:
                             center_coords = [-122.44, 37.77] # SF default
-                            zoom_level = 11
+                            zoom_level = 12
                     else:
                         center_coords = [-122.44, 37.77] # SF default
-                        zoom_level = 11
+                        zoom_level = 12
                 except Exception as e:
-                    logger.error(f"Error calculating fallback center/zoom: {str(e)}")
-                    center_coords = [-122.44, 37.77] # SF default
-                    zoom_level = 11
-
-        # 5. Set the custom view with center and zoom
-        if center_coords and zoom_level:
-            logger.info(f"Setting custom view for map ID: {chart_id}")
+                    logger.error(f"Error calculating fallback view: {e}")
+                    center_coords = [-122.44, 37.77] # SF default if parsing fails
+                    zoom_level = 12
+            
+                # Apply fallback view settings
+                logger.info(f"Applying fallback view: center={center_coords}, zoom={zoom_level}")
+                fallback_view_payload = {
+                    "metadata": {
+                        "visualize": {
+                            "view": {
+                                "center": center_coords,
+                                "zoom": zoom_level,
+                                "height": 75,
+                                "pitch": 0,
+                                "bearing": 0
+                            }
+                        }
+                    }
+                }
+                _make_dw_request(
+                    "PATCH",
+                    f"/charts/{chart_id}",
+                    json_payload=fallback_view_payload
+                )
+                logger.info(f"Applied fallback view settings to chart {chart_id}")
+        else:
+            # Use provided center_coords and zoom_level
+            logger.info(f"Using provided center and zoom: {center_coords}, {zoom_level}")
             custom_view_payload = {
                 "metadata": {
                     "visualize": {
-                        "customView": {
-                            "center": {
-                                "lat": center_coords[1],
-                                "lon": center_coords[0]
-                            },
+                        "view": {
+                            "center": center_coords,
                             "zoom": zoom_level,
                             "height": 75,
                             "pitch": 0,
@@ -835,6 +713,7 @@ def _create_and_configure_locator_map(chart_title, markers_json_string, center_c
                 f"/charts/{chart_id}",
                 json_payload=custom_view_payload
             )
+            logger.info(f"Applied custom view settings to chart {chart_id}")
 
         logger.info(f"Successfully created and configured locator map with ID: {chart_id}")
         return chart_id
@@ -853,7 +732,7 @@ def process_location_data(location_data, map_type):
     
     Args:
         location_data: List of location data objects or JSON string
-        map_type: Type of map (supervisor_district, police_district, intersection, point, address)
+        map_type: Type of map (supervisor_district, police_district, intersection, point, address, symbol)
         
     Returns:
         Processed location data
@@ -873,7 +752,11 @@ def process_location_data(location_data, map_type):
         location_data = [location_data]
     
     # Process each item based on map type
-    if map_type == "address":
+    if map_type == "symbol":
+        # For symbol maps, process addresses and geocode them
+        processed_data = process_symbol_map_data(location_data)
+    
+    elif map_type == "address":
         # For address maps, simply ensure the address is properly formatted
         for item in location_data:
             if isinstance(item, str):
@@ -1037,6 +920,7 @@ def create_datawrapper_chart(chart_title, location_data, map_type="supervisor_di
                         logger.info(f"Successfully parsed location_data using ast.literal_eval with {len(location_data)} items for {map_type} map")
                     else:
                         logger.error("ast.literal_eval output is not a list; cannot process location_data for locator map")
+                        return None
                 except (ValueError, SyntaxError) as parse_err:
                     logger.error(f"Failed to parse location_data string for locator map ({map_type}): {parse_err}")
         
@@ -1088,8 +972,8 @@ def create_datawrapper_chart(chart_title, location_data, map_type="supervisor_di
                         # For regular maps, this should be the current_value
                         # For delta maps, multiply by 100 to get percentage values for proper legend display
                         if map_metadata and map_metadata.get("map_type") == "delta":
-                            # Convert to percentage and clamp to [-100, 100] so extreme outliers use edge colours
-                            value_for_coloring = max(min(percent_change * 100, 100), -100)
+                            # Convert to percentage, round to nearest integer, and clamp to [-100, 100] so extreme outliers use edge colours
+                            value_for_coloring = max(min(round(percent_change * 100), 100), -100)
                             # For delta maps, reorganize CSV to put percentage value first
                             csv_data += f"{district},{value_for_coloring},{current},{previous},{delta},{percent_change}\n"
                         else:
@@ -1111,61 +995,9 @@ def create_datawrapper_chart(chart_title, location_data, map_type="supervisor_di
         
         # Handle location_data format conversion for symbol maps (coordinate-based)
         elif map_type == "symbol":
-            # If location_data is a JSON string representing a list, parse it first
-            if isinstance(location_data, str):
-                try:
-                    possible_list = json.loads(location_data)
-                    if isinstance(possible_list, list):
-                        location_data = possible_list
-                        logger.info(f"Parsed JSON string location_data into list with {len(location_data)} items for symbol map")
-                except json.JSONDecodeError:
-                    # Not a JSON string representing a list – assume caller already provided CSV string
-                    pass
-
-            if isinstance(location_data, list):
-                # Convert list of dictionaries to CSV format for coordinate-based symbol maps
-                logger.info(f"Converting list format to CSV for symbol map with coordinates")
-                csv_data = "name,latitude,longitude,value,color\n"
-                for item in location_data:
-                    if isinstance(item, dict):
-                        name = item.get('name', item.get('title', 'Unknown'))
-                        lat = item.get('lat', item.get('latitude'))
-                        lon = item.get('lon', item.get('longitude'))
-                        value = item.get('value', 1)
-                        color = item.get('color', '#0066cc')
-
-                        # Attempt geocoding if coords missing
-                        if (lat is None or lon is None) and item.get('address'):
-                            address_to_geocode = item['address']
-                            logger.info(f"Attempting to geocode address for symbol map item: {address_to_geocode}")
-                            lat_gc, lon_gc = geocode_address(address_to_geocode)
-                            if lat_gc is not None and lon_gc is not None:
-                                lat, lon = lat_gc, lon_gc
-                                logger.debug(f"Geocoded '{address_to_geocode}' to ({lat_gc}, {lon_gc})")
-                            else:
-                                logger.warning(f"Failed to geocode address '{address_to_geocode}' – item will be skipped if no coordinates are available")
-
-                        if lat is not None and lon is not None:
-                            csv_data += f"{name},{lat},{lon},{value},{color}\n"
-                        else:
-                            logger.warning(f"Skipping symbol map item missing coordinates: {item}")
-                    else:
-                        logger.warning(f"Skipping invalid symbol map data item: {item}")
-
-                location_data = csv_data
-                logger.info(f"Converted to CSV format for symbol map: {location_data[:200]}... (truncated)")
-            # At this point, location_data should be a CSV string for symbol maps
-
-            # === NEW: Create symbol map using dedicated helper instead of cloning ===
-            if map_type == "symbol" and isinstance(location_data, str):
-                logger.info("Creating symbol map via _create_and_configure_symbol_map helper")
-                chart_id = _create_and_configure_symbol_map(chart_title, location_data, map_metadata=map_metadata)
-                if chart_id:
-                    logger.info(f"Symbol map created successfully with ID: {chart_id}")
-                    return chart_id  # Early return after successful creation
-                else:
-                    logger.error("Failed to create symbol map via helper – falling back to cloning approach")
-
+            # Symbol maps are now handled as locator maps, so skip CSV conversion
+            pass
+        
         # Handle locator maps (point, address, intersection) with the new logic
         if map_type in ["point", "address", "intersection"]:
             logger.info(f"Preparing locator map: {chart_title} (type: {map_type})")
@@ -1234,13 +1066,12 @@ def create_datawrapper_chart(chart_title, location_data, map_type="supervisor_di
                                     # Validate coordinates are in San Francisco area
                                     if 37.6 <= lat <= 37.9 and -122.6 <= lon <= -122.2:
                                         processed_item = {
-                                            "coordinates": [lon, lat],  # Already in [longitude, latitude] format
-                                            "title": item.get("title", item.get("dba_name", "Unknown Business")),
-                                            "tooltip": item.get("tooltip", f"Industry: {item.get('naic_code_description', 'Unknown')}"),
-                                            "industry": item.get("industry", item.get("naic_code_description", "Unknown")),
-                                            "scale": 0.6,  # Smaller markers
-                                            "opacity": 0.5,  # 50% opacity
-                                            "alpha": 0.5  # Alternative opacity property
+                                            "title": item.get("title", ''),
+                                            "lat": float(lat),
+                                            "lon": float(lon),
+                                            "value": item.get("value", 0),
+                                            "description": item.get("description", ""),
+                                            "series": item.get("series", "")
                                         }
                                         
                                         # Copy over any series field data
@@ -1252,7 +1083,7 @@ def create_datawrapper_chart(chart_title, location_data, map_type="supervisor_di
                                         processed_data.append(processed_item)
                                         logger.debug(f"Processed DataSF location for '{processed_item['title']}': [{lon}, {lat}]")
                                     else:
-                                        logger.warning(f"Coordinates for '{item.get('title', item.get('dba_name', 'Unknown'))}' are outside SF area: [{lon}, {lat}]")
+                                        logger.warning(f"Coordinates for '{item.get('title', '')}' are outside SF area: [{lon}, {lat}]")
                                 else:
                                     logger.warning(f"Invalid coordinates format in location: {coords}")
                             else:
@@ -1268,12 +1099,25 @@ def create_datawrapper_chart(chart_title, location_data, map_type="supervisor_di
                                 coords_to_check = [item["lon"], item["lat"]]
                             
                             if coords_to_check and len(coords_to_check) >= 2:
-                                lon, lat = float(coords_to_check[0]), float(coords_to_check[1])
+                                # Determine coordinate format and parse accordingly
+                                coord1, coord2 = float(coords_to_check[0]), float(coords_to_check[1])
+                                
+                                # Check if coordinates are in [lat, lon] or [lon, lat] format
+                                # Latitude should be between -90 and 90, longitude between -180 and 180
+                                # For SF: lat ~37.7, lon ~-122.4
+                                if -90 <= coord1 <= 90 and -180 <= coord2 <= 180:
+                                    # First coordinate looks like latitude, second like longitude
+                                    lat, lon = coord1, coord2
+                                else:
+                                    # Assume first is longitude, second is latitude
+                                    lon, lat = coord1, coord2
+                                
+                                # Validate coordinates are in San Francisco area
                                 if 37.6 <= lat <= 37.9 and -122.6 <= lon <= -122.2:
                                     processed_data.append(item)
-                                    logger.debug(f"Validated existing coordinates for '{item.get('title', 'Unknown')}': [{lon}, {lat}]")
+                                    logger.debug(f"Validated existing coordinates for '{item.get('title', 'Unknown')}': lat={lat}, lon={lon}")
                                 else:
-                                    logger.warning(f"Existing coordinates for '{item.get('title', 'Unknown')}' are outside SF area: [{lon}, {lat}]")
+                                    logger.warning(f"Existing coordinates for '{item.get('title', 'Unknown')}' are outside SF area: lat={lat}, lon={lon}")
                             else:
                                 processed_data.append(item)  # Let it through if we can't validate
                         
@@ -1352,8 +1196,10 @@ def create_datawrapper_chart(chart_title, location_data, map_type="supervisor_di
         # Existing logic for all map types using cloning approach (district maps, symbol maps, etc.)
         if map_type == "symbol":
             ref_chart_id = reference_chart_id or DEFAULT_SYMBOL_CHART
+            logger.info(f"Using symbol map reference chart: {ref_chart_id}")
         else:
             ref_chart_id = reference_chart_id or DEFAULT_DISTRICT_CHART
+            logger.info(f"Using district map reference chart: {ref_chart_id}")
             
         if not ref_chart_id:
             logger.error(f"No reference chart ID provided for {map_type} map type.")
@@ -1389,6 +1235,27 @@ def create_datawrapper_chart(chart_title, location_data, map_type="supervisor_di
         elif isinstance(location_data, str):
             data_to_upload = location_data # Assume it's a CSV string
             logger.info("Using provided string as data for chart.")
+        elif isinstance(location_data, list) and map_type == "symbol":
+            # Special handling for symbol maps: geocode addresses and convert to CSV
+            logger.info(f"Processing {len(location_data)} symbol map locations with geocoding")
+            
+            # Geocode the data using our existing function
+            geocoded_data = process_symbol_map_data(location_data)
+            logger.info(f"Successfully processed {len(geocoded_data)} geocoded symbol locations")
+            
+            # Convert to CSV format for the symbol map reference chart
+            csv_data = "latitude,longitude,title,value,description,series\n"
+            for item in geocoded_data:
+                lat = item.get('lat', 0)
+                lon = item.get('lon', 0)
+                title = item.get('title', '').replace(',', ';')  # Replace commas to avoid CSV issues
+                value = item.get('value', 1)
+                description = item.get('description', '').replace(',', ';')
+                series = item.get('series', '')
+                csv_data += f"{lat},{lon},{title},{value},{description},{series}\n"
+            
+            data_to_upload = csv_data
+            logger.info(f"Converted {len(geocoded_data)} symbol locations to CSV format")
         else:
             logger.error("location_data for non-locator maps must be a file path or CSV string.")
             # Attempt to delete the partially created chart
@@ -1411,6 +1278,10 @@ def create_datawrapper_chart(chart_title, location_data, map_type="supervisor_di
                 data=data_to_upload
             )
             logger.info(f"Uploaded data to chart ID {chart_id}")
+
+        # After creating the chart and before returning, apply custom styling for district maps
+        if map_type in ["supervisor_district", "police_district"]:
+            _apply_custom_map_styling(chart_id, map_type, map_metadata)
 
         return chart_id
     
@@ -1553,14 +1424,14 @@ def _apply_custom_map_styling(chart_id, map_type, map_metadata=None):
                             "position": "above",
                             "interactive": True,
                             "labelCenter": "medium",
-                            "labelFormat": "+0,0.[00]%",  # Format as percentage with + sign
+                            "labelFormat": "0'%'",  # Format as integer percentage since values are already * 100
                             "orientation": "horizontal",
                             "titleEnabled": False,
                             "customLabels": []  # Clear any custom labels
                         }
                     },
                     "tooltip": {
-                        "body": f"{{{{value}}}} {item_noun}",
+                        "body": f"Current: {{{{current_value}}}} {item_noun}<br>Previous: {{{{previous_value}}}} {item_noun}<br>Change: {{{{delta}}}} {item_noun}<br>% Change: {{{{value}}}}%",
                         "title": "District {{ district }}",
                         "sticky": True,
                         "enabled": True
@@ -1590,8 +1461,8 @@ def _apply_custom_map_styling(chart_id, map_type, map_metadata=None):
                             "offsetX": 0,
                             "offsetY": 0,
                             "reverse": False,
-                            "labelMax": "high",
-                            "labelMin": "low",
+                            "labelMax": "",  # Let Datawrapper auto-calculate from data
+                            "labelMin": "",  # Let Datawrapper auto-calculate from data
                             "position": "above",
                             "interactive": True,
                             "labelCenter": "medium",
@@ -1611,46 +1482,6 @@ def _apply_custom_map_styling(chart_id, map_type, map_metadata=None):
                 # Add any custom colorscale if provided in metadata FOR NON-DELTA MAPS
                 if map_metadata and "colorscale" in map_metadata and not is_delta_map:
                     styling_payload["metadata"]["visualize"]["colorscale"] = map_metadata["colorscale"]
-        
-        elif map_type == "symbol":
-            # Symbol map styling for cloned charts with coordinate-based data
-            symbol_color = map_metadata.get("color", "#0066cc") if map_metadata else "#0066cc"
-            min_size = map_metadata.get("min_size", 5) if map_metadata else 5
-            max_size = map_metadata.get("max_size", 30) if map_metadata else 30
-            
-            # For cloned symbol maps with coordinates, configure for location-based symbols
-            styling_payload["metadata"]["visualize"] = {
-                "symbol-size": {
-                    "column": "value",
-                    "min": min_size,
-                    "max": max_size,
-                    "scale": "sqrt"
-                },
-                "symbol-color": {
-                    "column": "color",  # Use color column from CSV
-                    "value": symbol_color  # Fallback color
-                },
-                "tooltip": {
-                    "title": "{{ name }}",
-                    "body": f"Value: {{ value }} {item_noun}",
-                    "enabled": True
-                },
-                "legend": {
-                    "title": f"Number of {item_noun}", 
-                    "enabled": True,
-                    "position": "tr"
-                },
-                "symbol-opacity": 0.8,
-                "symbol-stroke": {
-                    "enabled": True,
-                    "color": "#ffffff",
-                    "width": 1
-                }
-            }
-            
-            # Apply custom tooltip if provided
-            if map_metadata and "tooltip" in map_metadata:
-                styling_payload["metadata"]["visualize"]["tooltip"]["body"] = map_metadata["tooltip"]
         
         # Apply the styling
         _make_dw_request(
@@ -1689,7 +1520,7 @@ def get_db_connection():
         logger.error(f"Database connection error: {str(e)}")
         raise
 
-def generate_map(context_variables, map_title, map_type, location_data, map_metadata=None, reference_chart_id=None, metric_id=None, group_field=None, series_field=None, color_palette=None):
+def generate_map(context_variables, map_title, map_type, location_data=None, map_metadata=None, reference_chart_id=None, metric_id=None, group_field=None, series_field=None, color_palette=None):
     """
     Generates a map using Datawrapper, stores its metadata, and returns relevant URLs.
     
@@ -1697,10 +1528,10 @@ def generate_map(context_variables, map_title, map_type, location_data, map_meta
         context_variables (dict): Dictionary of context variables (e.g., for database connection).
         map_title (str): Desired title for the map.
         map_type (str): Type of map (e.g., 'supervisor_district', 'police_district', 'point', 'address', 'intersection', 'symbol').
-        location_data (list or str): Data for the map. 
+        location_data (list or str, optional): Data for the map. 
+                                   If None or "from_context", will use dataset from context_variables.
                                    For locator maps ('point', 'address', 'intersection'): list of dicts with point/address details.
                                    For district maps: list of dicts [{"district": "1", "value": 120}] OR CSV string.
-                                   For symbol maps: list of dicts [{"district": "1", "value": 120}] OR CSV string.
         map_metadata (dict or str, optional): Additional metadata for the map (e.g., center, zoom for locator).
         reference_chart_id (str, optional): Datawrapper chart ID to use as a template for non-locator maps.
         metric_id (str, optional): Identifier for the metric being mapped (for storage).
@@ -1712,6 +1543,70 @@ def generate_map(context_variables, map_title, map_type, location_data, map_meta
         dict: Contains map_id, edit_url, and publish_url, or None on failure.
     """
     logger.info(f"Generating map: '{map_title}' of type '{map_type}'")
+    
+    # Check if we should use dataset from context_variables
+    if location_data is None or location_data == "from_context":
+        dataset = context_variables.get("dataset")
+        if dataset is not None and not dataset.empty:
+            logger.info(f"Using dataset from context_variables with shape: {dataset.shape}")
+            logger.info(f"Dataset columns: {dataset.columns.tolist()}")
+            
+            # Convert DataFrame to location_data based on map_type
+            if map_type in ["point", "address", "intersection"]:
+                # For locator maps, convert DataSF format to our format
+                location_data = []
+                for idx, row in dataset.iterrows():
+                    if 'location' in row and row['location'] is not None:
+                        location_obj = row['location']
+                        if isinstance(location_obj, dict) and location_obj.get('type') == 'Point':
+                            coords = location_obj.get('coordinates')
+                            if coords and len(coords) >= 2:
+                                item = {
+                                    "location": location_obj,  # Keep original DataSF format
+                                    "title": row.get('dba_name', row.get('business_name', row.get('name', ''))),
+                                    "tooltip": f"Industry: {row.get('naic_code_description', 'Unknown')}"
+                                }
+                                # Copy over any series field data
+                                if series_field and series_field in row:
+                                    item[series_field] = row[series_field]
+                                location_data.append(item)
+                
+                logger.info(f"Converted dataset to {len(location_data)} location points")
+                
+            elif map_type == "symbol":
+                # For symbol maps, convert DataFrame to address-based location data
+                logger.info(f"DEBUG: Starting symbol map conversion")
+                location_data = []
+                logger.info(f"DEBUG: Dataset has {len(dataset)} rows")
+                for idx, row in dataset.iterrows():
+                    logger.info(f"DEBUG: Processing row {idx}: {dict(row)}")
+                    if 'address' in row and row['address'] is not None:
+                        item = {
+                            "title": row.get('title', ''),
+                            "address": row['address'],
+                            "value": row.get('value', 1),
+                            "description": row.get('description', ''),
+                        }
+                        # Copy over any series field data
+                        if series_field and series_field in row:
+                            item[series_field] = row[series_field]
+                        location_data.append(item)
+                        logger.info(f"DEBUG: Added item: {item}")
+                    else:
+                        logger.warning(f"DEBUG: Row {idx} missing 'address' field or address is None")
+                
+                logger.info(f"Converted dataset to {len(location_data)} symbol map locations")
+                
+            elif map_type in ["supervisor_district", "police_district"]:
+                # For district maps, we'd need aggregation logic here
+                # This is more complex and might need the original district aggregation approach
+                logger.warning("District maps from context dataset not yet implemented - falling back to original location_data")
+                if not location_data:
+                    return {"error": "District maps require aggregated location_data or manual data input"}
+        else:
+            logger.warning("No dataset found in context_variables or dataset is empty")
+            if not location_data:
+                return {"error": "No location_data provided and no dataset available in context_variables"}
     
     # Get metric information if metric_id is provided
     metric_info = None
@@ -1759,6 +1654,7 @@ def generate_map(context_variables, map_title, map_type, location_data, map_meta
                     logger.info(f"Successfully parsed location_data using ast.literal_eval with {len(location_data)} items for {map_type} map")
                 else:
                     logger.error("ast.literal_eval output is not a list; cannot process location_data for locator map")
+                    return None
             except (ValueError, SyntaxError) as parse_err:
                 logger.error(f"Failed to parse location_data string for locator map ({map_type}): {parse_err}")
     
@@ -1810,8 +1706,8 @@ def generate_map(context_variables, map_title, map_type, location_data, map_meta
                     # For regular maps, this should be the current_value
                     # For delta maps, multiply by 100 to get percentage values for proper legend display
                     if map_metadata and map_metadata.get("map_type") == "delta":
-                        # Convert to percentage and clamp to [-100, 100] so extreme outliers use edge colours
-                        value_for_coloring = max(min(percent_change * 100, 100), -100)
+                        # Convert to percentage, round to nearest integer, and clamp to [-100, 100] so extreme outliers use edge colours
+                        value_for_coloring = max(min(round(percent_change * 100), 100), -100)
                         # For delta maps, reorganize CSV to put percentage value first
                         csv_data += f"{district},{value_for_coloring},{current},{previous},{delta},{percent_change}\n"
                     else:
@@ -1852,10 +1748,6 @@ def generate_map(context_variables, map_title, map_type, location_data, map_meta
         elif map_type == "symbol":
             if "color" in map_metadata:
                 chart_args["color_palette"] = map_metadata["color"]
-            # Remove these lines as they should be handled in _apply_custom_map_styling
-            # if "min_size" in map_metadata and "max_size" in map_metadata:
-            #     chart_args["min_size"] = map_metadata["min_size"]
-            #     chart_args["max_size"] = map_metadata["max_size"]
     
     # Add series support for locator maps
     if map_type in ["point", "address", "intersection"]:
@@ -1878,9 +1770,6 @@ def generate_map(context_variables, map_title, map_type, location_data, map_meta
 
         logger.info(f"Datawrapper chart created/updated with ID: {chart_id} for title '{map_title}'")
 
-        # Apply custom styling before publishing
-        logger.info(f"Applying custom styling to chart {chart_id}")
-        
         # Get the executed query URL from context variables if available
         executed_url = context_variables.get('executed_query_url')
         if executed_url:
@@ -1892,7 +1781,7 @@ def generate_map(context_variables, map_title, map_type, location_data, map_meta
                 except json.JSONDecodeError:
                     map_metadata = {}
             map_metadata['executed_url'] = executed_url
-        
+
         # Add metric info to map_metadata if available
         if metric_info:
             if map_metadata is None:
@@ -1904,6 +1793,7 @@ def generate_map(context_variables, map_title, map_type, location_data, map_meta
                     map_metadata = {}
             map_metadata['metric_info'] = metric_info
         
+        # Apply custom styling before publishing
         _apply_custom_map_styling(chart_id, map_type, map_metadata)
 
         # Publish the chart once with all styling applied
@@ -2447,154 +2337,332 @@ def create_sample_series_data():
     ]
     return sample_data
 
-def _create_and_configure_symbol_map(chart_title, csv_data, map_metadata=None):
+def process_symbol_map_data(location_data):
     """
-    Creates a symbol map from scratch with proper configuration.
-
-    Args:
-        chart_title (str): The title for the new map.
-        csv_data (str): CSV data for the symbol map.
-        map_metadata (dict, optional): Additional metadata for styling.
-
-    Returns:
-        str: The ID of the newly created and configured chart, or None on failure.
-    """
-    try:
-        # 1. Create a new d3-maps-symbols chart
-        logger.info(f"Creating symbol map with title: {chart_title}")
-        create_chart_payload = {
-            "title": chart_title,
-            "type": "d3-maps-symbols"
-        }
-        create_chart_response = _make_dw_request(
-            "POST",
-            "/charts",
-            json_payload=create_chart_payload
-        )
-        if not create_chart_response or "id" not in create_chart_response:
-            logger.error(f"Failed to create symbol map. Response: {create_chart_response}")
-            return None
-        chart_id = create_chart_response["id"]
-        logger.info(f"Successfully created symbol map with ID: {chart_id}")
-
-        # 2. Upload CSV data
-        logger.info(f"Uploading CSV data to symbol map ID: {chart_id}")
-        add_data_response = _make_dw_request(
-            "PUT",
-            f"/charts/{chart_id}/data",
-            headers={'Content-Type': 'text/csv'},
-            data=csv_data
-        )
-        logger.info(f"CSV data uploaded to symbol map ID: {chart_id}")
-
-        # 3. Configure the map with proper metadata
-        logger.info(f"Configuring symbol map ID: {chart_id}")
-        
-        symbol_color = map_metadata.get("color", "#0066cc") if map_metadata else "#0066cc"
-        min_size = map_metadata.get("min_size", 5) if map_metadata else 5
-        max_size = map_metadata.get("max_size", 30) if map_metadata else 30
-        
-        config_payload = {
-            "metadata": {
-                "data": {
-                    "csv": True
-                },
-                "visualize": {
-                    "map": "sf-supervisorial-districts",
-                    "symbol-size": {
-                        "column": "value",
-                        "min": min_size,
-                        "max": max_size,
-                        "scale": "sqrt"
-                    },
-                    "symbol-color": {
-                        "column": None,
-                        "value": symbol_color
-                    },
-                    "tooltip": {
-                        "title": "District {{ district }}",
-                        "body": "Value: {{ value }}",
-                        "enabled": True
-                    },
-                    "legend": {
-                        "title": "Value",
-                        "enabled": True,
-                        "position": "tr"
-                    },
-                    "symbol-opacity": 0.8,
-                    "symbol-stroke": {
-                        "enabled": True,
-                        "color": "#ffffff",
-                        "width": 1
-                    }
-                },
-                "describe": {
-                    "intro": map_metadata.get("description", "") if map_metadata else "",
-                    "source-name": "DataSF",
-                    "source-url": map_metadata.get("executed_url", "") if map_metadata else "",
-                    "byline": "TransparentSF"
-                }
-            }
-        }
-        
-        _make_dw_request(
-            "PATCH",
-            f"/charts/{chart_id}",
-            json_payload=config_payload
-        )
-        logger.info(f"Configuration applied to symbol map ID: {chart_id}")
-
-        logger.info(f"Successfully created and configured symbol map with ID: {chart_id}")
-        return chart_id
+    Process location data for symbol maps, including geocoding addresses.
     
-    except Exception as e:
-        logger.error(f"Error in _create_and_configure_symbol_map: {str(e)}", exc_info=True)
-        if 'chart_id' in locals() and chart_id:
-            logger.error(f"An error occurred after chart {chart_id} was created. The chart might be in an incomplete state.")
-            return chart_id
-        return None
+    Args:
+        location_data: List of location data objects with addresses or coordinates
+        
+    Returns:
+        Processed location data with coordinates
+    """
+    processed_data = []
+    
+    # Separate items that need geocoding from those that already have coordinates
+    items_to_geocode = []
+    items_with_coords = []
+    
+    for item in location_data:
+        if isinstance(item, dict):
+            # Check if item already has coordinates
+            has_lat = item.get('lat') is not None or item.get('latitude') is not None
+            has_lon = item.get('lon') is not None or item.get('longitude') is not None
+            
+            if has_lat and has_lon:
+                # Item already has coordinates
+                lat = item.get('lat') or item.get('latitude')
+                lon = item.get('lon') or item.get('longitude')
+                
+                processed_item = {
+                    "title": item.get('title', ''),
+                    "lat": float(lat),
+                    "lon": float(lon),
+                    "value": item.get('value', 0),
+                    "description": item.get('description', ''),
+                    "series": item.get('series', '')
+                }
+                items_with_coords.append(processed_item)
+                logger.info(f"Using existing coordinates for '{processed_item['title']}': ({lat}, {lon})")
+            else:
+                # Item needs geocoding
+                address = item.get('address') or item.get('building_address')
+                if address:
+                    items_to_geocode.append(item)
+    
+    # Process items with existing coordinates
+    processed_data.extend(items_with_coords)
+    
+    # Geocode items that need it
+    if items_to_geocode:
+        addresses = [item.get('address') or item.get('building_address') for item in items_to_geocode]
+        geocoded_results = batch_geocode_addresses(addresses)
+        
+        # Combine original data with geocoded coordinates
+        for item in items_to_geocode:
+            address = item.get('address') or item.get('building_address')
+            if address:
+                lat, lon = geocoded_results.get(address, (None, None))
+                
+                if lat is not None and lon is not None:
+                    processed_item = {
+                        "title": item.get('title', ''),
+                        "lat": lat,
+                        "lon": lon,
+                        "value": item.get('value', 0),
+                        "description": item.get('description', ''),
+                        "series": item.get('series', '')
+                    }
+                    processed_data.append(processed_item)
+                    logger.info(f"Geocoded '{address}' to ({lat}, {lon})")
+                else:
+                    logger.warning(f"Failed to geocode address: {address}")
+    
+    # Calculate successfully geocoded count
+    geocoded_count = 0
+    if items_to_geocode:
+        geocoded_count = len([item for item in items_to_geocode if geocoded_results.get(item.get('address') or item.get('building_address'), (None, None))[0] is not None])
+    
+    logger.info(f"Processed {len(processed_data)} total symbol locations ({len(items_with_coords)} with existing coords, {geocoded_count} geocoded)")
+    
+    return processed_data
 
 # Testing
 if __name__ == "__main__":
-    # Initialize logging for testing
+    import sys
     logging.basicConfig(level=logging.INFO)
-    
-    # Sample data for a supervisor district map
-    test_location_data = [
-        {"district": "1", "value": 120},
-        {"district": "2", "value": 85},
-        {"district": "3", "value": 65},
-        {"district": "4", "value": 95},
-        {"district": "5", "value": 75},
-        {"district": "6", "value": 50},
-        {"district": "7", "value": 80},
-        {"district": "8", "value": 70},
-        {"district": "9", "value": 60},
-        {"district": "10", "value": 90},
-        {"district": "11", "value": 55}
-    ]
-    
-    test_metadata = {
-        "description": "Test map showing values by supervisor district",
-        "source": "Test data",
-        "date_created": datetime.now().isoformat()
+    from datetime import datetime
+
+    def print_menu():
+        print("\nMap Type Test Menu:")
+        print("1. Supervisor District Map")
+        print("2. Point (Locator) Map")
+        print("3. Address Map")
+        print("5. Symbol Map")
+        print("6. Series/Legend Map (Colored Series)")
+        print("7. Context Dataset Map")
+        print("0. Exit")
+
+    def test_supervisor_district():
+        test_location_data = [
+            {"district": str(i), "value": 100 - i * 5} for i in range(1, 12)
+        ]
+        test_metadata = {
+            "description": "Test map showing values by supervisor district",
+            "source": "Test data",
+            "date_created": datetime.now().isoformat()
+        }
+        result = generate_map(
+            {},
+            map_title="Test Supervisor District Map",
+            map_type="supervisor_district",
+            location_data=test_location_data,
+            map_metadata=test_metadata
+        )
+        print(f"Result: {result}")
+
+    def test_point_locator():
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        test_location_data = [
+            {
+                "title": "City Hall",
+                "lat": 37.7793,
+                "lon": -122.4193,
+                "tooltip": "San Francisco City Hall",
+                "markerColor": "#cc0000",
+                "scale": 0.6,
+                "opacity": 0.8
+            },
+            {
+                "title": "Ferry Building",
+                "lat": 37.7955,
+                "lon": -122.3937,
+                "tooltip": "Ferry Building",
+                "markerColor": "#cc0000",
+                "scale": 0.6,
+                "opacity": 0.8
+            },
+            {
+                "title": "Oracle Park",
+                "lat": 37.7786,
+                "lon": -122.3893,
+                "tooltip": "Oracle Park",
+                "markerColor": "#cc0000",
+                "scale": 0.6,
+                "opacity": 0.8
+            }
+        ]
+        test_metadata = {
+            "description": "Test locator map with points",
+            "source": "Test data",
+            "date_created": datetime.now().isoformat(),
+            "center": [-122.4043, 37.7870],  # Center of the three points
+            "zoom": 13  # Appropriate zoom level for SF
+        }
+        result = generate_map(
+            {},
+            map_title=f"Test Point Locator Map - {timestamp}",
+            map_type="point",
+            location_data=test_location_data,
+            map_metadata=test_metadata
+        )
+        print(f"Result: {result}")
+
+    def test_address_map():
+        test_location_data = [
+            {"address": "1 Dr Carlton B Goodlett Pl"},
+            {"address": "Ferry Building, San Francisco"},
+            {"address": "24 Willie Mays Plaza"}
+        ]
+        test_metadata = {
+            "description": "Test address map",
+            "source": "Test data",
+            "date_created": datetime.now().isoformat()
+        }
+        result = generate_map(
+            {},
+            map_title="Test Address Map",
+            map_type="address",
+            location_data=test_location_data,
+            map_metadata=test_metadata
+        )
+        print(f"Result: {result}")
+
+
+    def test_symbol_map():
+        test_location_data = [
+            {
+                "name": "District 1",
+                "latitude": 37.7800,
+                "longitude": -122.4800,
+                "value": 50,
+                "color": "#ad35fa",
+                "description": "District 1: 50 units"
+            },
+            {
+                "name": "District 2",
+                "latitude": 37.7900,
+                "longitude": -122.4200,
+                "value": 80,
+                "color": "#4A7463",
+                "description": "District 2: 80 units"
+            },
+            {
+                "name": "District 3",
+                "latitude": 37.7600,
+                "longitude": -122.4100,
+                "value": 30,
+                "color": "#FF6B5A",
+                "description": "District 3: 30 units"
+            }
+        ]
+        test_metadata = {
+            "description": "Test symbol map",
+            "source": "Test data",
+            "date_created": datetime.now().isoformat(),
+            "color": "#ad35fa"
+        }
+        result = generate_map(
+            {},
+            map_title="Test Symbol Map",
+            map_type="symbol",
+            location_data=test_location_data,
+            map_metadata=test_metadata
+        )
+        print(f"Result: {result}")
+
+    def test_series_legend_map():
+        test_location_data = [
+            {"title": "Police Station - Central", "lat": 37.7749, "lon": -122.4194, "tooltip": "Central Police Station", "series": "Police Stations"},
+            {"title": "Fire Station - Engine 1", "lat": 37.7849, "lon": -122.4094, "tooltip": "Fire Station Engine 1", "series": "Fire Stations"},
+            {"title": "Hospital - UCSF", "lat": 37.7627, "lon": -122.4581, "tooltip": "UCSF Medical Center", "series": "Hospitals"},
+            {"title": "School - Lowell High", "lat": 37.7197, "lon": -122.4831, "tooltip": "Lowell High School", "series": "Schools"}
+        ]
+        test_metadata = {
+            "description": "Test series/legend map",
+            "source": "Test data",
+            "date_created": datetime.now().isoformat()
+        }
+        result = generate_map(
+            {},
+            map_title="Test Series/Legend Map",
+            map_type="point",
+            location_data=test_location_data,
+            map_metadata=test_metadata,
+            series_field="series",
+            color_palette="categorical"
+        )
+        print(f"Result: {result}")
+
+    def test_context_dataset():
+        """Test using dataset from context_variables"""
+        import pandas as pd
+        
+        # Create a mock dataset similar to what would come from DataSF
+        mock_data = [
+            {
+                "dba_name": "Sample Business 1",
+                "naic_code_description": "Food Services",
+                "location": {
+                    "type": "Point",
+                    "coordinates": [-122.4194, 37.7749]  # SF City Hall area
+                },
+                "markerColor": "#ff0000",
+                "scale": 1.0,
+                "opacity": 1.0
+            },
+            {
+                "dba_name": "Sample Business 2", 
+                "naic_code_description": "Retail Trade",
+                "location": {
+                    "type": "Point",
+                    "coordinates": [-122.3937, 37.7955]  # Ferry Building area
+                },
+                "markerColor": "#ff0000",
+                "scale": 1.0,
+                "opacity": 1.0
+            },
+            {
+                "dba_name": "Sample Business 3",
+                "naic_code_description": "Professional Services", 
+                "location": {
+                    "type": "Point",
+                    "coordinates": [-122.3893, 37.7786]  # Near Oracle Park
+                },
+                "markerColor": "#ff0000",
+                "scale": 1.0,
+                "opacity": 1.0
+            }
+        ]
+        
+        # Create DataFrame and context_variables like the real system would
+        df = pd.DataFrame(mock_data)
+        test_context_variables = {
+            "dataset": df,
+            "executed_query_url": "https://data.sfgov.org/test-query"
+        }
+        
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        print(f"Testing context-based map generation...")
+        print(f"Mock dataset shape: {df.shape}")
+        print(f"Mock dataset columns: {df.columns.tolist()}")
+        
+        # Test the new approach - no location_data needed!
+        result = generate_map(
+            context_variables=test_context_variables,
+            map_title=f"Test Context Dataset Map - {timestamp}",
+            map_type="point",
+            # location_data=None  # This should use context_variables automatically
+        )
+        print(f"Result: {result}")
+
+    menu_functions = {
+        "1": test_supervisor_district,
+        "2": test_point_locator,
+        "3": test_address_map,
+        "5": test_symbol_map,
+        "6": test_series_legend_map,
+        "7": test_context_dataset
     }
-    
-    # Test generating a basic choropleth map
-    result = generate_map(
-        {},
-        map_title="Test Supervisor District Map",
-        map_type="supervisor_district",
-        location_data=test_location_data,
-        map_metadata=test_metadata
-    )
-    
-    print(f"Generate map result: {result}")
-    
-    if result and "map_id" in result:
-        print("✅ Supervisor district map created successfully!")
-        print(f"Map ID: {result['map_id']}")
-        print(f"Edit URL: {result['edit_url']}")
-        print(f"Public URL: {result['publish_url']}")
+
+    while True:
+        print_menu()
+        choice = input("Select a map type to test (0 to exit): ").strip()
+        if choice == "0":
+            print("Exiting.")
+            break
+        elif choice in menu_functions:
+            menu_functions[choice]()
     else:
-        print("❌ Failed to create supervisor district map")
+            print("Invalid choice. Please try again.")

@@ -1731,7 +1731,21 @@
                             <div class="metadata-item"><strong>Max Items:</strong> ${report.max_items || 'N/A'}</div>
                             <div class="metadata-item"><strong>Created:</strong> ${createdDate}</div>
                             <div class="metadata-item"><strong>Last Updated:</strong> ${updatedDate}</div>
-                            ${report.published_url ? `<div class="metadata-item"><strong>Published URL:</strong> <a href="${report.published_url}" target="_blank">${report.published_url}</a></div>` : ''}
+                        </div>
+                        <div class="published-url-section" style="margin-top: 15px; padding: 15px; background-color: #f8f9fa; border-radius: 5px;">
+                            <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                                <label for="published-url-input" style="font-weight: bold; margin-bottom: 0;">Published URL:</label>
+                                <input type="url" id="published-url-input" value="${report.published_url || ''}" 
+                                       placeholder="Enter the published URL..." 
+                                       style="flex: 1; min-width: 300px; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                                <button id="update-published-url" class="action-btn primary-btn" style="margin: 0;">Update</button>
+                            </div>
+                            ${report.published_url ? `
+                                <div style="margin-top: 10px;">
+                                    <strong>Current Published URL:</strong> 
+                                    <a href="${report.published_url}" target="_blank" style="color: #ad35fa; text-decoration: none; margin-left: 5px;">${report.published_url}</a>
+                                </div>
+                            ` : ''}
                         </div>
                         <div class="report-links" style="margin-top: 15px; display: flex; flex-wrap: wrap; gap: 15px; align-items: center;">
                             <a href="#" id="view-original-report" target="_blank" style="text-decoration: none; color: #ad35fa;">View Original</a>
@@ -2052,6 +2066,78 @@
                     
                     // After setting the HTML, add event listeners for the expand/collapse all buttons
                     setTimeout(() => {
+                        // Set up the published URL update button
+                        const updatePublishedUrlBtn = document.getElementById('update-published-url');
+                        const publishedUrlInput = document.getElementById('published-url-input');
+                        
+                        if (updatePublishedUrlBtn && publishedUrlInput) {
+                            updatePublishedUrlBtn.addEventListener('click', async (e) => {
+                                e.preventDefault();
+                                
+                                const newUrl = publishedUrlInput.value.trim();
+                                
+                                // Basic URL validation
+                                if (newUrl && !isValidUrl(newUrl)) {
+                                    alert('Please enter a valid URL (must start with http:// or https://)');
+                                    return;
+                                }
+                                
+                                try {
+                                    // Show loading state
+                                    updatePublishedUrlBtn.disabled = true;
+                                    const originalText = updatePublishedUrlBtn.textContent;
+                                    updatePublishedUrlBtn.innerHTML = '<span class="loading"></span> Updating...';
+                                    
+                                    // Get the report ID from the selected option
+                                    const selectedOption = reportSelect.options[reportSelect.selectedIndex];
+                                    const originalFilename = selectedOption.value;
+                                    
+                                    // Find the report in the loaded data to get the ID
+                                    const report = reportsData?.reports?.find(r => r.original_filename === originalFilename);
+                                    if (!report) {
+                                        throw new Error("Could not find report data");
+                                    }
+                                    
+                                    // Call the API to update the published URL
+                                    const response = await fetch(`/backend/update_published_url/${report.id}`, {
+                                        method: 'POST',
+                                        headers: {
+                                            'Content-Type': 'application/json'
+                                        },
+                                        body: JSON.stringify({
+                                            published_url: newUrl || null
+                                        })
+                                    });
+                                    
+                                    const data = await response.json();
+                                    
+                                    if (data.status === 'success') {
+                                        alert('Published URL updated successfully!');
+                                        
+                                        // Update the local data
+                                        if (reportsData && reportsData.reports) {
+                                            const reportIndex = reportsData.reports.findIndex(r => r.id === report.id);
+                                            if (reportIndex !== -1) {
+                                                reportsData.reports[reportIndex].published_url = newUrl || null;
+                                            }
+                                        }
+                                        
+                                        // Refresh the display
+                                        loadReportDetails(originalFilename);
+                                    } else {
+                                        throw new Error(data.message || 'Failed to update published URL');
+                                    }
+                                } catch (error) {
+                                    console.error('Error updating published URL:', error);
+                                    alert(`Error updating published URL: ${error.message}`);
+                                } finally {
+                                    // Reset button state
+                                    updatePublishedUrlBtn.disabled = false;
+                                    updatePublishedUrlBtn.textContent = 'Update';
+                                }
+                            });
+                        }
+                        
                         const expandAllBtn = document.querySelector('.expand-all-btn');
                         const collapseAllBtn = document.querySelector('.collapse-all-btn');
                         
@@ -2476,6 +2562,16 @@
                     const narrationBtn = document.getElementById('generate-narration');
                     narrationBtn.disabled = false;
                     narrationBtn.textContent = 'Generate Narration';
+                }
+            }
+
+            // Function to validate URL format
+            function isValidUrl(string) {
+                try {
+                    const url = new URL(string);
+                    return url.protocol === 'http:' || url.protocol === 'https:';
+                } catch (_) {
+                    return false;
                 }
             }
         });

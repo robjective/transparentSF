@@ -479,7 +479,7 @@
         .chart-card {
             min-width: 400px;
             max-width: 550px;
-            height: 700px;
+            height: 525px; /* Reduced from 700px by 25% */
             border: 1px solid #eee;
             border-radius: 4px;
             overflow: hidden;
@@ -658,6 +658,110 @@
             height: 100%;
             border: none;
         }
+        
+        /* Add styles for metric reordering modal */
+        .metric-reorder-modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.4);
+        }
+        
+        .metric-reorder-content {
+            background-color: #fefefe;
+            margin: 5% auto;
+            padding: 20px;
+            border: 1px solid #888;
+            width: 80%;
+            max-width: 600px;
+            border-radius: 8px;
+            position: relative;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+        
+        .reorder-list {
+            list-style: none;
+            padding: 0;
+            margin: 20px 0;
+        }
+        
+        .reorder-item {
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            padding: 15px;
+            margin-bottom: 10px;
+            cursor: grab;
+            transition: all 0.3s ease;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .reorder-item:hover {
+            background-color: #e9ecef;
+            border-color: #adb5bd;
+        }
+        
+        .reorder-item.dragging {
+            opacity: 0.5;
+            cursor: grabbing;
+        }
+        
+        .reorder-item-info {
+            flex: 1;
+        }
+        
+        .reorder-item-title {
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        
+        .reorder-item-details {
+            font-size: 12px;
+            color: #6c757d;
+        }
+        
+        .reorder-item-controls {
+            display: flex;
+            gap: 5px;
+        }
+        
+        .reorder-btn {
+            background-color: #6c757d;
+            color: white;
+            border: none;
+            padding: 5px 8px;
+            border-radius: 3px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+        
+        .reorder-btn:hover {
+            background-color: #5a6268;
+        }
+        
+        .reorder-btn:disabled {
+            background-color: #e9ecef;
+            color: #6c757d;
+            cursor: not-allowed;
+        }
+        
+        .drag-handle {
+            font-size: 18px;
+            color: #6c757d;
+            cursor: grab;
+            margin-right: 10px;
+        }
+        
+        .drag-handle:active {
+            cursor: grabbing;
+        }
     </style>
 </head>
 <body>
@@ -718,6 +822,12 @@
                 </button>
                 <button id="define-metric-btn" class="btn btn-subtle btn-small">
                     Create New Metric
+                </button>
+                <button id="reorder-metrics-btn" class="btn btn-subtle btn-small">
+                    Reorder Metrics
+                </button>
+                <button id="backup-metrics-btn" class="btn btn-subtle btn-small">
+                    Backup Metrics
                 </button>
                 <button id="migrate-dashboard-btn" class="btn btn-subtle btn-small">
                     Restore Metrics from Backup
@@ -916,6 +1026,29 @@
         </div>
     </div>
     
+    <!-- Add the metric reordering modal -->
+    <div id="metricReorderModal" class="metric-reorder-modal">
+        <div class="metric-reorder-content">
+            <button type="button" class="close-modal-btn" onclick="closeMetricReorderModal()">&times;</button>
+            <h2>Reorder Metrics</h2>
+            <p>Drag and drop metrics to reorder them, or use the arrow buttons. The order will affect how they appear in the dashboard and metric selection.</p>
+            
+            <div id="reorderLoadingState" style="display: none; text-align: center; padding: 20px;">
+                <div class="spinner"></div>
+                <p>Loading metrics...</p>
+            </div>
+            
+            <ul id="metricReorderList" class="reorder-list">
+                <!-- Metrics will be populated here -->
+            </ul>
+            
+            <div class="metric-form-actions">
+                <button type="button" class="cancel-btn" onclick="closeMetricReorderModal()">Cancel</button>
+                <button type="button" class="save-btn" onclick="saveMetricOrder()">Save Order</button>
+            </div>
+        </div>
+    </div>
+    
     <script>
         // Define modal functions in global scope
         function openMetricDefinitionModal() {
@@ -967,30 +1100,190 @@
             }
         }
 
-        function addLocationField() {
-            const fieldList = document.getElementById('locationFields');
-            const fieldItem = document.createElement('div');
-            fieldItem.className = 'field-item';
-            fieldItem.innerHTML = `
-                <input type="text" placeholder="Name" required>
-                <input type="text" placeholder="Field Name" required>
-                <input type="text" placeholder="Description" required>
-                <button type="button" onclick="this.parentElement.remove()">Remove</button>
-            `;
-            fieldList.appendChild(fieldItem);
+        function openMetricReorderModal() {
+            document.getElementById('metricReorderModal').style.display = 'block';
+            loadMetricsForReordering();
         }
 
-        function addCategoryField() {
-            const fieldList = document.getElementById('categoryFields');
-            const fieldItem = document.createElement('div');
-            fieldItem.className = 'field-item';
-            fieldItem.innerHTML = `
-                <input type="text" placeholder="Name" required>
-                <input type="text" placeholder="Field Name" required>
-                <input type="text" placeholder="Description" required>
-                <button type="button" onclick="this.parentElement.remove()">Remove</button>
-            `;
-            fieldList.appendChild(fieldItem);
+        function closeMetricReorderModal() {
+            document.getElementById('metricReorderModal').style.display = 'none';
+        }
+
+        async function loadMetricsForReordering() {
+            const loadingState = document.getElementById('reorderLoadingState');
+            const reorderList = document.getElementById('metricReorderList');
+            
+            try {
+                loadingState.style.display = 'block';
+                reorderList.innerHTML = '';
+                
+                // Fetch metrics with their current order
+                const response = await fetch('/api/metrics-with-order');
+                if (!response.ok) {
+                    throw new Error('Failed to load metrics');
+                }
+                
+                const data = await response.json();
+                const metricsWithOrder = data.metrics || [];
+                
+                // Sort by display_order
+                metricsWithOrder.sort((a, b) => (a.display_order || 999) - (b.display_order || 999));
+                
+                // Create list items
+                metricsWithOrder.forEach((metric, index) => {
+                    const listItem = document.createElement('li');
+                    listItem.className = 'reorder-item';
+                    listItem.draggable = true;
+                    listItem.dataset.metricId = metric.id;
+                    listItem.dataset.currentOrder = metric.display_order || 999;
+                    
+                    listItem.innerHTML = `
+                        <span class="drag-handle">⋮⋮</span>
+                        <div class="reorder-item-info">
+                            <div class="reorder-item-title">${metric.name}</div>
+                            <div class="reorder-item-details">ID: ${metric.id} | Category: ${metric.category || 'N/A'} | Order: ${metric.display_order || 'Not set'}</div>
+                        </div>
+                        <div class="reorder-item-controls">
+                            <button class="reorder-btn" onclick="moveMetricUp(this)" ${index === 0 ? 'disabled' : ''}>↑</button>
+                            <button class="reorder-btn" onclick="moveMetricDown(this)" ${index === metricsWithOrder.length - 1 ? 'disabled' : ''}>↓</button>
+                        </div>
+                    `;
+                    
+                    // Add drag event listeners
+                    listItem.addEventListener('dragstart', handleDragStart);
+                    listItem.addEventListener('dragover', handleDragOver);
+                    listItem.addEventListener('drop', handleDrop);
+                    listItem.addEventListener('dragend', handleDragEnd);
+                    
+                    reorderList.appendChild(listItem);
+                });
+                
+                loadingState.style.display = 'none';
+            } catch (error) {
+                console.error('Error loading metrics for reordering:', error);
+                loadingState.innerHTML = `<p style="color: #dc3545;">Error loading metrics: ${error.message}</p>`;
+            }
+        }
+
+        function moveMetricUp(button) {
+            const listItem = button.closest('.reorder-item');
+            const previousItem = listItem.previousElementSibling;
+            
+            if (previousItem) {
+                listItem.parentNode.insertBefore(listItem, previousItem);
+                updateArrowButtons();
+            }
+        }
+
+        function moveMetricDown(button) {
+            const listItem = button.closest('.reorder-item');
+            const nextItem = listItem.nextElementSibling;
+            
+            if (nextItem) {
+                listItem.parentNode.insertBefore(nextItem, listItem);
+                updateArrowButtons();
+            }
+        }
+
+        function updateArrowButtons() {
+            const items = document.querySelectorAll('.reorder-item');
+            items.forEach((item, index) => {
+                const upBtn = item.querySelector('.reorder-btn:first-child');
+                const downBtn = item.querySelector('.reorder-btn:last-child');
+                
+                upBtn.disabled = index === 0;
+                downBtn.disabled = index === items.length - 1;
+            });
+        }
+
+        async function saveMetricOrder() {
+            const items = document.querySelectorAll('.reorder-item');
+            const newOrder = Array.from(items).map((item, index) => ({
+                id: parseInt(item.dataset.metricId),
+                display_order: index + 1
+            }));
+            
+            try {
+                const saveBtn = document.querySelector('#metricReorderModal .save-btn');
+                saveBtn.disabled = true;
+                saveBtn.textContent = 'Saving...';
+                
+                const response = await fetch('/api/update-metric-order', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ metrics: newOrder })
+                });
+                
+                if (!response.ok) {
+                    throw new Error('Failed to save metric order');
+                }
+                
+                const result = await response.json();
+                alert('Metric order saved successfully!');
+                
+                // Close modal and reload metrics
+                closeMetricReorderModal();
+                await loadMetrics(); // Reload the main metrics list
+                
+            } catch (error) {
+                console.error('Error saving metric order:', error);
+                alert(`Error saving metric order: ${error.message}`);
+            } finally {
+                const saveBtn = document.querySelector('#metricReorderModal .save-btn');
+                saveBtn.disabled = false;
+                saveBtn.textContent = 'Save Order';
+            }
+        }
+
+        // Drag and drop functionality
+        let draggedElement = null;
+
+        function handleDragStart(e) {
+            draggedElement = e.target;
+            e.target.classList.add('dragging');
+            e.dataTransfer.effectAllowed = 'move';
+            e.dataTransfer.setData('text/html', e.target.outerHTML);
+        }
+
+        function handleDragOver(e) {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+            
+            const afterElement = getDragAfterElement(e.target.closest('.reorder-list'), e.clientY);
+            const dragging = document.querySelector('.dragging');
+            
+            if (afterElement == null) {
+                e.target.closest('.reorder-list').appendChild(dragging);
+            } else {
+                e.target.closest('.reorder-list').insertBefore(dragging, afterElement);
+            }
+        }
+
+        function handleDrop(e) {
+            e.preventDefault();
+            updateArrowButtons();
+        }
+
+        function handleDragEnd(e) {
+            e.target.classList.remove('dragging');
+            draggedElement = null;
+        }
+
+        function getDragAfterElement(container, y) {
+            const draggableElements = [...container.querySelectorAll('.reorder-item:not(.dragging)')];
+            
+            return draggableElements.reduce((closest, child) => {
+                const box = child.getBoundingClientRect();
+                const offset = y - box.top - box.height / 2;
+                
+                if (offset < 0 && offset > closest.offset) {
+                    return { offset: offset, element: child };
+                } else {
+                    return closest;
+                }
+            }, { offset: Number.NEGATIVE_INFINITY }).element;
         }
 
         document.addEventListener('DOMContentLoaded', function() {
@@ -1028,18 +1321,23 @@
                                         category: category,
                                         subcategory: subcategory,
                                         endpoint: metricData.endpoint,
-                                        is_active: metricData.is_active
+                                        is_active: metricData.is_active,
+                                        display_order: metricData.display_order || 999
                                     });
                                 });
                             }
                         });
                     });
                     
-                    // Sort metrics by category, then by ID
+                    // Sort metrics by display_order, then by ID for any metrics without a display_order
                     metrics.sort((a, b) => {
-                        if (a.category !== b.category) {
-                            return a.category.localeCompare(b.category);
+                        // First sort by display_order
+                        const orderA = a.display_order || 999;
+                        const orderB = b.display_order || 999;
+                        if (orderA !== orderB) {
+                            return orderA - orderB;
                         }
+                        // If display_order is the same, sort by ID
                         return a.id - b.id;
                     });
                     
@@ -2003,11 +2301,19 @@
             // Add event listener for the define metric button
             document.getElementById('define-metric-btn').addEventListener('click', openMetricDefinitionModal);
             
+            // Add event listener for the reorder metrics button
+            document.getElementById('reorder-metrics-btn').addEventListener('click', openMetricReorderModal);
+            
             // Add event listener for clicking outside the modal to close it
             window.addEventListener('click', function(event) {
                 const modal = document.getElementById('metricDefinitionModal');
                 if (event.target === modal) {
                     closeMetricDefinitionModal();
+                }
+                
+                const reorderModal = document.getElementById('metricReorderModal');
+                if (event.target === reorderModal) {
+                    closeMetricReorderModal();
                 }
             });
             
@@ -2068,6 +2374,59 @@
                     migrateBtn.textContent = 'Restore Metrics from Backup';
                     if (migrateBtn.classList.contains('btn-with-spinner')) {
                         migrateBtn.classList.remove('loading');
+                    }
+                }
+            });
+            
+            // Add event listener for the backup metrics button
+            document.getElementById('backup-metrics-btn').addEventListener('click', async function() {
+                const backupBtn = document.getElementById('backup-metrics-btn');
+                
+                // Confirm backup
+                const confirmBackup = confirm(
+                    'This will create a new backup of the metrics table.\n\n' +
+                    'Any existing backup file will be moved to the history folder.\n\n' +
+                    'Are you sure you want to proceed?'
+                );
+                
+                if (!confirmBackup) {
+                    return;
+                }
+                
+                try {
+                    // Show loading state
+                    backupBtn.disabled = true;
+                    backupBtn.textContent = 'Creating Backup...';
+                    
+                    // Add spinner if button has spinner support
+                    if (backupBtn.classList.contains('btn-with-spinner')) {
+                        backupBtn.classList.add('loading');
+                    }
+                    
+                    // Call the backup API
+                    const response = await fetch('/api/backup-metrics-table', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        }
+                    });
+                    
+                    const result = await response.json();
+                    
+                    if (response.ok && result.status === 'success') {
+                        alert(`Metrics table successfully backed up!\n\nBackup saved to: ${result.backup_file}\n${result.old_backup_moved ? `Previous backup moved to: ${result.old_backup_location}` : ''}`);
+                    } else {
+                        alert(`Backup failed: ${result.message || 'Unknown error'}`);
+                    }
+                } catch (error) {
+                    console.error('Error during backup:', error);
+                    alert(`Error during backup: ${error.message}`);
+                } finally {
+                    // Reset button state
+                    backupBtn.disabled = false;
+                    backupBtn.textContent = 'Backup Metrics';
+                    if (backupBtn.classList.contains('btn-with-spinner')) {
+                        backupBtn.classList.remove('loading');
                     }
                 }
             });

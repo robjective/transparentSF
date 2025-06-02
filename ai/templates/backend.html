@@ -2182,6 +2182,63 @@
                 updateSettingsUI();
             });
             
+            // Add message listener for iframe communication
+            window.addEventListener('message', function(event) {
+                // Handle messages from the anomaly analyzer iframe
+                if (event.data && event.data.type === 'ANALYZE_METRIC_CHANGE') {
+                    const metric = event.data.metric;
+                    
+                    // Open the Seymour panel
+                    openExplainerPanel();
+                    
+                    // Format the metric change information
+                    const metricName = metric.object_name || 'Unknown Metric';
+                    const metricId = metric.id || metric.ID || 'Unknown ID';
+                    const metricKey = metric.object_id || 'Unknown Key';
+                    const district = metric.district === '0' ? 'citywide' : `District ${metric.district}`;
+                    const previousValue = formatValue(metric.previous_value);
+                    const recentValue = formatValue(metric.recent_value);
+                    const delta = formatValue(metric.delta);
+                    const percentChange = metric.percent_change ? parseFloat(metric.percent_change).toFixed(2) : 'unknown';
+                    const previousPeriod = metric.previous_period || 'previous period';
+                    const recentPeriod = metric.recent_period || 'recent period';
+                    const direction = parseFloat(metric.delta || 0) > 0 ? 'increased' : 'decreased';
+                    
+                    // Create a formatted prompt explaining the change
+                    const prompt = `I need help understanding a significant change in SF public data. 
+
+The metric "${metricName}" (ID: ${metricId}) for ${district} has ${direction} from ${previousValue} in ${previousPeriod} to ${recentValue} in ${recentPeriod}.
+
+Key details:
+- Metric ID: ${metricId}
+- Metric Key: ${metricKey}
+- Metric Name: ${metricName}
+- Absolute change: ${delta}
+- Percentage change: ${percentChange}%
+- Time period: ${previousPeriod} → ${recentPeriod}
+- Geographic scope: ${district}
+
+Can you help me understand:
+1. What might have caused this change?
+2. Is this part of a broader trend?
+3. What are the potential implications?
+4. Are there related metrics I should examine?
+
+Please use the metric ID (${metricId}) to look up additional data and provide context based on your knowledge of San Francisco data and trends.`;
+
+                    // Send the prompt to Seymour after a brief delay to ensure the panel is open
+                    setTimeout(() => {
+                        sendExplainerMessage(prompt);
+                    }, 500);
+                }
+            });
+            
+            // Helper function to format values (matching the one in anomaly_analyzer.html)
+            function formatValue(value) {
+                if (value === null || value === undefined || isNaN(value)) return '-';
+                return parseFloat(value).toLocaleString(undefined, {maximumFractionDigits: 2});
+            }
+            
             // Resize event listeners
             const resizeHandle = document.getElementById('explainer-resize-handle');
             resizeHandle.addEventListener('mousedown', startResize);

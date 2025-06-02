@@ -1583,6 +1583,18 @@
         
         // Function to analyze a metric change
         function analyzeMetricChange(metric) {
+            // Check if we're running inside an iframe (i.e., in backend.html)
+            if (window.parent && window.parent !== window) {
+                // We're in an iframe, communicate with parent to open Seymour
+                const message = {
+                    type: 'ANALYZE_METRIC_CHANGE',
+                    metric: metric
+                };
+                window.parent.postMessage(message, '*');
+                return;
+            }
+            
+            // Original logic for standalone mode
             // Check URL parameters to see if we're in embed mode
             const urlParams = new URLSearchParams(window.location.search);
             const embedMode = urlParams.get('embed_mode') === 'true';

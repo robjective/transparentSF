@@ -842,25 +842,20 @@ async def generate_ytd_metrics():
     """Generate YTD metrics on demand."""
     logger.debug("Generate YTD metrics called")
     try:
-        # Run the script directly since it handles defaults internally
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        script_path = os.path.join(script_dir, "generate_dashboard_metrics.py")
+        # Import and call the main function directly instead of running as subprocess
+        # This ensures logging appears in the main process console
+        from generate_dashboard_metrics import main as generate_metrics_main
         
-        # Run the script
-        result = subprocess.run(["python", script_path], capture_output=True, text=True)
+        logger.info("Starting YTD metrics generation...")
         
-        if result.returncode == 0:
-            logger.info("YTD metrics generated successfully")
-            return JSONResponse({
-                "status": "success",
-                "message": "YTD metrics generated successfully"
-            })
-        else:
-            logger.error(f"Error generating YTD metrics: {result.stderr}")
-            return JSONResponse({
-                "status": "error",
-                "message": f"Error generating YTD metrics: {result.stderr}"
-            }, status_code=500)
+        # Call the main function directly in the same process
+        generate_metrics_main()
+        
+        logger.info("YTD metrics generated successfully")
+        return JSONResponse({
+            "status": "success",
+            "message": "YTD metrics generated successfully"
+        })
     except Exception as e:
         logger.exception(f"Error generating YTD metrics: {str(e)}")
         return JSONResponse({
@@ -3272,31 +3267,108 @@ async def get_monthly_reports():
 
 @router.delete("/delete_monthly_report/{report_id}")
 async def delete_monthly_report(report_id: int):
-    """Delete a specific monthly report."""
-    logger.debug(f"Delete monthly report {report_id} called")
+    """Delete a monthly report and associated files."""
     try:
-        # Import the necessary function
-        from monthly_report import delete_monthly_report
+        conn = get_db_connection()
+        if not conn:
+            raise HTTPException(status_code=500, detail="Database connection failed")
         
-        # Delete the report
-        result = delete_monthly_report(report_id)
+        cursor = conn.cursor()
         
-        if result.get("status") == "success":
-            return JSONResponse({
-                "status": "success",
-                "message": "Report deleted successfully"
-            })
-        else:
-            return JSONResponse({
-                "status": "error",
-                "message": result.get("message", "Failed to delete report")
-            }, status_code=500)
+        # Get the report details first (to get filenames for deletion)
+        cursor.execute("SELECT original_filename, revised_filename, audio_file FROM reports WHERE id = %s", (report_id,))
+        report = cursor.fetchone()
+        
+        if not report:
+            cursor.close()
+            conn.close()
+            raise HTTPException(status_code=404, detail="Report not found")
+        
+        # Delete the report from database
+        cursor.execute("DELETE FROM reports WHERE id = %s", (report_id,))
+        conn.commit()
+        
+        cursor.close()
+        conn.close()
+        
+        # Delete associated files if they exist
+        reports_dir = Path(__file__).parent / 'output' / 'reports'
+        for filename in [report[0], report[1]]:  # original_filename, revised_filename
+            if filename:
+                file_path = reports_dir / filename
+                if file_path.exists():
+                    file_path.unlink()
+        
+        # Delete audio file if it exists
+        if report[2]:  # audio_file
+            audio_dir = Path(__file__).parent / 'output' / 'narration'
+            audio_path = audio_dir / report[2]
+            if audio_path.exists():
+                audio_path.unlink()
+        
+        return JSONResponse({
+            "status": "success",
+            "message": "Report deleted successfully"
+        })
     except Exception as e:
-        error_message = f"Error deleting monthly report: {str(e)}"
-        logger.error(error_message)
+        logger.error(f"Error deleting report {report_id}: {str(e)}")
         return JSONResponse({
             "status": "error",
-            "message": error_message
+            "message": f"Error deleting report: {str(e)}"
+        }, status_code=500)
+
+@router.post("/update_published_url/{report_id}")
+async def update_published_url(report_id: int, request: Request):
+    """Update the published URL for a specific monthly report."""
+    try:
+        # Get request data
+        data = await request.json()
+        published_url = data.get("published_url")
+        
+        # Allow None/null to clear the published URL
+        if published_url == "":
+            published_url = None
+        
+        # Connect to database
+        conn = get_db_connection()
+        if not conn:
+            raise HTTPException(status_code=500, detail="Database connection failed")
+        
+        cursor = conn.cursor()
+        
+        # Check if report exists
+        cursor.execute("SELECT id FROM reports WHERE id = %s", (report_id,))
+        report = cursor.fetchone()
+        
+        if not report:
+            cursor.close()
+            conn.close()
+            raise HTTPException(status_code=404, detail="Report not found")
+        
+        # Update the published URL
+        cursor.execute("""
+            UPDATE reports 
+            SET published_url = %s, updated_at = CURRENT_TIMESTAMP
+            WHERE id = %s
+        """, (published_url, report_id))
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        logger.info(f"Updated published URL for report {report_id}: {published_url}")
+        
+        return JSONResponse({
+            "status": "success",
+            "message": "Published URL updated successfully",
+            "published_url": published_url
+        })
+        
+    except Exception as e:
+        logger.error(f"Error updating published URL for report {report_id}: {str(e)}")
+        return JSONResponse({
+            "status": "error",
+            "message": f"Error updating published URL: {str(e)}"
         }, status_code=500)
 
 @router.get("/generate_monthly_report")
@@ -6069,6 +6141,16 @@ async def update_explainer_prompt_section(request: Request):
             constant_name = section_key.upper() + "_INSTRUCTIONS"
             if hasattr(explainer_prompts, constant_name):
                 setattr(explainer_prompts, constant_name, content)
+            
+            # Write changes back to file
+            if not explainer_prompts.write_prompts_to_file():
+                return JSONResponse(
+                    status_code=500,
+                    content={
+                        "status": "error",
+                        "message": "Failed to write changes to file"
+                    }
+                )
             
             return JSONResponse(content={
                 "status": "success",

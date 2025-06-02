@@ -69,6 +69,8 @@ def init_database():
                 location_fields JSONB DEFAULT '[]'::jsonb,
                 category_fields JSONB DEFAULT '[]'::jsonb,
                 metadata JSONB DEFAULT '{}'::jsonb,
+                city_id INTEGER REFERENCES cities(id),
+                display_order INTEGER DEFAULT 1000,
                 is_active BOOLEAN DEFAULT TRUE,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -95,7 +97,19 @@ def init_database():
         cursor.execute("""
             CREATE INDEX IF NOT EXISTS metrics_show_on_dash_idx ON metrics (show_on_dash)
         """)
-
+        
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS metrics_city_id_idx ON metrics (city_id)
+        """)
+        
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS metrics_display_order_idx ON metrics (display_order)
+        """)
+        
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS metrics_category_display_order_idx ON metrics (category, display_order)
+        """)
+        
         cursor.execute("""
         CREATE TABLE IF NOT EXISTS anomalies (
             id SERIAL PRIMARY KEY,

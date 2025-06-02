@@ -1,3 +1,6 @@
+import re
+import os
+
 # Modular Explainer Agent Prompts
 # Each section can be edited independently and will be combined to create the full instructions
 
@@ -42,7 +45,7 @@ WORKFLOW_INSTRUCTIONS = """MANDATORY WORKFLOW (follow this exact sequence):
 CATEGORY_BEST_PRACTICES = """Best Practices for explaining certain categories: 
 1. Housing - If the you are being asked to explain is in housing, then you should query for the actual properties that have new units, and include the address, and the units certified in your explanation.
 set_dataset
-Arguments: { "endpoint": "j67f-aayr", "query": "SELECT building_permit_application, building_address, date_issued, document_type, number_of_units_certified ORDER BY date_issued DESC LIMIT 10" }
+Arguments: { "endpoint": "j67f-aayr", "query": "SELECT building_address as address, number_of_units_certified as value,   building_address || ': ' || document_type || ' (' || number_of_units_certified || ' units)' as description, document_type as description, document_type as series WHERE date_issued >= '2025-04-27' ORDER BY date_issued DESC" }
 
 2. If you are being asked to explain a change in business registrations or closures, then you should query for the actual businesses that have opened or closed, and include the DBA name, and the date of opening or closure in your explanation.
 set_dataset
@@ -83,7 +86,42 @@ For Maps:
 For example: [CHART:map:123]"""
 
 # Set dataset tool instructions
-SET_DATASET_INSTRUCTIONS = """- Use `set_dataset(context_variables, endpoint="endpoint-id", query="your-soql-query")` to set the dataset. Both parameters are required:
+SET_DATASET_INSTRUCTIONS = """Set Dataset Instructions
+Use `set_dataset(context_variables, endpoint="endpoint-id", query="your-soql-query")` to set the dataset. Both parameters are required.
+Parameters
+
+Endpoint - The dataset identifier WITHOUT the .json extension (e.g., 'ubvf-ztfx'). Get it from `get_dashboard_metric()` if not known.
+`ubvf-ztfx`
+Query - The complete SoQL query string using standard SQL syntax. Use `get_dataset_columns()` to get column information if field names are unknown.
+`select dba_name where ... limit 5`
+
+
+Do NOT pass JSON strings as arguments. Pass the actual values directly.
+SOQL Query Guidelines
+Use `fieldName` values (not names) in queries.  If you don't know them, use 
+Do not include `FROM` clauses (unlike standard SQL).
+Use single quotes for string values: `where field_name = 'value'`
+Do not use type casting with `::` syntax.
+Use proper date functions: `date_trunc_y()`, `date_trunc_ym()`, `date_trunc_ymd()`
+Use standard aggregation functions: `sum()`, `avg()`, `min()`, `max()`, `count()`
+Correct Function Call Format
+set_dataset(
+
+    context_variables,
+
+    endpoint="g8m3-pdis",
+
+    query="select dba_name where supervisor_district = '2' AND naic_code_description = 'Retail Trade' order by business_start_date desc limit 5"
+
+)
+Incorrect Formats (DO NOT USE)
+`set_dataset(context_variables, args={}, kwargs={...})` # WRONG - don't use args/kwargs
+`set_dataset(context_variables, "{...}")` # WRONG - don't pass JSON strings
+`set_dataset(context_variables, '{"endpoint": "x", "query": "y"}')` # WRONG - don't pass JSON strings
+`set_dataset(context_variables, endpoint="file.json")` # WRONG - don't include .json extension
+`set_dataset(context_variables, endpoint="business-registrations-district2.json")` # WRONG - don't include .json extension
+Correct Format Summary
+`set_dataset(context_variables, endpoint="dataset-id", query="your-soql-query")`- Use `set_dataset(context_variables, endpoint="endpoint-id", query="your-soql-query")` to set the dataset. Both parameters are required:
     - endpoint: The dataset identifier WITHOUT the .json extension (e.g., 'ubvf-ztfx').  If you dont't have that, get it from get_dashboard_metric()
     - query: The complete SoQL query string using standard SQL syntax.  If you don't know the field names and types, use get_dataset_columns() to get the column information.
     - Always pass context_variables as the first argument
@@ -108,18 +146,19 @@ SET_DATASET_INSTRUCTIONS = """- Use `set_dataset(context_variables, endpoint="en
     ```
     
     CRITICAL: The following formats are INCORRECT and will NOT work:
-    - set_dataset(context_variables, args={}, kwargs={...})  # WRONG - don't use args/kwargs
     - set_dataset(context_variables, "{...}")  # WRONG - don't pass JSON strings
     - set_dataset(context_variables, '{"endpoint": "x", "query": "y"}')  # WRONG - don't pass JSON strings
     - set_dataset(context_variables, endpoint="file.json")  # WRONG - don't include .json extension
     - set_dataset(context_variables, endpoint="business-registrations-district2.json")  # WRONG - don't include .json extension
     
     The ONLY correct format is:
-    set_dataset(context_variables, endpoint="dataset-id", query="your-soql-query")"""
+    set_dataset(context_variables, endpoint="dataset-id", query="your-soql-query")
+
+"""
 
 # Map generation instructions
 GENERATE_MAP_INSTRUCTIONS = """- generate_map: Create a map visualization for geographic data with support for different colored series
-  USAGE: generate_map(context_variables, map_title="Title", map_type="supervisor_district", location_data=[{"district": "1", "value": 120}], map_metadata={"description": "Description"}, series_field=None, color_palette=None)
+  USAGE: generate_map(context_variables, map_title="Title", map_type="supervisor_district", map_metadata={"description": "Description"}, series_field=None, color_palette=None)
   
   RETURNS: {"map_id": 123, "edit_url": "https://...", "publish_url": "https://..."}
   The map_id is an integer that you use to reference the map in your explanations as [CHART:map:123].  Don't link to the URLS, show the reference.
@@ -131,124 +170,223 @@ GENERATE_MAP_INSTRUCTIONS = """- generate_map: Create a map visualization for ge
      * "police_district" - Map showing data by San Francisco police district
      * "intersection" - Map showing points at specific street intersections
      * "point" - Map showing points at specific lat/long coordinates
-     * "address" - Map showing points at specific addresses (will be geocoded automatically by Datawrapper)
+     * "address" - Map showing points at specific addresses (will be geocoded automatically)
      * "symbol"  - Scaled-symbol map for points. Use this **whenever you want marker size to represent a value** (e.g.
        number of units, dollar amounts). Point/address/intersection maps do NOT support scaling — choose
        "symbol" instead.
-  - location_data: List of data objects containing location and value information (NOT a JSON string)
-     * For basic district maps: [{"district": "1", "value": 120}, {"district": "2", "value": 85}]
-     * For enhanced change/delta district maps: [{"district": "1", "current_value": 120, "previous_value": 100, "delta": 20, "percent_change": 0.20}, {"district": "2", "current_value": 85, "previous_value": 90, "delta": -5, "percent_change": -0.056}]
-       CRITICAL: District values MUST be strings containing ONLY the district number (e.g., "1", "2", "3")
-       DO NOT include "District" prefix (e.g., "District 1" is WRONG!)
-     * For point maps: [{"lat": 37.7749, "lon": -122.4194, "title": "City Hall", "description": "Description"}]
-       OR [{"coordinates": [37.7749, -122.4194], "title": "City Hall", "description": "Description"}]
-       OR [{"coordinates": "37.7749,-122.4194", "title": "City Hall", "description": "Description"}]
-       NOTE: Coordinates can be provided in multiple formats:
-       - Separate lat/lon fields: {"lat": 37.7749, "lon": -122.4194}
-       - Array format: {"coordinates": [-122.4194, 37.7749]} (longitude, latitude)
-       - String format: {"coordinates": "37.7749,-122.4194"} (latitude,longitude)
-       The system will automatically detect and convert between formats.
-     * For address maps: [{"address": "1 Dr Carlton B Goodlett Pl, San Francisco, CA", "title": "City Hall", "description": "Description"}]
-     * For intersection maps: [{"intersection": "Market St and Castro St", "title": "Market & Castro", "description": "Description"}]
-     * For series-based maps (point, address, intersection only): Add a "series" field to group markers by category:
-       [{"lat": 37.7749, "lon": -122.4194, "title": "Police Station", "series": "Police"}, 
-        {"lat": 37.7849, "lon": -122.4094, "title": "Fire Station", "series": "Fire"}]
-  - map_metadata: Optional dictionary with additional information about the map
+  - map_metadata: Dictionary with additional information about the map
      * For change/delta maps, use: {"map_type": "delta", "description": "Change from previous period"}
      * For basic density maps, use: {"description": "Current values by district"}
+     * For point/address/intersection maps, you can specify view settings:
+       {"description": "Description", "center_lat": 37.7749, "center_lon": -122.4194, "zoom": 12}
   - series_field: Optional field name for grouping markers into different colored series (only for point/address/intersection maps)
      * Use "series" if your data has a "series" field for categorization
      * Use "category", "type", "status", "priority", or any other field name that contains categorical data
      * When specified, markers will be automatically colored by category and a legend will be generated
-     * IMPORTANT: Each unique value in the series_field becomes a different colored category
-     * Example: If series_field="type" and your data has "Police", "Fire", "Medical", you get 3 colored categories
   - color_palette: Optional color palette for series (only used when series_field is specified)
      * "categorical" - 12 distinct colors for general categorization (default) - BEST for mixed categories
      * "status" - 5 colors for status indication (Green=Active, Amber=Pending, Red=Inactive, Blue=Processing, Purple=Special)
      * "priority" - 4 colors for priority levels (Red=High, Orange=Medium, Green=Low, Grey=None)
      * "sequential" - 9 colors for graduated/sequential data (light to dark progression)
      * Custom array: ["#FF0000", "#00FF00", "#0000FF"] - provide your own hex colors in order
-     * Colors are assigned alphabetically by series value (e.g., "Fire" gets first color, "Medical" gets second, "Police" gets third)
-  
-  IMPORTANT: Always pass location_data as an actual Python list of dictionaries, NOT as a JSON string.
-  
-  Enhanced Change Maps:
-  When explaining changes or anomalies, use the enhanced data format to show detailed tooltips:
-  - "current_value": The most recent value for this district
-  - "previous_value": The comparison/baseline value for this district
-  - "delta": The absolute change (current - previous)
-  - "percent_change": The percentage change as a decimal (e.g., 0.20 for 20% increase)
-  
-  The enhanced format automatically creates rich tooltips showing:
-  - Current: [current_value]
-  - Previous: [previous_value] 
-  - Change: [delta]
-  - % Change: [percent_change] (for delta maps)
-  
-  Best practices:
-  - Use basic format for simple density/count maps
-  - Use enhanced format when explaining changes, anomalies, or comparing time periods
-  - Use district maps for showing aggregate statistics by district
-  - Use point or address maps for showing specific locations
-  - Include descriptive titles and explanatory text for each location
-  - When mapping points, include both a title and description for each point
-  - For address maps, include "San Francisco, CA" in the address for better geocoding
-  
-  CRITICAL: After creating a map, use the returned map_id to reference it in your explanation.
-  Format: [CHART:map:123] where 123 is the actual integer map_id returned by the function.
-  DO NOT use URLs or other identifiers - only use the map_id integer."""
+
+  DATA REQUIREMENTS:
+  Before calling generate_map, you MUST use set_dataset to query the data in the correct format:
+
+  1. For District Maps (supervisor_district, police_district):
+     - For density maps: Query must include district and value fields
+       Example: set_dataset(context_variables, endpoint="wg3w-h783", 
+                query="SELECT supervisor_district, COUNT(*) as value 
+                      WHERE date_trunc_ym(report_datetime) = date_trunc_ym(CURRENT_DATE) 
+                      GROUP BY supervisor_district")
+     - For change maps: Query must include district, current_value, previous_value, delta, and percent_change
+       Example: set_dataset(context_variables, endpoint="wg3w-h783",
+                query="SELECT supervisor_district, 
+                      COUNT(*) as current_value,
+                      LAG(COUNT(*)) OVER (PARTITION BY supervisor_district ORDER BY date_trunc_ym(report_datetime)) as previous_value,
+                      COUNT(*) - LAG(COUNT(*)) OVER (PARTITION BY supervisor_district ORDER BY date_trunc_ym(report_datetime)) as delta,
+                      (COUNT(*) - LAG(COUNT(*)) OVER (PARTITION BY supervisor_district ORDER BY date_trunc_ym(report_datetime)))::float / 
+                      NULLIF(LAG(COUNT(*)) OVER (PARTITION BY supervisor_district ORDER BY date_trunc_ym(report_datetime)), 0) as percent_change
+                      WHERE date_trunc_ym(report_datetime) >= date_trunc_ym(CURRENT_DATE - INTERVAL '1 month')
+                      GROUP BY supervisor_district, date_trunc_ym(report_datetime)")
+
+  2. For Point/Address/Intersection Maps:
+     - Must include location information:
+       * For point maps: latitude and longitude fields
+       * For address maps: address field
+       * For intersection maps: intersection field
+     - Must include title field (or dba_name, business_name, name)
+     - Must include description/tooltip field
+     - For series maps, include the series_field column
+     Example: set_dataset(context_variables, endpoint="g8m3-pdis",
+              query="SELECT  
+                    location, 
+                    dba_name || ' - ' || naic_code_description as description,
+                    business_type as series
+                    WHERE dba_start_date >= CURRENT_DATE - INTERVAL '30 days'
+                    ORDER BY dba_start_date DESC")
+
+  3. For Symbol Maps:
+     - Must include all point/address/intersection requirements
+     - Must include a value field for symbol sizing
+     Example: set_dataset(context_variables, endpoint="g8m3-pdis",
+              query="SELECT building_permit_application as title,
+                    building_address as address,
+                    document_type as description,
+                    number_of_units_certified as value
+                    WHERE date_issued >= CURRENT_DATE - INTERVAL '30 days'
+                    ORDER BY date_issued DESC")
+
+  IMPORTANT NOTES:
+  1. The dataset from set_dataset will be automatically used by generate_map
+  2. For district maps, ensure district values are strings containing ONLY the district number (e.g., "1", "2", "3")
+  3. For point maps, coordinates must be within San Francisco bounds (37.6-37.9 lat, -122.6 to -122.2 lon)
+  4. For address maps, include "San Francisco, CA" in addresses for better geocoding
+  5. For series maps, ensure all points have values for the series_field
+  6. For symbol maps, ensure all points have numeric values for sizing
+  7. Remember to use proper SOQL syntax:
+     - No FROM clause needed
+     - Use single quotes for string values
+     - Use proper date functions: date_trunc_y(), date_trunc_ym(), date_trunc_ymd()
+     - Use standard aggregation functions: sum(), avg(), min(), max(), count()"""
 
 # DataSF map examples
-DATASF_MAP_EXAMPLES = """SERIES MAPS WITH DATASF DATA - PRACTICAL GUIDE:
-When you get data from DataSF that has location information AND categorical fields, you can create powerful series maps:
+DATASF_MAP_EXAMPLES = """SERIES MAPS WITH DATASF DATA - PRACTICAL EXAMPLES:
 
 1. BUSINESS DATA (endpoint: g8m3-pdis):
-   - Use series_field="naic_code_description" to color by business type
-   - Use series_field="supervisor_district" to color by district (if showing citywide data)
-   - Location comes from the 'location' field: business['location']['coordinates']
+   Example 1: Map of new businesses by industry type
+   ```python
+   # First, query the business data
+   set_dataset(context_variables, 
+              endpoint="g8m3-pdis",
+              query="SELECT location, 
+                    location, 
+                    dba_name || ' - ' || naic_code_description as description,
+                    naic_code_description as series
+                    WHERE dba_start_date >= CURRENT_DATE - INTERVAL '30 days'
+                    ORDER BY dba_start_date DESC")
+   
+   # Then create the map
+   result = generate_map(
+       context_variables,
+       map_title="New Business Registrations by Industry",
+       map_type="point",
+       series_field="series",
+       color_palette="categorical"
+   )
+   ```
+
+   Example 2: Map of business closures by district
+   ```python
+   # First, query the business data aggregated by district
+   set_dataset(context_variables,
+              endpoint="g8m3-pdis",
+              query="SELECT supervisor_district, 
+                    COUNT(*) as value
+                    WHERE location_end_date >= CURRENT_DATE - INTERVAL '30 days'
+                    GROUP BY supervisor_district")
+   
+   # Then create the map
+   result = generate_map(
+       context_variables,
+       map_title="Business Closures by District",
+       map_type="supervisor_district",
+       map_metadata={"description": "Number of business closures in the last 30 days"}
+   )
+   ```
 
 2. CRIME DATA (endpoint: wg3w-h783):
-   - Use series_field="incident_category" to color by crime type (Assault, Burglary, etc.)
-   - Use series_field="resolution" to color by case status
-   - Location comes from latitude/longitude fields
+   Example 1: Map of recent crimes by type
+   ```python
+   # First, query the crime data
+   set_dataset(context_variables,
+              endpoint="wg3w-h783",
+              query="SELECT incident_description as title,
+                    latitude,
+                    longitude,
+                    incident_category as description,
+                    incident_category as series
+                    WHERE report_datetime >= CURRENT_DATE - INTERVAL '7 days'
+                    ORDER BY report_datetime DESC")
+   
+   # Then create the map
+   result = generate_map(
+       context_variables,
+       map_title="Recent Crimes by Category",
+       map_type="point",
+       series_field="series",
+       color_palette="categorical"
+   )
+   ```
 
-3. PERMIT DATA (endpoint: j67f-aayr):
-   - Use series_field="permit_type" to color by permit category
-   - Use series_field="status" to color by approval status
-   - Location comes from address field (will be geocoded)
+   Example 2: Map of crime rate changes by district
+   ```python
+   # First, query the crime data with change calculations
+   set_dataset(context_variables,
+              endpoint="wg3w-h783",
+              query="SELECT supervisor_district,
+                    COUNT(*) as current_value,
+                    LAG(COUNT(*)) OVER (PARTITION BY supervisor_district ORDER BY date_trunc_ym(report_datetime)) as previous_value,
+                    COUNT(*) - LAG(COUNT(*)) OVER (PARTITION BY supervisor_district ORDER BY date_trunc_ym(report_datetime)) as delta,
+                    (COUNT(*) - LAG(COUNT(*)) OVER (PARTITION BY supervisor_district ORDER BY date_trunc_ym(report_datetime)))::float / 
+                    NULLIF(LAG(COUNT(*)) OVER (PARTITION BY supervisor_district ORDER BY date_trunc_ym(report_datetime)), 0) as percent_change
+                    WHERE date_trunc_ym(report_datetime) >= date_trunc_ym(CURRENT_DATE - INTERVAL '1 month')
+                    GROUP BY supervisor_district, date_trunc_ym(report_datetime)")
+   
+   # Then create the map
+   result = generate_map(
+       context_variables,
+       map_title="Crime Rate Changes by District",
+       map_type="supervisor_district",
+       map_metadata={
+           "map_type": "delta",
+           "description": "Change in crime rates from previous month"
+       }
+   )
+   ```
 
-EXAMPLE: Creating a business map with industry colors from DataSF data:
-```python
-# After getting business data with set_dataset/get_dataset:
-# The DataSF business data comes in this format:
-# {
-#   "dba_name": "Business Name",
-#   "location": {"type": "Point", "coordinates": [-122.4, 37.7]},
-#   "naic_code_description": "Industry Type"
-# }
+3. HOUSING DATA (endpoint: j67f-aayr):
+   Example 1: Map of new housing units by project
+   ```python
+   # First, query the housing data
+   set_dataset(context_variables,
+              endpoint="j67f-aayr",
+              query="SELECT building_permit_application as title,
+                    building_address,
+                    number_of_units_certified as value,
+                    permit_type as description,
+                    permit_type as series
+                    WHERE date_issued >= CURRENT_DATE - INTERVAL '30 days'
+                    ORDER BY date_issued DESC")
+   
+   # Then create the map
+   result = generate_map(
+       context_variables,
+       map_title="New Housing Units by Project Type",
+       map_type="symbol",
+       series_field="series",
+       color_palette="categorical"
+   )
+   ```
 
-# You can pass the raw DataSF data directly to generate_map - it will automatically process the location format
-  result = generate_map(
-    context_variables,
-    map_title="New Business Registrations by Industry",
-    map_type="point",
-    location_data=business_data,  # Pass the raw DataSF data directly
-    series_field="naic_code_description",  # Color by industry type
-    color_palette="categorical"
-)
-```
-
-IMPORTANT: When working with business location data from DataSF (g8m3-pdis), the 'location' field contains coordinates in this format:
-{
-  "type": "Point", 
-  "coordinates": [-122.4516375, 37.800693]  // [longitude, latitude]
-}
-
-To create maps with business locations, you have two options:
-1. Pass the raw DataSF data directly - the map generation will automatically process the location format
-2. Extract coordinates manually: business['location']['coordinates'] gives you [longitude, latitude]
-
-The map generation function now automatically validates coordinates to ensure they're within San Francisco bounds (37.6-37.9 lat, -122.6 to -122.2 lon) and will filter out invalid locations."""
+ 
+IMPORTANT NOTES:
+1. Always use set_dataset first to prepare the data
+2. The dataset will be automatically used by generate_map
+3. For point/symbol maps, ensure you have:
+   - title field (or dba_name, building_permit_application, etc.)
+   - location information (location, latitude/longitude, or address)
+   - description field for tooltips
+   - series field if using series coloring
+   - value field for symbol maps
+4. For district maps, ensure you have:
+   - supervisor_district field
+   - value field for density maps
+   - current_value, previous_value, delta, and percent_change for change maps
+5. Use appropriate date ranges in your queries:
+   - 7 days for recent point data
+   - 30 days for monthly aggregations
+   - 1 month for change calculations"""
 
 # Core tools list
 CORE_TOOLS_INSTRUCTIONS = """TOOLS YOU SHOULD USE:
@@ -490,4 +628,46 @@ PROMPT_SECTIONS = {
         'description': 'Tools for managing and querying metrics database',
         'content': METRICS_TOOLS_INSTRUCTIONS
     }
-} 
+}
+
+def write_prompts_to_file():
+    """Write the current prompt sections back to the file."""
+    try:
+        # Ensure os is imported
+        import os
+        
+        # Get the path to this file
+        file_path = os.path.abspath(__file__)
+        
+        # Read the current file content
+        with open(file_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        
+        # Update each section in the file
+        for section_key, section_data in PROMPT_SECTIONS.items():
+            constant_name = section_key.upper() + "_INSTRUCTIONS"
+            
+            # Escape any special regex characters in the content
+            escaped_content = re.escape(section_data['content'])
+            
+            # Create the new constant definition
+            new_content = f"{constant_name} = \"\"\"{section_data['content']}\"\"\""
+            
+            # Find the constant definition using a more robust pattern
+            pattern = f"{constant_name}\\s*=\\s*\"\"\".*?\"\"\""
+            
+            # Replace the content using regex with multiline and dotall flags
+            if re.search(pattern, content, flags=re.DOTALL):
+                content = re.sub(pattern, new_content, content, flags=re.DOTALL)
+            else:
+                # If the constant doesn't exist, append it to the file
+                content += f"\n\n{new_content}"
+        
+        # Write the updated content back to the file
+        with open(file_path, 'w', encoding='utf-8') as f:
+            f.write(content)
+            
+        return True
+    except Exception as e:
+        print(f"Error writing prompts to file: {str(e)}")
+        return False 

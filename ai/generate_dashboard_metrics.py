@@ -54,7 +54,7 @@ def load_metrics_from_db():
         
         cursor = connection.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         
-        # Query all active metrics from the database
+        # Query all active metrics from the database that are configured to show on dashboard
         cursor.execute("""
             SELECT 
                 m.id,
@@ -69,13 +69,15 @@ def load_metrics_from_db():
                 m.metric_query,
                 m.location_fields,
                 m.category_fields,
+                m.city_id,
+                m.display_order,
                 m.is_active,
                 d.title as dataset_title,
                 d.category as dataset_category
             FROM metrics m
             LEFT JOIN datasets d ON m.endpoint = d.endpoint
-            WHERE m.is_active = true
-            ORDER BY m.category, m.metric_name
+            WHERE m.is_active = true AND m.show_on_dash = true
+            ORDER BY m.category, m.display_order, m.metric_name
         """)
         
         metrics = cursor.fetchall()
@@ -83,7 +85,7 @@ def load_metrics_from_db():
         connection.close()
         
         if not metrics:
-            logger.warning("No active metrics found in database")
+            logger.warning("No active dashboard metrics found in database")
             return {}
         
         # Convert to the expected dashboard queries format
@@ -118,12 +120,15 @@ def load_metrics_from_db():
                 'dataset_title': metric['dataset_title'] or '',
                 'dataset_category': metric['dataset_category'] or '',
                 'location_fields': metric['location_fields'] or [],
-                'category_fields': metric['category_fields'] or []
+                'category_fields': metric['category_fields'] or [],
+                'city_id': metric['city_id'],
+                'display_order': metric['display_order'],
+                'is_active': metric['is_active']
             }
             
             dashboard_queries[category][subcategory]['queries'][query_name] = query_data
         
-        logger.info(f"Loaded {len(metrics)} metrics from database across {len(dashboard_queries)} categories")
+        logger.info(f"Loaded {len(metrics)} dashboard metrics from database across {len(dashboard_queries)} categories")
         return dashboard_queries
         
     except Exception as e:
@@ -162,12 +167,14 @@ def load_single_metric_from_db(metric_id):
                     m.metric_query,
                     m.location_fields,
                     m.category_fields,
+                    m.city_id,
+                    m.display_order,
                     m.is_active,
                     d.title as dataset_title,
                     d.category as dataset_category
                 FROM metrics m
                 LEFT JOIN datasets d ON m.endpoint = d.endpoint
-                WHERE m.id = %s AND m.is_active = true
+                WHERE m.id = %s AND m.is_active = true AND m.show_on_dash = true
             """, (int(metric_id),))
         else:
             # String ID - search by metric_key
@@ -185,12 +192,14 @@ def load_single_metric_from_db(metric_id):
                     m.metric_query,
                     m.location_fields,
                     m.category_fields,
+                    m.city_id,
+                    m.display_order,
                     m.is_active,
                     d.title as dataset_title,
                     d.category as dataset_category
                 FROM metrics m
                 LEFT JOIN datasets d ON m.endpoint = d.endpoint
-                WHERE m.metric_key = %s AND m.is_active = true
+                WHERE m.metric_key = %s AND m.is_active = true AND m.show_on_dash = true
             """, (str(metric_id),))
         
         metric = cursor.fetchone()
@@ -198,7 +207,7 @@ def load_single_metric_from_db(metric_id):
         connection.close()
         
         if not metric:
-            logger.error(f"Metric with ID {metric_id} not found in database")
+            logger.error(f"Dashboard metric with ID {metric_id} not found in database")
             return None
         
         # Convert to the expected dashboard queries format
@@ -217,7 +226,10 @@ def load_single_metric_from_db(metric_id):
             'dataset_title': metric['dataset_title'] or '',
             'dataset_category': metric['dataset_category'] or '',
             'location_fields': metric['location_fields'] or [],
-            'category_fields': metric['category_fields'] or []
+            'category_fields': metric['category_fields'] or [],
+            'city_id': metric['city_id'],
+            'display_order': metric['display_order'],
+            'is_active': metric['is_active']
         }
         
         # Return in the expected format
@@ -232,7 +244,7 @@ def load_single_metric_from_db(metric_id):
             }
         }
         
-        logger.info(f"Loaded metric {metric_id} ({query_name}) from database")
+        logger.info(f"Loaded dashboard metric {metric_id} ({query_name}) from database")
         return dashboard_queries, category, subcategory, query_name, query_data
         
     except Exception as e:
