@@ -24,7 +24,7 @@ DROP SEQUENCE IF EXISTS public.metrics_id_seq;
 -- Name: metrics; Type: TABLE; Schema: public; Owner: postgres
 --
 
-CREATE TABLE IF NOT EXISTS public.metrics (
+CREATE TABLE public.metrics (
     id SERIAL PRIMARY KEY,
     metric_name TEXT NOT NULL,
     metric_key TEXT UNIQUE NOT NULL,
@@ -52,14 +52,14 @@ CREATE TABLE IF NOT EXISTS public.metrics (
 );
 
 -- Create indexes for metrics table
-CREATE INDEX IF NOT EXISTS metrics_category_idx ON metrics (category);
-CREATE INDEX IF NOT EXISTS metrics_subcategory_idx ON metrics (subcategory);
-CREATE INDEX IF NOT EXISTS metrics_endpoint_idx ON metrics (endpoint);
-CREATE INDEX IF NOT EXISTS metrics_active_idx ON metrics (is_active);
-CREATE INDEX IF NOT EXISTS metrics_show_on_dash_idx ON metrics (show_on_dash);
-CREATE INDEX IF NOT EXISTS metrics_city_id_idx ON metrics (city_id);
-CREATE INDEX IF NOT EXISTS metrics_display_order_idx ON metrics (display_order);
-CREATE INDEX IF NOT EXISTS metrics_category_display_order_idx ON metrics (category, display_order);
+CREATE INDEX metrics_category_idx ON metrics (category);
+CREATE INDEX metrics_subcategory_idx ON metrics (subcategory);
+CREATE INDEX metrics_endpoint_idx ON metrics (endpoint);
+CREATE INDEX metrics_active_idx ON metrics (is_active);
+CREATE INDEX metrics_show_on_dash_idx ON metrics (show_on_dash);
+CREATE INDEX metrics_city_id_idx ON metrics (city_id);
+CREATE INDEX metrics_display_order_idx ON metrics (display_order);
+CREATE INDEX metrics_category_display_order_idx ON metrics (category, display_order);
 
 -- Create trigger for updating timestamps
 CREATE OR REPLACE FUNCTION update_updated_at_column()
