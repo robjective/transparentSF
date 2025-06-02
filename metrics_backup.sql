@@ -16,6 +16,10 @@ SET xmloption = content;
 SET client_min_messages = warning;
 SET row_security = off;
 
+-- Drop existing table and sequence if they exist
+DROP TABLE IF EXISTS public.metrics CASCADE;
+DROP SEQUENCE IF EXISTS public.metrics_id_seq;
+
 --
 -- Name: metrics; Type: TABLE; Schema: public; Owner: postgres
 --
