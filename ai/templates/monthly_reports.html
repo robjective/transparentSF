@@ -599,13 +599,13 @@
         }
 
         .positive-change {
-            background-color: #d4edda;
-            color: #155724;
+            background-color: #28a745;
+            color: #ffffff;
         }
 
         .negative-change {
-            background-color: #f8d7da;
-            color: #721c24;
+            background-color: #dc3545;
+            color: #ffffff;
         }
 
         .neutral-change {
@@ -1802,12 +1802,34 @@
                             ${report.metrics.map((metric, index) => {
                                 if (!metric) return '';
                                 
-                                // Determine the change color class
+                                // Determine the change color class based on change_type from metadata
                                 let changeClass = 'neutral-change';
-                                if (metric.percent_change > 0) {
-                                    changeClass = 'positive-change';
-                                } else if (metric.percent_change < 0) {
-                                    changeClass = 'negative-change';
+                                
+                                // Try to get change_type from metadata first
+                                if (metric.metadata) {
+                                    try {
+                                        const metadata = typeof metric.metadata === 'string' 
+                                            ? JSON.parse(metric.metadata) 
+                                            : metric.metadata;
+                                        
+                                        const changeType = metadata.change_type;
+                                        if (changeType === 'positive') {
+                                            changeClass = 'positive-change';
+                                        } else if (changeType === 'negative') {
+                                            changeClass = 'negative-change';
+                                        }
+                                    } catch (error) {
+                                        console.error('Error parsing metadata for change_type:', error);
+                                    }
+                                }
+                                
+                                // Fallback to raw percent_change if no change_type in metadata
+                                if (changeClass === 'neutral-change') {
+                                    if (metric.percent_change > 0) {
+                                        changeClass = 'positive-change';
+                                    } else if (metric.percent_change < 0) {
+                                        changeClass = 'negative-change';
+                                    }
                                 }
                                 
                                 // Extract perplexity context and citations from metadata if they exist
@@ -1957,6 +1979,7 @@
                                 
                                 // Format the percent change to display with one decimal point
                                 const formatPercentChange = (value) => {
+                                    console.log('formatPercentChange called with value:', value, 'type:', typeof value);
                                     if (!value && value !== 0) return 'N/A';
                                     
                                     // Convert to number if it's a string
@@ -2031,7 +2054,10 @@
                                                 <span class="stat-item"><span class="stat-label">Comparison Mean:</span> ${comparisonMean}</span>
                                                 <span class="stat-item"><span class="stat-label">Difference:</span> ${difference}</span>
                                                 <span class="stat-item"><span class="stat-label">Std Dev:</span> ${stdDev}</span>
-                                                <span class="change-badge ${changeClass}">${formatPercentChange(metric.percent_change || metric.change_percentage)}</span>
+                                                <span class="change-badge ${changeClass}">${(() => {
+                                                    console.log('Badge debug - metric.percent_change:', metric.percent_change, 'metric.change_percentage:', metric.change_percentage);
+                                                    return formatPercentChange(metric.percent_change || metric.change_percentage);
+                                                })()}</span>
                                             </div>
                                         </h4>
                                         <div class="metric-details">

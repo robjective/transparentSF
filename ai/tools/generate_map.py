@@ -839,6 +839,12 @@ def process_location_data(location_data, map_type):
                 lat = item.get("lat") or item.get("latitude")
                 lon = item.get("lon") or item.get("longitude")
                 
+                # Handle point field with nested coordinates
+                if "point" in item and isinstance(item["point"], dict):
+                    point_data = item["point"]
+                    lat = point_data.get("latitude")
+                    lon = point_data.get("longitude")
+                
                 if lat is not None and lon is not None:
                     processed_item = {
                         "lat": float(lat),
@@ -1793,8 +1799,9 @@ def generate_map(context_variables, map_title, map_type, location_data=None, map
                     map_metadata = {}
             map_metadata['metric_info'] = metric_info
         
-        # Apply custom styling before publishing
-        _apply_custom_map_styling(chart_id, map_type, map_metadata)
+        # Apply custom styling before publishing (skip for symbol maps to preserve reference chart config)
+        if map_type != "symbol":
+            _apply_custom_map_styling(chart_id, map_type, map_metadata)
 
         # Publish the chart once with all styling applied
         logger.info(f"Publishing chart {chart_id}")
@@ -2339,83 +2346,54 @@ def create_sample_series_data():
 
 def process_symbol_map_data(location_data):
     """
-    Process location data for symbol maps, including geocoding addresses.
-    
-    Args:
-        location_data: List of location data objects with addresses or coordinates
-        
-    Returns:
-        Processed location data with coordinates
+    Process location data for symbol maps, handling various coordinate formats.
+    Returns a list of dictionaries with lat/lon coordinates.
     """
-    processed_data = []
-    
-    # Separate items that need geocoding from those that already have coordinates
-    items_to_geocode = []
-    items_with_coords = []
+    processed_locations = []
     
     for item in location_data:
-        if isinstance(item, dict):
-            # Check if item already has coordinates
-            has_lat = item.get('lat') is not None or item.get('latitude') is not None
-            has_lon = item.get('lon') is not None or item.get('longitude') is not None
+        if not isinstance(item, dict):
+            logger.warning(f"Skipping non-dictionary item: {item}")
+            continue
             
-            if has_lat and has_lon:
-                # Item already has coordinates
-                lat = item.get('lat') or item.get('latitude')
-                lon = item.get('lon') or item.get('longitude')
-                
-                processed_item = {
-                    "title": item.get('title', ''),
+        # Try to get coordinates from various possible formats
+        lat = None
+        lon = None
+        
+        # Check for direct lat/lon fields
+        lat = item.get("lat") or item.get("latitude")
+        lon = item.get("lon") or item.get("longitude")
+        
+        # Check for nested point data
+        if "point" in item and isinstance(item["point"], dict):
+            point_data = item["point"]
+            lat = point_data.get("latitude")
+            lon = point_data.get("longitude")
+            
+            # If human_address is present, try to parse it
+            if "human_address" in point_data:
+                try:
+                    human_address = json.loads(point_data["human_address"])
+                    if human_address.get("address"):
+                        # If we have an address, we could geocode it here if needed
+                        pass
+                except json.JSONDecodeError:
+                    logger.warning(f"Could not parse human_address JSON: {point_data['human_address']}")
+        
+        if lat is not None and lon is not None:
+            try:
+                processed_location = {
                     "lat": float(lat),
                     "lon": float(lon),
-                    "value": item.get('value', 0),
-                    "description": item.get('description', ''),
-                    "series": item.get('series', '')
+                    "value": item.get("value", 1)  # Default value to 1 if not specified
                 }
-                items_with_coords.append(processed_item)
-                logger.info(f"Using existing coordinates for '{processed_item['title']}': ({lat}, {lon})")
-            else:
-                # Item needs geocoding
-                address = item.get('address') or item.get('building_address')
-                if address:
-                    items_to_geocode.append(item)
+                processed_locations.append(processed_location)
+            except (ValueError, TypeError) as e:
+                logger.warning(f"Could not convert coordinates to float: {e}")
+        else:
+            logger.warning(f"Missing coordinates in item: {item}")
     
-    # Process items with existing coordinates
-    processed_data.extend(items_with_coords)
-    
-    # Geocode items that need it
-    if items_to_geocode:
-        addresses = [item.get('address') or item.get('building_address') for item in items_to_geocode]
-        geocoded_results = batch_geocode_addresses(addresses)
-        
-        # Combine original data with geocoded coordinates
-        for item in items_to_geocode:
-            address = item.get('address') or item.get('building_address')
-            if address:
-                lat, lon = geocoded_results.get(address, (None, None))
-                
-                if lat is not None and lon is not None:
-                    processed_item = {
-                        "title": item.get('title', ''),
-                        "lat": lat,
-                        "lon": lon,
-                        "value": item.get('value', 0),
-                        "description": item.get('description', ''),
-                        "series": item.get('series', '')
-                    }
-                    processed_data.append(processed_item)
-                    logger.info(f"Geocoded '{address}' to ({lat}, {lon})")
-                else:
-                    logger.warning(f"Failed to geocode address: {address}")
-    
-    # Calculate successfully geocoded count
-    geocoded_count = 0
-    if items_to_geocode:
-        geocoded_count = len([item for item in items_to_geocode if geocoded_results.get(item.get('address') or item.get('building_address'), (None, None))[0] is not None])
-    
-    logger.info(f"Processed {len(processed_data)} total symbol locations ({len(items_with_coords)} with existing coords, {geocoded_count} geocoded)")
-    
-    return processed_data
+    return processed_locations
 
 # Testing
 if __name__ == "__main__":

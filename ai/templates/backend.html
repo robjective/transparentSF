@@ -2205,26 +2205,20 @@
                     const direction = parseFloat(metric.delta || 0) > 0 ? 'increased' : 'decreased';
                     
                     // Create a formatted prompt explaining the change
-                    const prompt = `I need help understanding a significant change in SF public data. 
-
-The metric "${metricName}" (ID: ${metricId}) for ${district} has ${direction} from ${previousValue} in ${previousPeriod} to ${recentValue} in ${recentPeriod}.
-
-Key details:
-- Metric ID: ${metricId}
-- Metric Key: ${metricKey}
-- Metric Name: ${metricName}
-- Absolute change: ${delta}
-- Percentage change: ${percentChange}%
-- Time period: ${previousPeriod} → ${recentPeriod}
-- Geographic scope: ${district}
+                    let prompt;
+                    if (metric.group_value) {
+                        prompt = `The metric "${metricName}" (ID: ${metricId}) for ${district} in ${metric.group_name} "${metric.group_value}" has ${direction} from ${previousValue} in ${previousPeriod} to ${recentValue} in ${recentPeriod}, an absolute change of ${delta} and a percentage change of ${percentChange}%.
 
 Can you help me understand:
 1. What might have caused this change?
-2. Is this part of a broader trend?
-3. What are the potential implications?
-4. Are there related metrics I should examine?
+2. Is this part of a broader trend?`;
+                    } else {
+                        prompt = `The metric "${metricName}" (ID: ${metricId}) for ${district} has ${direction} from ${previousValue} in ${previousPeriod} to ${recentValue} in ${recentPeriod}, an absolute change of ${delta} and a percentage change of ${percentChange}%.
 
-Please use the metric ID (${metricId}) to look up additional data and provide context based on your knowledge of San Francisco data and trends.`;
+Can you help me understand:
+1. What might have caused this change?
+2. Is this part of a broader trend?`;
+                    }
 
                     // Send the prompt to Seymour after a brief delay to ensure the panel is open
                     setTimeout(() => {

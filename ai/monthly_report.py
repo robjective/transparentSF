@@ -493,69 +493,47 @@ def select_deltas_to_discuss(period_type='month', top_n=20, bottom_n=20, distric
     logger.info(f"Selecting top {top_n} and bottom {bottom_n} deltas for {period_type}ly report")
     
     try:
-        # Use the top-metric-changes API endpoint to get top changes
-        top_url = f"{API_BASE_URL}/anomaly-analyzer/api/top-metric-changes?period_type={period_type}&limit={top_n}&district={district}&show_both=false"
-        logger.info(f"Requesting top changes from: {top_url}")
+        # Use the top-metric-changes API endpoint to get both positive and negative changes
+        # The updated API returns both in one call, so we use the max of top_n and bottom_n for the limit
+        limit = max(top_n, bottom_n)
+        url = f"{API_BASE_URL}/anomaly-analyzer/api/top-metric-changes?period_type={period_type}&limit={limit}&district={district}&show_both=true"
+        logger.info(f"Requesting metric changes from: {url}")
         
-        top_response = requests.get(top_url)
-        logger.info(f"Top changes API response status code: {top_response.status_code}")
+        response = requests.get(url)
+        logger.info(f"Metric changes API response status code: {response.status_code}")
         
-        if top_response.status_code != 200:
-            error_msg = f"Failed to get top changes: Status code {top_response.status_code} - {top_response.text}"
+        if response.status_code != 200:
+            error_msg = f"Failed to get metric changes: Status code {response.status_code} - {response.text}"
             logger.error(error_msg)
             return {"status": "error", "message": error_msg}
         
         try:
-            top_data = top_response.json()
-            logger.info(f"Received top changes data: {json.dumps(top_data)[:200]}...")
+            data = response.json()
+            logger.info(f"Received metric changes data: {json.dumps(data)[:200]}...")
             
             # Log more details about the returned data structure
-            if isinstance(top_data, dict):
-                logger.info(f"Top data keys: {list(top_data.keys())}")
-                if "top_results" in top_data:
-                    logger.info(f"Top results count: {len(top_data['top_results'])}")
-                    if top_data['top_results'] and len(top_data['top_results']) > 0:
-                        sample_item = top_data['top_results'][0]
-                        logger.info(f"Sample top result item keys: {list(sample_item.keys())}")
-                        logger.info(f"Sample top result item: {json.dumps(sample_item)}")
+            if isinstance(data, dict):
+                logger.info(f"Data keys: {list(data.keys())}")
+                if "positive_changes" in data:
+                    logger.info(f"Positive changes count: {len(data['positive_changes'])}")
+                    if data['positive_changes'] and len(data['positive_changes']) > 0:
+                        sample_item = data['positive_changes'][0]
+                        logger.info(f"Sample positive change item keys: {list(sample_item.keys())}")
+                        logger.info(f"Sample positive change item: {json.dumps(sample_item)}")
+                if "negative_changes" in data:
+                    logger.info(f"Negative changes count: {len(data['negative_changes'])}")
+                    if data['negative_changes'] and len(data['negative_changes']) > 0:
+                        sample_item = data['negative_changes'][0]
+                        logger.info(f"Sample negative change item keys: {list(sample_item.keys())}")
+                        logger.info(f"Sample negative change item: {json.dumps(sample_item)}")
         except Exception as e:
-            logger.error(f"Error parsing top changes response as JSON: {str(e)}")
-            logger.error(f"Raw response content: {top_response.text[:500]}")
-            raise
-        
-        # Use the same endpoint with negative=true for bottom changes
-        bottom_url = f"{API_BASE_URL}/anomaly-analyzer/api/top-metric-changes?period_type={period_type}&limit={bottom_n}&district={district}&show_both=false&negative=true"
-        logger.info(f"Requesting bottom changes from: {bottom_url}")
-        
-        bottom_response = requests.get(bottom_url)
-        logger.info(f"Bottom changes API response status code: {bottom_response.status_code}")
-        
-        if bottom_response.status_code != 200:
-            error_msg = f"Failed to get bottom changes: Status code {bottom_response.status_code} - {bottom_response.text}"
-            logger.error(error_msg)
-            return {"status": "error", "message": error_msg}
-        
-        try:
-            bottom_data = bottom_response.json()
-            logger.info(f"Received bottom changes data: {json.dumps(bottom_data)[:200]}...")
-            
-            # Log more details about the returned data structure
-            if isinstance(bottom_data, dict):
-                logger.info(f"Bottom data keys: {list(bottom_data.keys())}")
-                if "bottom_results" in bottom_data:
-                    logger.info(f"Bottom results count: {len(bottom_data['bottom_results'])}")
-                    if bottom_data['bottom_results'] and len(bottom_data['bottom_results']) > 0:
-                        sample_item = bottom_data['bottom_results'][0]
-                        logger.info(f"Sample bottom result item keys: {list(sample_item.keys())}")
-                        logger.info(f"Sample bottom result item: {json.dumps(sample_item)}")
-        except Exception as e:
-            logger.error(f"Error parsing bottom changes response as JSON: {str(e)}")
-            logger.error(f"Raw response content: {bottom_response.text[:500]}")
+            logger.error(f"Error parsing metric changes response as JSON: {str(e)}")
+            logger.error(f"Raw response content: {response.text[:500]}")
             raise
         
         # Format the results from the API to match what we need
         top_changes = []
-        for item in top_data.get("top_results", []):
+        for item in data.get("positive_changes", [])[:top_n]:  # Limit to top_n
             try:
                 # Safely handle None values
                 recent_value = float(item.get("recent_value", 0)) if item.get("recent_value") is not None else 0
@@ -565,20 +543,23 @@ def select_deltas_to_discuss(period_type='month', top_n=20, bottom_n=20, distric
                 top_changes.append({
                     "metric": item.get("object_name", "Unknown"),
                     "metric_id": item.get("object_id", "Unknown"),
-                    "group": item.get("group", "All"),
+                    "group": item.get("group_value") or "All",  # Handle None values properly
                     "recent_mean": recent_value,
                     "comparison_mean": previous_value,
                     "difference_value": difference,
                     "difference": difference,
-                    "district": district
+                    "district": district,
+                    "change_type": "positive",  # Mark as positive change (good change based on greendirection)
+                    "percent_change": item.get("percent_change"),  # Preserve percent_change from API
+                    "greendirection": item.get("greendirection")  # Preserve greendirection for reference
                 })
             except (ValueError, TypeError) as e:
-                logger.error(f"Error processing top change item: {e}")
+                logger.error(f"Error processing positive change item: {e}")
                 logger.error(f"Problematic item data: {json.dumps(item)}")
                 continue
         
         bottom_changes = []
-        for item in bottom_data.get("bottom_results", []):
+        for item in data.get("negative_changes", [])[:bottom_n]:  # Limit to bottom_n
             try:
                 # Safely handle None values
                 recent_value = float(item.get("recent_value", 0)) if item.get("recent_value") is not None else 0
@@ -588,15 +569,18 @@ def select_deltas_to_discuss(period_type='month', top_n=20, bottom_n=20, distric
                 bottom_changes.append({
                     "metric": item.get("object_name", "Unknown"),
                     "metric_id": item.get("object_id", "Unknown"),
-                    "group": item.get("group", "All"),
+                    "group": item.get("group_value") or "All",  # Handle None values properly
                     "recent_mean": recent_value,
                     "comparison_mean": previous_value,
                     "difference_value": difference,
                     "difference": difference,
-                    "district": district
+                    "district": district,
+                    "change_type": "negative",  # Mark as negative change (bad change based on greendirection)
+                    "percent_change": item.get("percent_change"),  # Preserve percent_change from API
+                    "greendirection": item.get("greendirection")  # Preserve greendirection for reference
                 })
             except (ValueError, TypeError) as e:
-                logger.error(f"Error processing bottom change item: {e}")
+                logger.error(f"Error processing negative change item: {e}")
                 logger.error(f"Problematic item data: {json.dumps(item)}")
                 continue
         
@@ -770,7 +754,10 @@ def prioritize_deltas(deltas, max_items=10):
                             "district": original_change.get("district", "0"),
                             "rationale": item.get("explanation", ""),
                             "trend_analysis": item.get("trend_analysis", ""),
-                            "follow_up": item.get("follow_up", "")
+                            "follow_up": item.get("follow_up", ""),
+                            "change_type": original_change.get("change_type", "neutral"),  # Preserve change_type
+                            "percent_change": original_change.get("percent_change"),  # Preserve percent_change
+                            "greendirection": original_change.get("greendirection")  # Preserve greendirection
                         })
                     else:
                         logger.warning(f"Could not find original data for item index {item_index}")
@@ -798,7 +785,10 @@ def prioritize_deltas(deltas, max_items=10):
                                 "district": original_change.get("district", "0"),
                                 "rationale": item.get("explanation", ""),
                                 "trend_analysis": item.get("trend_analysis", ""),
-                                "follow_up": item.get("follow_up", "")
+                                "follow_up": item.get("follow_up", ""),
+                                "change_type": original_change.get("change_type", "neutral"),  # Preserve change_type
+                                "percent_change": original_change.get("percent_change"),  # Preserve percent_change
+                                "greendirection": original_change.get("greendirection")  # Preserve greendirection
                             })
                         else:
                             logger.warning(f"Could not find original data for metric: {metric_name}, group: {group_value}")
@@ -827,7 +817,10 @@ def prioritize_deltas(deltas, max_items=10):
                             "district": original_change.get("district", "0"),
                             "rationale": item.get("explanation", ""),
                             "trend_analysis": item.get("trend_analysis", ""),
-                            "follow_up": item.get("follow_up", "")
+                            "follow_up": item.get("follow_up", ""),
+                            "change_type": original_change.get("change_type", "neutral"),  # Preserve change_type
+                            "percent_change": original_change.get("percent_change"),  # Preserve percent_change
+                            "greendirection": original_change.get("greendirection")  # Preserve greendirection
                         })
                     else:
                         logger.warning(f"Could not find original data for metric: {metric_name}, group: {group_value}")
@@ -905,7 +898,11 @@ def store_prioritized_items(prioritized_items, period_type='month', district="0"
         for item in prioritized_items:
             # Calculate percent change
             comparison_mean = item.get("comparison_mean", 0)
-            if comparison_mean != 0:
+            if item.get("percent_change") is not None:
+                # Use the percent_change from the API if available
+                percent_change = item.get("percent_change")
+            elif comparison_mean != 0:
+                # Fallback to calculating it if not provided
                 percent_change = (item.get("difference", 0) / comparison_mean) * 100
             else:
                 percent_change = 0
@@ -918,13 +915,15 @@ def store_prioritized_items(prioritized_items, period_type='month', district="0"
             # Create metadata JSON to store additional fields
             metadata = {
                 "trend_analysis": item.get("trend_analysis", ""),
-                "follow_up": item.get("follow_up", "")
+                "follow_up": item.get("follow_up", ""),
+                "change_type": item.get("change_type", "neutral"),  # Store change_type
+                "greendirection": item.get("greendirection")  # Store greendirection
             }
             
             # Create item title from metric name and group
             metric_name = item.get("metric", "")
             metric_id = item.get("metric_id", "Unknown")
-            group_value = item.get("group", "All")
+            group_value = item.get("group") or "All"  # Handle None values properly
             item_title = f"{metric_name} - {group_value}" if group_value != "All" else metric_name
                 
             # Prepare the data

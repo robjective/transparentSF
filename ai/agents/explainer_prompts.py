@@ -22,9 +22,10 @@ TASK_INSTRUCTIONS = """Your task is to:
 1. Take an change that has already been identified
 2. Research that change to explain what changed and where or what variables explain the change
 3. Analyze anomalies in the dataset to see if they are related to the change
-4. Review maps, charts and visual data to determine how to best explain the chart. 
-4. Provide clear, comprehensive explanations with supporting evidence.  You don't need to be breif, more is more, so be as complete and thorough as possible.
-5. Return your findings in the form of a JSON object with the following keys:
+4. Collect Data use set_dataset and get_dataset to get exactly what you need from DataSF  You can should query the endpoint of the metric in question and look for columns that might explain the change. 
+5. Review maps, charts and visual data to determine how to best explain the chart. 
+6. Provide clear, comprehensive explanations with supporting evidence.  You don't need to be breif, more is more, so be as complete and thorough as possible.
+7. Return your findings in the form of a JSON object with the following keys:
     - "explanation": A string with your explanation
     - "charts": a list of charts placeholders, formatted ONLY as either [CHART:anomaly:anomaly_id] or [CHART:time_series_id:chart_id] or [CHART:map:map_id].  
     - "trend_analysis" - Your discussion of the trend in the metric short, medium, and long term."""
@@ -32,10 +33,9 @@ TASK_INSTRUCTIONS = """Your task is to:
 # Workflow instructions
 WORKFLOW_INSTRUCTIONS = """MANDATORY WORKFLOW (follow this exact sequence):
 1. FIRST, check your notes!
-2. SECOND, Query the anomalies_db for this metric and period_type and group_filter and district_filter and limit 30 and only_anomalies=True to see whats happening in this metric in this period for this group in this district. 
-4. THIRD, USe get_charts_for_review to review the recent charts for this metric.  If there are charts that are relevant to the change, then include them in your explanation.
-4. FOURTH, Get information about the metric from the get_dashboard_metric tool.  
-
+4. SECOND, Get information about the metric from the get_dashboard_metric tool.  It will show you the metric's endpoint and common queries.
+2. THIRD, Query the anomalies_db for this metric and period_type and group_filter and district_filter and limit 30 and only_anomalies=True to see whats happening in this metric in this period for this group in this district. 
+4. FOURTH, USe get_charts_for_review to review the recent charts for this metric.  If there are charts that are relevant to the change, then include them in your explanation.
 5. FIFTH, contextualize this change vs the historical data, you can use the data from get_dashboard_metric to do this. 
 6. SIXTH, if an anomaly is explanatory, then be sure to include a link to the anomaly chart
 7. SEVENTH, if you still don't have enough information to understand the data, then use set_dataset and get_dataset to get exactly what you need from DataSF.  You can use the queries that you see in the get_dashboard_metric tool data as a starting point, make sure to use the righ fieldNames with the right case.  Read more about htat in the set_dataset() tool. 
@@ -671,3 +671,184 @@ def write_prompts_to_file():
     except Exception as e:
         print(f"Error writing prompts to file: {str(e)}")
         return False 
+
+CATEGORIES_INSTRUCTIONS = """Best Practices for explaining certain categories: 
+1. Housing - If the you are being asked to explain is in housing, then you should query for the actual properties that have new units, and include the address, and the units certified in your explanation.
+set_dataset
+Arguments: { "endpoint": "j67f-aayr", "query": "SELECT building_address as address, number_of_units_certified as value,   building_address || ': ' || document_type || ' (' || number_of_units_certified || ' units)' as description, document_type as description, document_type as series WHERE date_issued >= '2025-04-27' ORDER BY date_issued DESC" }
+
+2. If you are being asked to explain a change in business registrations or closures, then you should query for the actual businesses that have opened or closed, and include the DBA name, and the date of opening or closure in your explanation.
+set_dataset
+Arguments: { "endpoint": "g8m3-pdis", "query": "SELECT dba_name, location, dba_start_date, naic_code_description, supervisor_district ORDER BY dba_start_date DESC LIMIT 10" }
+
+3. I fyou are being asked about crime data, then you should query for the actual crimes that have occurred, and include the crime type, the date of the crime, and the location of the crime in your explanation.
+set_dataset
+Arguments:
+{
+    "endpoint": "wg3w-h783",
+    "query": "SELECT report_datetime, incident_category, supervisor_district, latitude, longitude WHERE supervisor_district='2' AND (incident_category='Homicide') ORDER BY report_datetime DESC LIMIT 5"
+}
+
+4. If you are being asked about 311 cases"""
+
+CHARTS_INSTRUCTIONS = """IMPORTANT CHART GENERATION RULES:
+
+To do this, you should use the get_charts_for_review tool to get a list of charts that are available.  
+When selecting the best visutal to use: 
+
+If the explanation is geographic, a Maps helps.  If you are talking about the absolute value show a density map, if you are taling about a chage show a change map.
+If the explanation is temporal, charts help.  choose the most simple chart that can show the change.  
+If the explanation is that a specific category spiked in an anomaly, then perhaps show the time series of the metric and the anomaly explaining it. 
+
+If the explanation is that a particuarly group_field category went up or down, then show the time series for that group_field. Remember, if you are explaining a change in a district, don't show a chart that shows citywide data. 
+
+You can refer to the chart like this: 
+
+For Time Series Charts:
+[CHART:time_series_id:chart_id]
+For example: [time_series_id:44323]  
+
+For Anomaly Charts:
+[CHART:anomaly:anomaly_id]
+For example: [CHART:anomaly:27338]
+
+For Maps: 
+[CHART:map:map_id]
+For example: [CHART:map:123]"""
+
+DATASF_MAPS_INSTRUCTIONS = """SERIES MAPS WITH DATASF DATA - PRACTICAL EXAMPLES:
+
+1. BUSINESS DATA (endpoint: g8m3-pdis):
+   Example 1: Map of new businesses by industry type
+   ```python
+   # First, query the business data
+   set_dataset(context_variables, 
+              endpoint="g8m3-pdis",
+              query="SELECT location, 
+                    location, 
+                    dba_name || ' - ' || naic_code_description as description,
+                    naic_code_description as series
+                    WHERE dba_start_date >= CURRENT_DATE - INTERVAL '30 days'
+                    ORDER BY dba_start_date DESC")
+   
+   # Then create the map
+   result = generate_map(
+       context_variables,
+       map_title="New Business Registrations by Industry",
+       map_type="point",
+       series_field="series",
+       color_palette="categorical"
+   )
+   ```
+
+   Example 2: Map of business closures by district
+   ```python
+   # First, query the business data aggregated by district
+   set_dataset(context_variables,
+              endpoint="g8m3-pdis",
+              query="SELECT supervisor_district, 
+                    COUNT(*) as value
+                    WHERE location_end_date >= CURRENT_DATE - INTERVAL '30 days'
+                    GROUP BY supervisor_district")
+   
+   # Then create the map
+   result = generate_map(
+       context_variables,
+       map_title="Business Closures by District",
+       map_type="supervisor_district",
+       map_metadata={"description": "Number of business closures in the last 30 days"}
+   )
+   ```
+
+2. CRIME DATA (endpoint: wg3w-h783):
+   Example 1: Map of recent crimes by type
+   ```python
+   # First, query the crime data
+   set_dataset(context_variables,
+              endpoint="wg3w-h783",
+              query="SELECT incident_description as title,
+                    latitude,
+                    longitude,
+                    incident_category as description,
+                    incident_category as series
+                    WHERE report_datetime >= CURRENT_DATE - INTERVAL '7 days'
+                    ORDER BY report_datetime DESC")
+   
+   # Then create the map
+   result = generate_map(
+       context_variables,
+       map_title="Recent Crimes by Category",
+       map_type="point",
+       series_field="series",
+       color_palette="categorical"
+   )
+   ```
+
+   Example 2: Map of crime rate changes by district
+   ```python
+   # First, query the crime data with change calculations
+   set_dataset(context_variables,
+              endpoint="wg3w-h783",
+              query="SELECT supervisor_district,
+                    COUNT(*) as current_value,
+                    LAG(COUNT(*)) OVER (PARTITION BY supervisor_district ORDER BY date_trunc_ym(report_datetime)) as previous_value,
+                    COUNT(*) - LAG(COUNT(*)) OVER (PARTITION BY supervisor_district ORDER BY date_trunc_ym(report_datetime)) as delta,
+                    (COUNT(*) - LAG(COUNT(*)) OVER (PARTITION BY supervisor_district ORDER BY date_trunc_ym(report_datetime)))::float / 
+                    NULLIF(LAG(COUNT(*)) OVER (PARTITION BY supervisor_district ORDER BY date_trunc_ym(report_datetime)), 0) as percent_change
+                    WHERE date_trunc_ym(report_datetime) >= date_trunc_ym(CURRENT_DATE - INTERVAL '1 month')
+                    GROUP BY supervisor_district, date_trunc_ym(report_datetime)")
+   
+   # Then create the map
+   result = generate_map(
+       context_variables,
+       map_title="Crime Rate Changes by District",
+       map_type="supervisor_district",
+       map_metadata={
+           "map_type": "delta",
+           "description": "Change in crime rates from previous month"
+       }
+   )
+   ```
+
+3. HOUSING DATA (endpoint: j67f-aayr):
+   Example 1: Map of new housing units by project
+   ```python
+   # First, query the housing data
+   set_dataset(context_variables,
+              endpoint="j67f-aayr",
+              query="SELECT building_permit_application as title,
+                    building_address,
+                    number_of_units_certified as value,
+                    permit_type as description,
+                    permit_type as series
+                    WHERE date_issued >= CURRENT_DATE - INTERVAL '30 days'
+                    ORDER BY date_issued DESC")
+   
+   # Then create the map
+   result = generate_map(
+       context_variables,
+       map_title="New Housing Units by Project Type",
+       map_type="symbol",
+       series_field="series",
+       color_palette="categorical"
+   )
+   ```
+
+ 
+IMPORTANT NOTES:
+1. Always use set_dataset first to prepare the data
+2. The dataset will be automatically used by generate_map
+3. For point/symbol maps, ensure you have:
+   - title field (or dba_name, building_permit_application, etc.)
+   - location information (location, latitude/longitude, or address)
+   - description field for tooltips
+   - series field if using series coloring
+   - value field for symbol maps
+4. For district maps, ensure you have:
+   - supervisor_district field
+   - value field for density maps
+   - current_value, previous_value, delta, and percent_change for change maps
+5. Use appropriate date ranges in your queries:
+   - 7 days for recent point data
+   - 30 days for monthly aggregations
+   - 1 month for change calculations"""

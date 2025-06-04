@@ -273,6 +273,11 @@
             font-weight: 500;
         }
         
+        .neutral-change {
+            color: var(--text-secondary);
+            font-weight: 500;
+        }
+        
         .selected-row {
             background-color: var(--civic-blue-lighter) !important;
             border-left: 4px solid var(--civic-blue);
@@ -1313,22 +1318,22 @@
         
         // Function to fetch top metric changes
         function fetchTopMetricChanges(periodType, limit, objectId, district) {
-            // Build API URL
-            let apiUrl = `/anomaly-analyzer/api/top-metric-changes?period_type=${periodType}&limit=${limit}`;
+            // Build query parameters
+            const params = new URLSearchParams({
+                period_type: periodType,
+                limit: limit,
+                district: district
+            });
             
-            if (objectId) {
-                apiUrl += `&object_id=${encodeURIComponent(objectId)}`;
+            if (objectId && objectId.trim() !== '') {
+                params.append('object_id', objectId.trim());
             }
             
-            if (district) {
-                apiUrl += `&district=${encodeURIComponent(district)}`;
-            }
-            
-            // Fetch data
-            fetch(apiUrl)
+            // Make API call
+            fetch(`/anomaly-analyzer/api/top-metric-changes?${params.toString()}`)
                 .then(response => {
                     if (!response.ok) {
-                        throw new Error(`HTTP error ${response.status}`);
+                        throw new Error(`Failed to fetch metric changes. Status: ${response.status}`);
                     }
                     return response.json();
                 })
@@ -1340,14 +1345,16 @@
                         // Display the periods
                         periodsDisplay.style.display = 'flex';
                         
-                        if (data.top_results.length > 0 || data.bottom_results.length > 0) {
+                        if ((data.positive_changes && data.positive_changes.length > 0) || 
+                            (data.negative_changes && data.negative_changes.length > 0)) {
                             // Display metric data
-                            displayMetricResults(data.top_results, data.bottom_results);
+                            displayMetricResults(data.positive_changes || [], data.negative_changes || []);
                             
                             // Update period display if we have data
-                            // If top_results is empty but bottom_results has values, use the first bottom result
-                            const firstResult = data.top_results.length > 0 ? 
-                                data.top_results[0] : (data.bottom_results.length > 0 ? data.bottom_results[0] : null);
+                            // If positive_changes is empty but negative_changes has values, use the first negative result
+                            const firstResult = (data.positive_changes && data.positive_changes.length > 0) ? 
+                                data.positive_changes[0] : 
+                                ((data.negative_changes && data.negative_changes.length > 0) ? data.negative_changes[0] : null);
                             
                             if (firstResult) {
                                 previousPeriodValue.textContent = firstResult.previous_period || '-';
@@ -1369,8 +1376,45 @@
                     loader.style.display = 'none';
                     errorContainer.style.display = 'block';
                     errorText.textContent = `Error: ${error.message}`;
-                    console.error('Error fetching metrics:', error);
+                    console.error('Error fetching metric changes:', error);
                 });
+        }
+        
+        // Function to display metric results
+        function displayMetricResults(positiveChanges, negativeChanges) {
+            // Show the table
+            metricsTable.style.display = 'table';
+            metricsTbody.innerHTML = '';
+            
+            // Add section header for positive changes
+            const positiveHeader = document.createElement('tr');
+            positiveHeader.className = 'section-header';
+            positiveHeader.innerHTML = `<td colspan="7">Positive Changes</td>`;
+            metricsTbody.appendChild(positiveHeader);
+            
+            // Add positive results
+            if (positiveChanges.length > 0) {
+                positiveChanges.forEach(metric => appendMetricRow(metric));
+            } else {
+                const noPositiveRow = document.createElement('tr');
+                noPositiveRow.innerHTML = `<td colspan="7" class="no-data">No positive changes found</td>`;
+                metricsTbody.appendChild(noPositiveRow);
+            }
+            
+            // Add section header for negative changes
+            const negativeHeader = document.createElement('tr');
+            negativeHeader.className = 'section-header';
+            negativeHeader.innerHTML = `<td colspan="7">Negative Changes</td>`;
+            metricsTbody.appendChild(negativeHeader);
+            
+            // Add negative results
+            if (negativeChanges.length > 0) {
+                negativeChanges.forEach(metric => appendMetricRow(metric));
+            } else {
+                const noNegativeRow = document.createElement('tr');
+                noNegativeRow.innerHTML = `<td colspan="7" class="no-data">No negative changes found</td>`;
+                metricsTbody.appendChild(noNegativeRow);
+            }
         }
         
         // Function to fetch anomalies
@@ -1422,43 +1466,6 @@
                 });
         }
         
-        // Function to display metric results
-        function displayMetricResults(topResults, bottomResults) {
-            // Show the table
-            metricsTable.style.display = 'table';
-            metricsTbody.innerHTML = '';
-            
-            // Add section header for top changes
-            const topHeader = document.createElement('tr');
-            topHeader.className = 'section-header';
-            topHeader.innerHTML = `<td colspan="7">Largest Increases</td>`;
-            metricsTbody.appendChild(topHeader);
-            
-            // Add top results
-            if (topResults.length > 0) {
-                topResults.forEach(metric => appendMetricRow(metric));
-            } else {
-                const noTopRow = document.createElement('tr');
-                noTopRow.innerHTML = `<td colspan="7" class="no-data">No significant increases found</td>`;
-                metricsTbody.appendChild(noTopRow);
-            }
-            
-            // Add section header for bottom changes
-            const bottomHeader = document.createElement('tr');
-            bottomHeader.className = 'section-header';
-            bottomHeader.innerHTML = `<td colspan="7">Largest Decreases</td>`;
-            metricsTbody.appendChild(bottomHeader);
-            
-            // Add bottom results
-            if (bottomResults.length > 0) {
-                bottomResults.forEach(metric => appendMetricRow(metric));
-            } else {
-                const noBottomRow = document.createElement('tr');
-                noBottomRow.innerHTML = `<td colspan="7" class="no-data">No significant decreases found</td>`;
-                metricsTbody.appendChild(noBottomRow);
-            }
-        }
-        
         // Function to display anomaly results
         function displayAnomalyResults(anomalies) {
             // Show the table
@@ -1481,8 +1488,26 @@
             row.className = 'metric-row';
             row.setAttribute('data-metric', JSON.stringify(metric));
             
-            // Determine the change class
-            const changeClass = parseFloat(metric.percent_change) > 0 ? 'positive-change' : 'negative-change';
+            // Determine the change class based on greendirection
+            let changeClass = 'neutral-change'; // Default fallback
+            const percentChange = parseFloat(metric.percent_change || 0);
+            const greendirection = metric.greendirection;
+            
+            if (greendirection && percentChange !== 0) {
+                if (greendirection.toLowerCase() === 'up') {
+                    // For metrics where up is good
+                    changeClass = percentChange > 0 ? 'positive-change' : 'negative-change';
+                } else if (greendirection.toLowerCase() === 'down') {
+                    // For metrics where down is good
+                    changeClass = percentChange > 0 ? 'negative-change' : 'positive-change';
+                } else {
+                    // Fallback to traditional logic if greendirection is unexpected
+                    changeClass = percentChange > 0 ? 'positive-change' : 'negative-change';
+                }
+            } else {
+                // Fallback to traditional logic if no greendirection
+                changeClass = percentChange > 0 ? 'positive-change' : 'negative-change';
+            }
             
             // Format the district display
             const districtDisplay = metric.district === '0' ? 'Citywide' : `District ${metric.district}`;
@@ -1528,8 +1553,26 @@
             row.className = 'anomaly-row';
             row.setAttribute('data-anomaly', JSON.stringify(anomaly));
             
-            // Determine the change class
-            const changeClass = parseFloat(anomaly.percent_change) > 0 ? 'positive-change' : 'negative-change';
+            // Determine the change class based on greendirection (if available)
+            let changeClass = 'neutral-change'; // Default fallback
+            const percentChange = parseFloat(anomaly.percent_change || 0);
+            const greendirection = anomaly.greendirection;
+            
+            if (greendirection && percentChange !== 0) {
+                if (greendirection.toLowerCase() === 'up') {
+                    // For metrics where up is good
+                    changeClass = percentChange > 0 ? 'positive-change' : 'negative-change';
+                } else if (greendirection.toLowerCase() === 'down') {
+                    // For metrics where down is good
+                    changeClass = percentChange > 0 ? 'negative-change' : 'positive-change';
+                } else {
+                    // Fallback to traditional logic if greendirection is unexpected
+                    changeClass = percentChange > 0 ? 'positive-change' : 'negative-change';
+                }
+            } else {
+                // Fallback to traditional logic if no greendirection
+                changeClass = percentChange > 0 ? 'positive-change' : 'negative-change';
+            }
             
             // Format the district display
             const districtDisplay = anomaly.district === '0' ? 'Citywide' : `District ${anomaly.district}`;
@@ -1543,15 +1586,29 @@
                 <td>${formatValue(anomaly.comparison_mean)}</td>
                 <td class="${changeClass}">${formatPercentChange(anomaly.percent_change)}</td>
                 <td>
-                    <button class="action-button" onclick="viewAnomalyDetails(${anomaly.id})">
-                        Details
+                    <button class="action-button" onclick="analyzeMetricChange(${JSON.stringify({
+                        id: anomaly.metric_key,
+                        object_name: anomaly.metric_name,
+                        group_name: anomaly.group_field_name,
+                        group_value: anomaly.group_value,
+                        anomaly_id: anomaly.id,
+                        district: anomaly.district,
+                        previous_value: anomaly.comparison_mean,
+                        recent_value: anomaly.recent_mean,
+                        delta: anomaly.difference,
+                        percent_change: anomaly.percent_change,
+                        previous_period: anomaly.period_date,
+                        recent_period: anomaly.period_date,
+                        period_type: anomaly.period_type
+                    }).replace(/"/g, '&quot;')})">
+                        Analyze
                     </button>
                 </td>
             `;
             
             // Add click event to show chart
             row.addEventListener('click', function(e) {
-                // Don't trigger if they clicked the details button
+                // Don't trigger if they clicked the analyze button
                 if (e.target.tagName === 'BUTTON') return;
                 
                 // Remove selected class from all rows
@@ -1599,6 +1656,62 @@
             const urlParams = new URLSearchParams(window.location.search);
             const embedMode = urlParams.get('embed_mode') === 'true';
             
+            // Debug logging to see what fields are available
+            console.log('Metric object received:', metric);
+            console.log('Available metric fields:', Object.keys(metric));
+            
+            // Format and prepare metric data
+            // For regular metrics from top-metric-changes API, the ID field is 'object_id'
+            // For anomalies, it's already set as 'id' in the passed object
+            const metricId = metric.object_id || metric.id || '';
+            console.log('Extracted metric ID:', metricId);
+            
+            const metricData = {
+                id: metricId,
+                name: metric.object_name || '',
+                district: metric.district || '0',
+                previousValue: formatValue(metric.previous_value),
+                recentValue: formatValue(metric.recent_value),
+                delta: formatValue(metric.delta),
+                percentChange: metric.percent_change ? parseFloat(metric.percent_change).toFixed(2) : '0',
+                previousPeriod: metric.previous_period || '',
+                recentPeriod: metric.recent_period || '',
+                direction: parseFloat(metric.delta || 0) > 0 ? 'increased' : 'decreased',
+                magnitude: Math.abs(parseFloat(metric.percent_change || 0)) > 50 ? 'significant' : 
+                          Math.abs(parseFloat(metric.percent_change || 0)) > 20 ? 'moderate' : 'minor'
+            };
+
+            // Format the district display
+            const districtDisplay = metricData.district === '0' ? 'citywide' : `District ${metricData.district}`;
+            
+            // Create the prompt message based on whether this is an anomaly or regular metric
+            let promptMessage;
+            if (metric.anomaly_id) {
+                // This is an anomaly analysis
+                promptMessage = `The metric "${metricData.name}" (ID: ${metricData.id}) for ${districtDisplay} in ${metric.group_name} "${metric.group_value}" has ${metricData.direction} from ${metricData.previousValue} in ${metricData.previousPeriod} to ${metricData.recentValue} in ${metricData.recentPeriod}, an absolute change of ${metricData.delta} and a percentage change of ${metricData.percentChange}%.
+
+Can you help me understand:
+1. What might have caused this change?
+2. Is this part of a broader trend?`;
+            } else {
+                // This is a regular metric analysis
+                promptMessage = `The metric "${metricData.name}" (ID: ${metricData.id}) for ${districtDisplay} has ${metricData.direction} from ${metricData.previousValue} in ${metricData.previousPeriod} to ${metricData.recentValue} in ${metricData.recentPeriod}, an absolute change of ${metricData.delta} and a percentage change of ${metricData.percentChange}%.
+
+Can you help me understand:
+1. What might have caused this change?
+2. Is this part of a broader trend?`;
+            }
+            
+            // Log the final prompt for debugging
+            console.log('Generated prompt:', promptMessage);
+            
+            // Check if we have a valid metric ID
+            if (!metricData.id || metricData.id.trim() === '') {
+                console.warn('No valid metric ID found. Available fields:', Object.keys(metric));
+                // We can still proceed with analysis using the metric name
+                console.log('Proceeding with analysis using metric name instead of ID');
+            }
+            
             if (embedMode) {
                 // In embed mode, we'll skip the modal and display the webchat directly
                 const analysisContainer = document.getElementById('metrics-results');
@@ -1622,12 +1735,36 @@
                     webchatIframe.style.border = 'none';
                     webchatIframe.style.display = 'block';
                     
-                    // Format values for chat prompt
-                    const metric_id = metric.object_id || '';
-                    const district = metric.district || '0';
+                    // Build query parameters with structured data
+                    const params = new URLSearchParams({
+                        initialize: 'true',
+                        analyze: 'true',
+                        metric_id: metricData.id || '',
+                        metric_name: metricData.name,
+                        district: metricData.district,
+                        previous_value: metricData.previousValue,
+                        recent_value: metricData.recentValue,
+                        delta: metricData.delta,
+                        previous_period: metricData.previousPeriod,
+                        recent_period: metricData.recentPeriod,
+                        direction: metricData.direction,
+                        percent_change: metricData.percentChange,
+                        magnitude: metricData.magnitude,
+                        prompt: promptMessage
+                    });
+
+                    // Add anomaly-specific parameters if this is an anomaly
+                    if (metric.anomaly_id) {
+                        params.append('anomaly_id', metric.anomaly_id);
+                        params.append('group_name', metric.group_name);
+                        params.append('group_value', metric.group_value);
+                    }
+                    
+                    // Log the parameters being sent
+                    console.log('WebChat parameters:', params.toString());
                     
                     // Set chat initialization parameters
-                    webchatIframe.src = `/webchat?initialize=true&analyze=true&metric_id=${encodeURIComponent(metric_id)}&metric_name=${encodeURIComponent(metric.object_name || '')}&district=${encodeURIComponent(district)}&previous_value=${encodeURIComponent(metric.previous_value)}&recent_value=${encodeURIComponent(metric.recent_value)}&delta=${encodeURIComponent(metric.delta)}&previous_period=${encodeURIComponent(metric.previous_period)}&recent_period=${encodeURIComponent(metric.recent_period)}`;
+                    webchatIframe.src = `/webchat?${params.toString()}`;
                     
                     // Append iframe to container
                     webchatContainer.appendChild(webchatIframe);
@@ -1662,7 +1799,7 @@
             // Standard modal view for non-embed mode
             // Show the modal
             analysisModal.style.display = 'block';
-            modalTitle.textContent = `Analyzing ${metric.object_name || 'Metric Change'}`;
+            modalTitle.textContent = `Analyzing ${metricData.name || 'Metric Change'}`;
             modalLoader.style.display = 'block';
             
             // Set up webchat iframe
@@ -1672,12 +1809,36 @@
             modalContent.innerHTML = '';
             modalContent.appendChild(webchatIframe);
             
-            // Format values for chat prompt
-            const metric_id = metric.object_id || '';
-            const district = metric.district || '0';
+            // Build query parameters with structured data
+            const params = new URLSearchParams({
+                initialize: 'true',
+                analyze: 'true',
+                metric_id: metricData.id || '',
+                metric_name: metricData.name,
+                district: metricData.district,
+                previous_value: metricData.previousValue,
+                recent_value: metricData.recentValue,
+                delta: metricData.delta,
+                previous_period: metricData.previousPeriod,
+                recent_period: metricData.recentPeriod,
+                direction: metricData.direction,
+                percent_change: metricData.percentChange,
+                magnitude: metricData.magnitude,
+                prompt: promptMessage
+            });
+
+            // Add anomaly-specific parameters if this is an anomaly
+            if (metric.anomaly_id) {
+                params.append('anomaly_id', metric.anomaly_id);
+                params.append('group_name', metric.group_name);
+                params.append('group_value', metric.group_value);
+            }
+            
+            // Log the parameters being sent
+            console.log('WebChat parameters:', params.toString());
             
             // Set chat initialization parameters
-            webchatIframe.src = `/webchat?initialize=true&analyze=true&metric_id=${encodeURIComponent(metric_id)}&metric_name=${encodeURIComponent(metric.object_name || '')}&district=${encodeURIComponent(district)}&previous_value=${encodeURIComponent(metric.previous_value)}&recent_value=${encodeURIComponent(metric.recent_value)}&delta=${encodeURIComponent(metric.delta)}&previous_period=${encodeURIComponent(metric.previous_period)}&recent_period=${encodeURIComponent(metric.recent_period)}`;
+            webchatIframe.src = `/webchat?${params.toString()}`;
             
             // On iframe load
             webchatIframe.onload = function() {
@@ -1842,6 +2003,7 @@
                 const comparisonMean = anomaly.comparison_mean || 0;
                 const stdDev = anomaly.std_dev || 0;
                 const difference = anomaly.difference || (recentMean - comparisonMean);
+                const greendirection = anomaly.greendirection;
                 
                 // Calculate deviation if stdDev is not zero
                 let deviation = 'N/A';
@@ -1849,9 +2011,29 @@
                     deviation = ((recentMean - comparisonMean) / stdDev).toFixed(2);
                 }
                 
-                // Determine if it's a positive or negative change
-                const changeClass = parseFloat(deviation) > 0 ? 'positive-change' : 'negative-change';
-                const diffClass = difference > 0 ? 'positive-change' : 'negative-change';
+                // Determine change class based on greendirection
+                let changeClass = 'neutral-change';
+                let diffClass = 'neutral-change';
+                
+                if (greendirection && difference !== 0) {
+                    if (greendirection.toLowerCase() === 'up') {
+                        // For metrics where up is good
+                        changeClass = parseFloat(deviation) > 0 ? 'positive-change' : 'negative-change';
+                        diffClass = difference > 0 ? 'positive-change' : 'negative-change';
+                    } else if (greendirection.toLowerCase() === 'down') {
+                        // For metrics where down is good
+                        changeClass = parseFloat(deviation) > 0 ? 'negative-change' : 'positive-change';
+                        diffClass = difference > 0 ? 'negative-change' : 'positive-change';
+                    } else {
+                        // Fallback to traditional logic
+                        changeClass = parseFloat(deviation) > 0 ? 'positive-change' : 'negative-change';
+                        diffClass = difference > 0 ? 'positive-change' : 'negative-change';
+                    }
+                } else {
+                    // Fallback to traditional logic if no greendirection
+                    changeClass = parseFloat(deviation) > 0 ? 'positive-change' : 'negative-change';
+                    diffClass = difference > 0 ? 'positive-change' : 'negative-change';
+                }
                 
                 // Store the full anomaly data as a data attribute
                 const anomalyData = JSON.stringify(anomaly);
@@ -1919,137 +2101,6 @@
             // Clear the chart container and add the iframe
             chartElement.innerHTML = '';
             chartElement.appendChild(iframe);
-        }
-        
-        // Function to view anomaly details
-        function viewAnomalyDetails(anomalyId) {
-            // Show the modal with loading state
-            analysisModal.style.display = 'block';
-            modalTitle.textContent = 'Anomaly Details';
-            modalLoader.style.display = 'block';
-            modalContent.innerHTML = '';
-            
-            // Fetch the anomaly details
-            fetch(`/anomaly-analyzer/api/anomaly-details/${anomalyId}`)
-                .then(response => {
-                    if (!response.ok) {
-                        throw new Error(`HTTP error ${response.status}`);
-                    }
-                    return response.json();
-                })
-                .then(data => {
-                    modalLoader.style.display = 'none';
-                    
-                    if (data.status === 'success' && data.anomaly) {
-                        // Create content for the modal
-                        const anomaly = data.anomaly;
-                        const metadata = anomaly.metadata || {};
-                        
-                        // Format the percent change
-                        const percentChange = anomaly.percent_change || 
-                            (anomaly.comparison_mean && anomaly.comparison_mean !== 0 ? 
-                            (anomaly.difference / anomaly.comparison_mean) * 100 : 0);
-                        
-                        const formattedPercentChange = percentChange !== 0 ? 
-                            `${percentChange > 0 ? '+' : ''}${percentChange.toFixed(2)}%` : '0%';
-                            
-                        const changeClass = percentChange > 0 ? 'positive-change' : 'negative-change';
-                        
-                        // Create the HTML content
-                        const contentHtml = `
-                            <div class="anomaly-detail-container">
-                                <div class="anomaly-overview">
-                                    <h3>${metadata.object_name || 'Unnamed Metric'}</h3>
-                                    <p class="anomaly-subtitle">${anomaly.group_field_name || 'Group'}: <strong>${anomaly.group_value || 'N/A'}</strong></p>
-                                    <p class="anomaly-description">
-                                        This metric showed a <span class="${changeClass}">${formattedPercentChange}</span> change 
-                                        from the historical average.
-                                    </p>
-                                </div>
-                                
-                                <div class="anomaly-stats">
-                                    <div class="stat-grid">
-                                        <div class="stat-item">
-                                            <span class="stat-label">Recent Value</span>
-                                            <span class="stat-value">${formatValue(anomaly.recent_mean)}</span>
-                                        </div>
-                                        <div class="stat-item">
-                                            <span class="stat-label">Historical Average</span>
-                                            <span class="stat-value">${formatValue(anomaly.comparison_mean)}</span>
-                                        </div>
-                                        <div class="stat-item">
-                                            <span class="stat-label">Absolute Change</span>
-                                            <span class="stat-value ${changeClass}">${formatValue(anomaly.difference)}</span>
-                                        </div>
-                                        <div class="stat-item">
-                                            <span class="stat-label">Standard Deviation</span>
-                                            <span class="stat-value">${formatValue(anomaly.std_dev)}</span>
-                                        </div>
-                                    </div>
-                                </div>
-                                
-                                <div class="anomaly-chart-wrapper">
-                                    <h4>Trend Over Time</h4>
-                                    <iframe src="/anomaly-analyzer/anomaly-chart?id=${anomaly.id}" 
-                                            style="width: 100%; height: 400px; border: none;"></iframe>
-                                </div>
-                                
-                                <div class="anomaly-explanation">
-                                    <h4>Statistical Significance</h4>
-                                    <p>
-                                        This anomaly is ${Math.abs(anomaly.difference) > 2 * anomaly.std_dev ? 
-                                        '<span class="high-significance">highly significant</span>' : 
-                                        '<span class="medium-significance">statistically significant</span>'}, 
-                                        deviating from the historical average by 
-                                        ${(Math.abs(anomaly.difference) / anomaly.std_dev).toFixed(2)} standard deviations.
-                                    </p>
-                                    
-                                    ${anomaly.explanation ? 
-                                    `<div class="explanation-section">
-                                        <h4>Automated Explanation</h4>
-                                        <p>${anomaly.explanation}</p>
-                                    </div>` : ''}
-                                </div>
-                                
-                                <div class="anomaly-actions">
-                                    <button class="action-button" onclick="analyzeAnomalyWithAI(${anomaly.id})">
-                                        Analyze with AI
-                                    </button>
-                                    <button class="action-button secondary" onclick="downloadAnomalyChart(${anomaly.id})">
-                                        Download Chart
-                                    </button>
-                                </div>
-                            </div>
-                        `;
-                        
-                        modalContent.innerHTML = contentHtml;
-                    } else {
-                        modalContent.innerHTML = `
-                            <div class="error-message">
-                                ${data.message || 'Failed to load anomaly details.'}
-                            </div>
-                        `;
-                    }
-                })
-                .catch(error => {
-                    modalLoader.style.display = 'none';
-                    modalContent.innerHTML = `
-                        <div class="error-message">
-                            Error loading anomaly details: ${error.message}
-                        </div>
-                    `;
-                });
-        }
-        
-        // Function to analyze an anomaly with AI
-        function analyzeAnomalyWithAI(anomalyId) {
-            // Redirect to the anomaly-chat page with the anomaly ID
-            window.open(`/anomaly-analyzer/api/anomaly-chat?anomaly_id=${anomalyId}`, '_blank');
-        }
-        
-        // Function to download anomaly chart
-        function downloadAnomalyChart(anomalyId) {
-            window.open(`/anomaly-analyzer/anomaly-chart?id=${anomalyId}&format=image`, '_blank');
         }
     </script>
 </body>

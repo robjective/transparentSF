@@ -132,7 +132,7 @@ start_postgres() {
         fi
 
         echo "Using home directory for PostgreSQL data on Replit"
-        export PGDATA=$HOME/postgres_data # Always use persistent storage
+        export PGDATA=./postgres_data # Always use persistent storage
 
         # Create data directory and initialize if needed
         if [ ! -d "$PGDATA/base" ]; then

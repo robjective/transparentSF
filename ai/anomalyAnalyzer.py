@@ -1082,8 +1082,31 @@ async def get_top_metric_changes(
     try:
         import psycopg2
         import psycopg2.extras
+        from datetime import datetime, date
+        import calendar
         
         logger.info(f"get_top_metric_changes called with: period_type={period_type}, limit={limit}, object_id={object_id}, district={district}")
+        
+        # Calculate report date based on period_type
+        today = date.today()
+        if period_type == 'month':
+            # For monthly, report date is previous month
+            if today.month == 1:
+                report_date = date(today.year - 1, 12, 1)
+            else:
+                report_date = date(today.year, today.month - 1, 1)
+        elif period_type == 'quarter':
+            # For quarterly, report date is previous quarter
+            current_quarter = (today.month - 1) // 3 + 1
+            if current_quarter == 1:
+                report_date = date(today.year - 1, 10, 1)  # Q4 of previous year
+            else:
+                report_date = date(today.year, (current_quarter - 1) * 3 - 2, 1)
+        else:  # year
+            # For annual, report date is previous year
+            report_date = date(today.year - 1, 1, 1)
+            
+        logger.info(f"Report date calculated as: {report_date}")
         
         # Connect to PostgreSQL
         conn = psycopg2.connect(
@@ -1126,19 +1149,37 @@ async def get_top_metric_changes(
         # Combine WHERE conditions
         where_clause = " AND ".join(where_conditions)
         
-        # Get the chart_ids for the specified filters
+        # Get the chart_ids for the specified filters, including their most recent time_period
         chart_query = f"""
-        SELECT chart_id, object_name, group_field, object_id
-        FROM time_series_metadata
-        WHERE {where_clause}
+        WITH latest_periods AS (
+            SELECT 
+                tsm.chart_id,
+                tsm.object_name,
+                tsm.group_field,
+                tsm.object_id,
+                MAX(tsd.time_period) as latest_period
+            FROM time_series_metadata tsm
+            JOIN time_series_data tsd ON tsm.chart_id = tsd.chart_id
+            WHERE {where_clause}
+            GROUP BY tsm.chart_id, tsm.object_name, tsm.group_field, tsm.object_id
+        )
+        SELECT 
+            chart_id,
+            object_name,
+            group_field,
+            object_id,
+            latest_period
+        FROM latest_periods
+        WHERE latest_period >= %s
         """
+        query_params.append(report_date)
         
         logger.info(f"Chart query: {chart_query} with params: {query_params}")
         cursor.execute(chart_query, query_params)
         charts = cursor.fetchall()
         
         if not charts:
-            filter_desc = f"period_type={period_type}, district={district}, group_field=NULL"
+            filter_desc = f"period_type={period_type}, district={district}, group_field=NULL, report_date={report_date}"
             if object_id:
                 filter_desc += f", object_id={object_id}"
                 
@@ -1169,7 +1210,7 @@ async def get_top_metric_changes(
         # For each chart, find the two most recent periods and compare
         all_results = []
         
-        logger.info(f"Found {len(charts)} charts with null group_field")
+        logger.info(f"Found {len(charts)} charts with null group_field and valid report date")
         
         for chart in charts:
             chart_id = chart['chart_id']
@@ -1187,16 +1228,15 @@ async def get_top_metric_changes(
             
             if len(periods) < 2:
                 logger.info(f"Skipping chart_id {chart_id} - not enough time periods (found {len(periods)})")
-                
-                # Count how many time periods exist for this chart
-                cursor.execute("SELECT COUNT(DISTINCT time_period) AS count FROM time_series_data WHERE chart_id = %s", [chart_id])
-                period_count = cursor.fetchone()['count']
-                logger.info(f"Chart {chart_id} has {period_count} distinct time periods")
-                
-                continue  # Skip if we don't have at least 2 periods
+                continue
                 
             latest_period = periods[0]['time_period']
             previous_period = periods[1]['time_period']
+            
+            # Skip if latest period is before report date
+            if latest_period < report_date:
+                logger.info(f"Skipping chart_id {chart_id} - latest period {latest_period} is before report date {report_date}")
+                continue
             
             logger.info(f"Processing chart_id {chart_id} - comparing periods {latest_period} and {previous_period}")
             
@@ -1236,60 +1276,12 @@ async def get_top_metric_changes(
             WHERE recent_value IS NOT NULL AND previous_value IS NOT NULL
             """
             
-            logger.info(f"Executing data query for chart {chart_id} comparing {latest_period} to {previous_period}")
             cursor.execute(data_query, [chart_id, latest_period, chart_id, previous_period])
             data_results = cursor.fetchall()
             
             if not data_results:
                 logger.info(f"No comparison data found for chart_id {chart_id} between periods {latest_period} and {previous_period}")
-                
-                # Check if there's any data for these periods
-                cursor.execute("SELECT COUNT(*) AS count FROM time_series_data WHERE chart_id = %s AND time_period = %s", 
-                              [chart_id, latest_period])
-                latest_count = cursor.fetchone()['count']
-                
-                cursor.execute("SELECT COUNT(*) AS count FROM time_series_data WHERE chart_id = %s AND time_period = %s", 
-                              [chart_id, previous_period])
-                previous_count = cursor.fetchone()['count']
-                
-                logger.info(f"Chart {chart_id} has {latest_count} data points for {latest_period} and {previous_count} for {previous_period}")
-                
-                # If we have data for both periods but the join failed, let's get the data anyway
-                if latest_count > 0 and previous_count > 0:
-                    logger.info(f"Attempting direct access for chart {chart_id}")
-                    try:
-                        # Get latest data
-                        cursor.execute("SELECT group_value, numeric_value FROM time_series_data WHERE chart_id = %s AND time_period = %s LIMIT 1", 
-                                      [chart_id, latest_period])
-                        latest_data = cursor.fetchone()
-                        
-                        # Get previous data
-                        cursor.execute("SELECT group_value, numeric_value FROM time_series_data WHERE chart_id = %s AND time_period = %s LIMIT 1", 
-                                      [chart_id, previous_period])
-                        previous_data = cursor.fetchone()
-                        
-                        if latest_data and previous_data:
-                            logger.info(f"Creating manual comparison for chart {chart_id}: {latest_data['numeric_value']} vs {previous_data['numeric_value']}")
-                            
-                            # Create a result manually
-                            result = {
-                                'group_value': latest_data['group_value'],
-                                'recent_value': latest_data['numeric_value'],
-                                'previous_value': previous_data['numeric_value'],
-                                'delta': latest_data['numeric_value'] - previous_data['numeric_value'],
-                                'abs_delta': abs(latest_data['numeric_value'] - previous_data['numeric_value']),
-                                'recent_period': latest_period,
-                                'previous_period': previous_period
-                            }
-                            
-                            # Add to results
-                            data_results = [result]
-                    except Exception as e:
-                        logger.error(f"Error creating manual comparison: {e}")
-                
-                # If still no results, skip this chart
-                if not data_results:
-                    continue
+                continue
                 
             logger.info(f"Found {len(data_results)} comparison rows for chart_id {chart_id}")
             
@@ -1299,6 +1291,7 @@ async def get_top_metric_changes(
                 result['object_id'] = chart['object_id']
                 result['object_name'] = chart['object_name']
                 result['group_field'] = chart['group_field']
+                result['report_date'] = report_date.isoformat()
                 
                 # Use the district from the data if available, otherwise use the selected district
                 if 'district' in result and result['district'] is not None:
@@ -1322,8 +1315,24 @@ async def get_top_metric_changes(
                 else:
                     result['percent_change'] = None
                 
+                # Get greendirection from metrics table based on object_id
+                greendirection_query = """
+                SELECT greendirection 
+                FROM metrics 
+                WHERE id = %s
+                LIMIT 1
+                """
+                cursor.execute(greendirection_query, [chart['object_id']])
+                greendirection_result = cursor.fetchone()
+                
+                if greendirection_result:
+                    result['greendirection'] = greendirection_result['greendirection']
+                else:
+                    result['greendirection'] = None
+                    logger.warning(f"No greendirection found for object_id {chart['object_id']}")
+                
                 # Log the values for debugging
-                logger.info(f"Result for chart {chart_id}: {result['object_name']} - Previous: {result['previous_value']} ({result['previous_period']}), Recent: {result['recent_value']} ({result['recent_period']}), Delta: {result['delta']}")
+                logger.info(f"Result for chart {chart_id}: {result['object_name']} - Previous: {result['previous_value']} ({result['previous_period']}), Recent: {result['recent_value']} ({result['recent_period']}), Delta: {result['delta']}, greendirection: {result['greendirection']}")
                     
                 all_results.append(result)
         
@@ -1340,8 +1349,9 @@ async def get_top_metric_changes(
                     "period_type": period_type,
                     "object_id": object_id,
                     "district": district,
-                    "top_results": [],
-                    "bottom_results": []
+                    "report_date": report_date.isoformat(),
+                    "positive_changes": [],
+                    "negative_changes": []
                 }
             )
         
@@ -1350,35 +1360,58 @@ async def get_top_metric_changes(
         for i, r in enumerate(all_results[:3]):
             logger.info(f"Result {i}: {r.get('object_name')} - Delta: {r.get('delta')}, Percent Change: {r.get('percent_change')}")
         
-        # Separate positive and negative percent changes
-        positive_changes = [r for r in all_results if r['percent_change'] is not None and float(r['percent_change']) > 0]
-        negative_changes = [r for r in all_results if r['percent_change'] is not None and float(r['percent_change']) < 0]
-        zero_changes = [r for r in all_results if r['percent_change'] is None or float(r['percent_change']) == 0]
+        # Categorize changes based on greendirection and percent_change
+        positive_changes = []
+        negative_changes = []
         
-        logger.info(f"Split results: {len(positive_changes)} positive, {len(negative_changes)} negative, {len(zero_changes)} zero/null")
-        
-        # Sort by percent change
-        top_results = sorted(positive_changes, 
-                           key=lambda x: float(x['percent_change']), 
-                           reverse=True)[:limit]
-        
-        bottom_results = sorted(negative_changes, 
-                              key=lambda x: float(x['percent_change']))[:limit]
-        
-        # If we have fewer than limit results, add zeros to bottom
-        if len(bottom_results) < limit and len(zero_changes) > 0:
-            bottom_results.extend(zero_changes[:limit - len(bottom_results)])
-        
-        # Log top/bottom results to verify sorting
-        logger.info("Top results after sorting by percent change:")
-        for i, r in enumerate(top_results[:3]):
-            logger.info(f"Top {i}: {r.get('object_name')} - Percent Change: {r.get('percent_change')}%")
+        for r in all_results:
+            if r['percent_change'] is None or r['greendirection'] is None:
+                continue
+                
+            percent_change = float(r['percent_change'])
+            greendirection = r['greendirection'].lower() if r['greendirection'] else None
             
-        logger.info("Bottom results after sorting by percent change:")
-        for i, r in enumerate(bottom_results[:3]):
-            logger.info(f"Bottom {i}: {r.get('object_name')} - Percent Change: {r.get('percent_change')}%")
+            # Determine if this is a positive or negative change based on greendirection
+            if greendirection == 'up':
+                # For metrics where up is good (greendirection=up)
+                if percent_change > 0:
+                    positive_changes.append(r)  # Increase is positive
+                elif percent_change < 0:
+                    negative_changes.append(r)  # Decrease is negative
+            elif greendirection == 'down':
+                # For metrics where down is good (greendirection=down)
+                if percent_change > 0:
+                    negative_changes.append(r)  # Increase is negative
+                elif percent_change < 0:
+                    positive_changes.append(r)  # Decrease is positive
+            else:
+                # If greendirection is not 'up' or 'down', use traditional logic
+                if percent_change > 0:
+                    positive_changes.append(r)
+                elif percent_change < 0:
+                    negative_changes.append(r)
         
-        logger.info(f"Found {len(top_results)} top results and {len(bottom_results)} bottom results")
+        logger.info(f"Split results: {len(positive_changes)} positive changes, {len(negative_changes)} negative changes")
+        
+        # Sort by absolute percent change (highest impact first)
+        positive_changes = sorted(positive_changes, 
+                                key=lambda x: abs(float(x['percent_change'])), 
+                                reverse=True)[:limit]
+        
+        negative_changes = sorted(negative_changes, 
+                                key=lambda x: abs(float(x['percent_change'])), 
+                                reverse=True)[:limit]
+        
+        # Log positive/negative results to verify categorization
+        logger.info("Positive changes after categorization:")
+        for i, r in enumerate(positive_changes[:3]):
+            logger.info(f"Positive {i}: {r.get('object_name')} - Percent Change: {r.get('percent_change')}%, greendirection: {r.get('greendirection')}")
+            
+        logger.info("Negative changes after categorization:")
+        for i, r in enumerate(negative_changes[:3]):
+            logger.info(f"Negative {i}: {r.get('object_name')} - Percent Change: {r.get('percent_change')}%, greendirection: {r.get('greendirection')}")
+        
+        logger.info(f"Found {len(positive_changes)} positive changes and {len(negative_changes)} negative changes")
         
         # Process results to ensure JSON compliance
         def process_results(results):
@@ -1393,8 +1426,8 @@ async def get_top_metric_changes(
             return formatted
             
         # Format the results
-        top_formatted = process_results(top_results)
-        bottom_formatted = process_results(bottom_results)
+        positive_formatted = process_results(positive_changes)
+        negative_formatted = process_results(negative_changes)
         
         cursor.close()
         conn.close()
@@ -1402,12 +1435,13 @@ async def get_top_metric_changes(
         return JSONResponse(
             content={
                 "status": "success",
-                "count": len(top_formatted) + len(bottom_formatted),
+                "count": len(positive_formatted) + len(negative_formatted),
                 "period_type": period_type,
                 "object_id": object_id,
                 "district": district,
-                "top_results": top_formatted,
-                "bottom_results": bottom_formatted
+                "report_date": report_date.isoformat(),
+                "positive_changes": positive_formatted,
+                "negative_changes": negative_formatted
             }
         )
         
@@ -1416,7 +1450,7 @@ async def get_top_metric_changes(
         return JSONResponse(
             status_code=500,
             content={"status": "error", "message": f"Failed to get top metric changes: {str(e)}"}
-        ) 
+        )
 
 @router.post("/api/explain-metric-change")
 async def explain_metric_change_endpoint(request: Request):

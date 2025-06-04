@@ -77,7 +77,7 @@ def load_metrics_from_db():
             FROM metrics m
             LEFT JOIN datasets d ON m.endpoint = d.endpoint
             WHERE m.is_active = true AND m.show_on_dash = true
-            ORDER BY m.category, m.display_order, m.metric_name
+            ORDER BY m.display_order, m.metric_name
         """)
         
         metrics = cursor.fetchall()

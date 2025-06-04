@@ -301,6 +301,7 @@ def init_database():
                     district TEXT,
                     chart_data JSONB,
                     metadata JSONB,
+                    is_active BOOLEAN DEFAULT FALSE,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     CONSTRAINT fk_report
