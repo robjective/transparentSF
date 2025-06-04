@@ -11,6 +11,8 @@ from qdrant_client.http import models as rest
 from dotenv import load_dotenv
 import tiktoken  # For counting tokens
 from tools.data_processing import format_columns, serialize_columns, convert_to_timestamp
+from tools.db_utils import get_postgres_connection
+import psycopg2.extras
 import shutil
 
 # ------------------------------
@@ -140,8 +142,49 @@ def recreate_collection(collection_name, vector_size):
         logger.error(f"Failed to recreate collection '{collection_name}': {e}")
         raise
 
+def load_datasets_from_db():
+    """Load all active datasets from the PostgreSQL database."""
+    try:
+        connection = get_postgres_connection()
+        if not connection:
+            logger.error("Failed to connect to database")
+            return []
+        
+        cursor = connection.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        
+        # Query all active datasets from the database
+        cursor.execute("""
+            SELECT 
+                id,
+                endpoint,
+                url,
+                title,
+                category,
+                description,
+                publishing_department,
+                rows_updated_at,
+                columns,
+                metadata,
+                created_at,
+                updated_at
+            FROM datasets 
+            WHERE is_active = true
+            ORDER BY title
+        """)
+        
+        datasets = cursor.fetchall()
+        cursor.close()
+        connection.close()
+        
+        logger.info(f"Loaded {len(datasets)} active datasets from database")
+        return datasets
+        
+    except Exception as e:
+        logger.error(f"Error loading datasets from database: {e}")
+        return []
+
 def load_sf_public_data():
-    """Load SF Public Data into Qdrant."""
+    """Load SF Public Data into Qdrant from PostgreSQL database."""
     collection_name = 'SFPublicData'
     
     # Get sample embedding to determine vector size
@@ -154,129 +197,110 @@ def load_sf_public_data():
     # Create or recreate collection
     recreate_collection(collection_name, vector_size)
 
-    # Get paths for datasets
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    datasets_path = os.path.join(script_dir, 'data', 'datasets')
-    fixed_folder = os.path.join(datasets_path, 'fixed')
-
-    # Get list of fixed files (without path)
-    fixed_files = set()
-    if os.path.exists(fixed_folder):
-        fixed_files = {f for f in os.listdir(fixed_folder) if f.endswith('.json')}
-
-    # Get list of all original files that don't have a fixed version
-    original_files = []
-    if os.path.exists(datasets_path):
-        original_files = [f for f in os.listdir(datasets_path) 
-                         if f.endswith('.json') and f not in fixed_files]
-
-    # Process fixed files first
-    all_files_to_process = [(os.path.join(fixed_folder, f), True) for f in fixed_files]
-    # Then add original files that don't have fixed versions
-    all_files_to_process.extend([(os.path.join(datasets_path, f), False) for f in original_files])
-
-    if not all_files_to_process:
-        logger.warning(f"No JSON files found to process")
+    # Load datasets from database
+    datasets = load_datasets_from_db()
+    if not datasets:
+        logger.warning("No datasets found in database")
         return False
 
-    logger.info(f"Found {len(all_files_to_process)} JSON files to process for SFPublicData")
+    logger.info(f"Processing {len(datasets)} datasets from database for SFPublicData")
     points_to_upsert = []
 
-    for idx, (article_path, is_fixed) in enumerate(all_files_to_process, start=1):
-        filename = os.path.basename(article_path)
-        source_type = "fixed" if is_fixed else "original"
-        logger.info(f"Processing {source_type} file {idx}/{len(all_files_to_process)}: {filename}")
+    for idx, dataset in enumerate(datasets, start=1):
+        logger.info(f"Processing dataset {idx}/{len(datasets)}: {dataset['title']}")
 
         try:
-            with open(article_path, 'r', encoding='utf-8') as f:
-                data = json.load(f)
+            # Extract data from database record
+            title = dataset.get('title', '')
+            description = dataset.get('description', '')
+            columns = dataset.get('columns', []) or []  # Handle None
+            url = dataset.get('url', '')
+            endpoint = dataset.get('endpoint', '')
+            category = dataset.get('category', '')
+            publishing_department = dataset.get('publishing_department', '')
+            last_updated_date = dataset.get('rows_updated_at', '')
+            metadata = dataset.get('metadata', {}) or {}  # Handle None
+
+            # Extract additional fields from metadata if available
+            page_text = metadata.get('page_text', '')
+            queries = metadata.get('queries', [])
+            report_category = metadata.get('report_category', '')
+            periodic = metadata.get('periodic', '')
+            district_level = metadata.get('district_level', '')
+
+            # Format text for embedding
+            combined_text_parts = []
+            if title:
+                combined_text_parts.append(f"Title: {title}")
+            if url:
+                combined_text_parts.append(f"URL: {url}")
+            if endpoint:
+                combined_text_parts.append(f"Endpoint: {endpoint}")
+            if description:
+                combined_text_parts.append(f"Description: {description}")
+            if page_text:
+                combined_text_parts.append(f"Content: {page_text}")
+            if columns:
+                columns_formatted = format_columns(columns)
+                combined_text_parts.append(f"Columns: {columns_formatted}")
+            if report_category:
+                combined_text_parts.append(f"Report Category: {report_category}")
+            if publishing_department:
+                combined_text_parts.append(f"Publishing Department: {publishing_department}")
+            if last_updated_date:
+                combined_text_parts.append(f"Last Updated: {last_updated_date}")
+            if periodic:
+                combined_text_parts.append(f"Periodic: {periodic}")
+            if district_level:
+                combined_text_parts.append(f"District Level: {district_level}")
+            if queries:
+                combined_text_parts.append(f"Queries: {queries}")
+
+            combined_text = "\n".join(combined_text_parts)
+
+            # Generate embedding
+            embedding = get_embedding(combined_text)
+            if not embedding:
+                logger.error(f"Failed to generate embedding for dataset '{title}'. Skipping.")
+                continue
+
+            # Prepare payload
+            payload = {
+                'title': title,
+                'description': description,
+                'url': url,
+                'endpoint': endpoint,
+                'columns': serialize_columns(columns),
+                'column_names': [col.get('name', '').lower() for col in columns if isinstance(col, dict)],
+                'category': category.lower() if category else '',
+                'publishing_department': str(publishing_department).lower() if publishing_department else '',
+                'last_updated_date': convert_to_timestamp(last_updated_date) if last_updated_date else None,
+                'queries': queries,
+                'database_id': dataset.get('id'),  # Store the database ID for reference
+            }
+
+            # Remove None values from payload
+            payload = {k: v for k, v in payload.items() if v is not None}
+
+            point = rest.PointStruct(
+                id=str(uuid.uuid4()),
+                vector=embedding,
+                payload=payload
+            )
+            points_to_upsert.append(point)
+
+            # Batch upload every 100 points
+            if len(points_to_upsert) >= 100:
+                try:
+                    qdrant.upsert(collection_name=collection_name, points=points_to_upsert)
+                    logger.info(f"Successfully upserted batch of {len(points_to_upsert)} documents")
+                    points_to_upsert = []
+                except Exception as e:
+                    logger.error(f"Error upserting batch to Qdrant: {e}")
+
         except Exception as e:
-            logger.error(f"Error reading {filename}: {e}")
+            logger.error(f"Error processing dataset '{dataset.get('title', 'Unknown')}': {e}")
             continue
-
-        # Extract data with safe defaults
-        title = data.get('title', '')
-        description = data.get('description', '')
-        page_text = data.get('page_text', '')
-        columns = data.get('columns', [])
-        url = data.get('url', '')
-        endpoint = data.get('endpoint', '')
-        queries = data.get('queries', [])
-        report_category = data.get('report_category', '')
-        publishing_department = data.get('publishing_department', '')
-        last_updated_date = data.get('rows_updated_at', '')
-        periodic = data.get('periodic', '')
-        district_level = data.get('district_level', '')
-        category = data.get('category', '')
-
-        # Format text for embedding
-        combined_text_parts = []
-        if title:
-            combined_text_parts.append(f"Title: {title}")
-        if url:
-            combined_text_parts.append(f"URL: {url}")
-        if endpoint:
-            combined_text_parts.append(f"Endpoint: {endpoint}")
-        if description:
-            combined_text_parts.append(f"Description: {description}")
-        if page_text:
-            combined_text_parts.append(f"Content: {page_text}")
-        if columns:
-            columns_formatted = format_columns(columns)
-            combined_text_parts.append(f"Columns: {columns_formatted}")
-        if report_category:
-            combined_text_parts.append(f"Report Category: {report_category}")
-        if publishing_department:
-            combined_text_parts.append(f"Publishing Department: {publishing_department}")
-        if last_updated_date:
-            combined_text_parts.append(f"Last Updated: {last_updated_date}")
-        if periodic:
-            combined_text_parts.append(f"Periodic: {periodic}")
-        if district_level:
-            combined_text_parts.append(f"District Level: {district_level}")
-        if queries:
-            combined_text_parts.append(f"Queries: {queries}")
-
-        combined_text = "\n".join(combined_text_parts)
-
-        # Generate embedding
-        embedding = get_embedding(combined_text)
-        if not embedding:
-            logger.error(f"Failed to generate embedding for article '{title}'. Skipping.")
-            continue
-
-        # Prepare payload
-        payload = {
-            'title': title,
-            'description': description,
-            'url': url,
-            'endpoint': endpoint,
-            'columns': serialize_columns(columns),
-            'column_names': [col.get('name', '').lower() for col in columns],
-            'category': category.lower() if category else '',
-            'publishing_department': str(publishing_department).lower() if publishing_department else '',
-            'last_updated_date': convert_to_timestamp(last_updated_date) if last_updated_date else None,
-            'queries': queries
-        }
-
-        # Remove None values from payload
-        payload = {k: v for k, v in payload.items() if v is not None}
-
-        point = rest.PointStruct(
-            id=str(uuid.uuid4()),
-            vector=embedding,
-            payload=payload
-        )
-        points_to_upsert.append(point)
-
-        # Batch upload every 100 points
-        if len(points_to_upsert) >= 100:
-            try:
-                qdrant.upsert(collection_name=collection_name, points=points_to_upsert)
-                logger.info(f"Successfully upserted batch of {len(points_to_upsert)} documents")
-                points_to_upsert = []
-            except Exception as e:
-                logger.error(f"Error upserting batch to Qdrant: {e}")
 
     # Upload any remaining points
     if points_to_upsert:
