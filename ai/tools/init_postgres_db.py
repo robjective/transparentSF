@@ -302,6 +302,7 @@ def init_database():
                     chart_data JSONB,
                     metadata JSONB,
                     is_active BOOLEAN DEFAULT FALSE,
+                    greendirection TEXT DEFAULT 'up',
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     CONSTRAINT fk_report

@@ -293,7 +293,11 @@ def _prepare_locator_marker_data(location_data, series_field=None, color_palette
         has_address = "address" in loc and loc["address"]
         
         # Try to parse coordinates first
-        if "coordinates" in loc and loc["coordinates"]:
+        if "location" in loc and isinstance(loc["location"], dict) and loc["location"].get("type") == "Point":
+            coords = loc["location"].get("coordinates")
+            if coords and len(coords) >= 2:
+                parsed_coordinates = [float(coords[0]), float(coords[1])]  # Keep [lon, lat] order
+        elif "coordinates" in loc and loc["coordinates"]:
             parsed_coordinates = parse_coordinates(loc["coordinates"])
         
         # Generate a title if none provided
@@ -318,7 +322,7 @@ def _prepare_locator_marker_data(location_data, series_field=None, color_palette
                 "horiz-adv-x": 1000,
                 "scale": 1
             },
-            "scale": loc.get("scale", 1),
+            "scale": loc.get("scale", 0.6),
             "markerColor": loc.get("markerColor", "#8b5cf6"),  # Use purple like working example
             "opacity": loc.get("opacity", 1),  # Keep higher opacity for visibility
             "text": {
@@ -357,7 +361,7 @@ def _prepare_locator_marker_data(location_data, series_field=None, color_palette
             },
             "coordinates": parsed_coordinates or [float(loc["lon"]), float(loc["lat"])],
             "tooltip": {
-                "text": loc.get("tooltip", title),
+                "text": loc.get("tooltip", loc.get("description", "")),  # Try tooltip first, then description
                 "enabled": True
             }
         }
@@ -1062,29 +1066,25 @@ def create_datawrapper_chart(chart_title, location_data, map_type="supervisor_di
                 for item in location_data:
                     if isinstance(item, dict):
                         # Handle DataSF location format: {"type": "Point", "coordinates": [lon, lat]}
-                        if "location" in item and isinstance(item["location"], dict):
-                            location_obj = item["location"]
-                            if location_obj.get("type") == "Point" and "coordinates" in location_obj:
-                                coords = location_obj["coordinates"]
-                                if isinstance(coords, list) and len(coords) >= 2:
+                        if 'location' in item and item['location'] is not None:
+                            location_obj = item['location']
+                            if isinstance(location_obj, dict) and location_obj.get('type') == 'Point':
+                                coords = location_obj.get('coordinates')
+                                if coords and len(coords) >= 2:
+                                    # DataSF uses [lon, lat] format, keep it that way
                                     lon, lat = float(coords[0]), float(coords[1])
                                     
                                     # Validate coordinates are in San Francisco area
                                     if 37.6 <= lat <= 37.9 and -122.6 <= lon <= -122.2:
                                         processed_item = {
-                                            "title": item.get("title", ''),
-                                            "lat": float(lat),
-                                            "lon": float(lon),
-                                            "value": item.get("value", 0),
-                                            "description": item.get("description", ""),
-                                            "series": item.get("series", "")
+                                            "coordinates": [lon, lat],  # Keep [lon, lat] order
+                                            "title": item.get('title', ''),
+                                            "tooltip": item.get('description', '')  # Use tooltip instead of description
                                         }
                                         
                                         # Copy over any series field data
                                         if series_field and series_field in item:
                                             processed_item[series_field] = item[series_field]
-                                        elif series_field == "naic_code_description" and "naic_code_description" in item:
-                                            processed_item[series_field] = item["naic_code_description"]
                                         
                                         processed_data.append(processed_item)
                                         logger.debug(f"Processed DataSF location for '{processed_item['title']}': [{lon}, {lat}]")
@@ -1285,7 +1285,7 @@ def create_datawrapper_chart(chart_title, location_data, map_type="supervisor_di
             )
             logger.info(f"Uploaded data to chart ID {chart_id}")
 
-        # After creating the chart and before returning, apply custom styling for district maps
+        # Apply custom styling before publishing (only for district maps that need special choropleth styling)
         if map_type in ["supervisor_district", "police_district"]:
             _apply_custom_map_styling(chart_id, map_type, map_metadata)
 
@@ -1562,20 +1562,45 @@ def generate_map(context_variables, map_title, map_type, location_data=None, map
                 # For locator maps, convert DataSF format to our format
                 location_data = []
                 for idx, row in dataset.iterrows():
+                    # Handle DataSF location object format
                     if 'location' in row and row['location'] is not None:
                         location_obj = row['location']
                         if isinstance(location_obj, dict) and location_obj.get('type') == 'Point':
                             coords = location_obj.get('coordinates')
                             if coords and len(coords) >= 2:
-                                item = {
+                                processed_item = {
                                     "location": location_obj,  # Keep original DataSF format
-                                    "title": row.get('dba_name', row.get('business_name', row.get('name', ''))),
-                                    "tooltip": f"Industry: {row.get('naic_code_description', 'Unknown')}"
+                                    "title": row.get('title', ''),
+                                    "tooltip": row.get('description', '')
                                 }
                                 # Copy over any series field data
                                 if series_field and series_field in row:
-                                    item[series_field] = row[series_field]
-                                location_data.append(item)
+                                    processed_item[series_field] = row[series_field]
+                                location_data.append(processed_item)
+                    
+                    # Handle direct latitude/longitude columns
+                    elif ('latitude' in row and 'longitude' in row and 
+                          row['latitude'] is not None and row['longitude'] is not None):
+                        try:
+                            lat = float(row['latitude'])
+                            lon = float(row['longitude'])
+                            
+                            # Validate coordinates are in San Francisco area
+                            if 37.6 <= lat <= 37.9 and -122.6 <= lon <= -122.2:
+                                processed_item = {
+                                    "lat": lat,
+                                    "lon": lon,
+                                    "title": row.get('title', ''),
+                                    "tooltip": row.get('description', '')
+                                }
+                                # Copy over any series field data
+                                if series_field and series_field in row:
+                                    processed_item[series_field] = row[series_field]
+                                location_data.append(processed_item)
+                            else:
+                                logger.warning(f"Coordinates for row {idx} are outside SF area: lat={lat}, lon={lon}")
+                        except (ValueError, TypeError) as e:
+                            logger.warning(f"Invalid latitude/longitude values in row {idx}: {e}")
                 
                 logger.info(f"Converted dataset to {len(location_data)} location points")
                 
@@ -1588,10 +1613,10 @@ def generate_map(context_variables, map_title, map_type, location_data=None, map
                     logger.info(f"DEBUG: Processing row {idx}: {dict(row)}")
                     if 'address' in row and row['address'] is not None:
                         item = {
-                            "title": row.get('title', ''),
+                            "title": row.get('title'),
                             "address": row['address'],
                             "value": row.get('value', 1),
-                            "description": row.get('description', ''),
+                            "tooltip": row.get('description', ''),
                         }
                         # Copy over any series field data
                         if series_field and series_field in row:
@@ -1799,8 +1824,8 @@ def generate_map(context_variables, map_title, map_type, location_data=None, map
                     map_metadata = {}
             map_metadata['metric_info'] = metric_info
         
-        # Apply custom styling before publishing (skip for symbol maps to preserve reference chart config)
-        if map_type != "symbol":
+        # Apply custom styling before publishing (only for district maps that need special choropleth styling)
+        if map_type in ["supervisor_district", "police_district"]:
             _apply_custom_map_styling(chart_id, map_type, map_metadata)
 
         # Publish the chart once with all styling applied
@@ -2346,7 +2371,7 @@ def create_sample_series_data():
 
 def process_symbol_map_data(location_data):
     """
-    Process location data for symbol maps, handling various coordinate formats.
+    Process location data for symbol maps, handling various coordinate formats and addresses.
     Returns a list of dictionaries with lat/lon coordinates.
     """
     processed_locations = []
@@ -2360,12 +2385,20 @@ def process_symbol_map_data(location_data):
         lat = None
         lon = None
         
-        # Check for direct lat/lon fields
+        # 1. Check for direct lat/lon fields
         lat = item.get("lat") or item.get("latitude")
         lon = item.get("lon") or item.get("longitude")
         
-        # Check for nested point data
-        if "point" in item and isinstance(item["point"], dict):
+        # 2. Check for DataSF location format
+        if "location" in item and isinstance(item["location"], dict):
+            location_obj = item["location"]
+            if location_obj.get("type") == "Point":
+                coords = location_obj.get("coordinates")
+                if coords and len(coords) >= 2:
+                    lon, lat = float(coords[0]), float(coords[1])
+        
+        # 3. Check for nested point data
+        elif "point" in item and isinstance(item["point"], dict):
             point_data = item["point"]
             lat = point_data.get("latitude")
             lon = point_data.get("longitude")
@@ -2380,16 +2413,39 @@ def process_symbol_map_data(location_data):
                 except json.JSONDecodeError:
                     logger.warning(f"Could not parse human_address JSON: {point_data['human_address']}")
         
+        # 4. Check for coordinates array
+        elif "coordinates" in item and isinstance(item["coordinates"], (list, tuple)) and len(item["coordinates"]) >= 2:
+            coords = item["coordinates"]
+            lon, lat = float(coords[0]), float(coords[1])
+        
+        # 5. If we have an address but no coordinates, geocode it
+        if (lat is None or lon is None) and "address" in item and item["address"]:
+            address = item["address"]
+            # Ensure address includes San Francisco for better geocoding
+            if "san francisco" not in address.lower() and "sf" not in address.lower():
+                address = f"{address}, San Francisco, CA"
+            
+            try:
+                lat, lon = geocode_address(address)
+                logger.info(f"Geocoded address '{address}' to coordinates: [{lat}, {lon}]")
+            except Exception as e:
+                logger.warning(f"Failed to geocode address '{address}': {e}")
+        
+        # If we have valid coordinates, create the processed location
         if lat is not None and lon is not None:
             try:
                 processed_location = {
                     "lat": float(lat),
                     "lon": float(lon),
-                    "value": item.get("value", 1)  # Default value to 1 if not specified
+                    "title": item.get("title", ""),
+                    "value": float(item.get("value", 1)),  # Convert value to float
+                    "tooltip": item.get("tooltip", item.get("description", "")),  # Support both tooltip and description
+                    "series": item.get("series", "")  # Include series if present
                 }
                 processed_locations.append(processed_location)
+                logger.debug(f"Processed location: {processed_location}")
             except (ValueError, TypeError) as e:
-                logger.warning(f"Could not convert coordinates to float: {e}")
+                logger.warning(f"Could not convert coordinates or value to float: {e}")
         else:
             logger.warning(f"Missing coordinates in item: {item}")
     

@@ -687,9 +687,7 @@ Arguments:
 {
     "endpoint": "wg3w-h783",
     "query": "SELECT report_datetime, incident_category, supervisor_district, latitude, longitude WHERE supervisor_district='2' AND (incident_category='Homicide') ORDER BY report_datetime DESC LIMIT 5"
-}
-
-4. If you are being asked about 311 cases"""
+}"""
 
 CHARTS_INSTRUCTIONS = """IMPORTANT CHART GENERATION RULES:
 
@@ -719,46 +717,22 @@ For example: [CHART:map:123]"""
 DATASF_MAPS_INSTRUCTIONS = """SERIES MAPS WITH DATASF DATA - PRACTICAL EXAMPLES:
 
 1. BUSINESS DATA (endpoint: g8m3-pdis):
-   Example 1: Map of new businesses by industry type
-   ```python
-   # First, query the business data
-   set_dataset(context_variables, 
-              endpoint="g8m3-pdis",
-              query="SELECT location, 
-                    location, 
-                    dba_name || ' - ' || naic_code_description as description,
-                    naic_code_description as series
-                    WHERE dba_start_date >= CURRENT_DATE - INTERVAL '30 days'
-                    ORDER BY dba_start_date DESC")
-   
-   # Then create the map
-   result = generate_map(
-       context_variables,
-       map_title="New Business Registrations by Industry",
-       map_type="point",
-       series_field="series",
-       color_palette="categorical"
-   )
-   ```
+   Example 1: Map of new businesses in April.
 
-   Example 2: Map of business closures by district
-   ```python
-   # First, query the business data aggregated by district
-   set_dataset(context_variables,
-              endpoint="g8m3-pdis",
-              query="SELECT supervisor_district, 
-                    COUNT(*) as value
-                    WHERE location_end_date >= CURRENT_DATE - INTERVAL '30 days'
-                    GROUP BY supervisor_district")
-   
-   # Then create the map
-   result = generate_map(
-       context_variables,
-       map_title="Business Closures by District",
-       map_type="supervisor_district",
-       map_metadata={"description": "Number of business closures in the last 30 days"}
-   )
-   ```
+First, query the business data
+set_dataset(context_variables, 
+           endpoint="g8m3-pdis",
+           query="SELECT location, dba_name as title, naic_code_description as description,
+                 WHERE dba_start_date >= '2025-04-01' and dba_start_date < '2025-05-01'
+                 ORDER BY dba_start_date DESC")
+
+# Then create the map
+result = generate_map(
+    context_variables,
+    map_title="April Business Registrations", 
+    map_type="point",
+    color_palette="categorical"
+)
 
 2. CRIME DATA (endpoint: wg3w-h783):
    Example 1: Map of recent crimes by type

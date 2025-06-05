@@ -22,7 +22,7 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s [%(levelname)s] %(message)s',
     handlers=[
-        logging.FileHandler("logs/vector_loader.log", mode='w'),
+        logging.FileHandler(os.path.join(os.path.dirname(__file__), "logs", "vector_loader.log"), mode='w'),
         logging.StreamHandler(sys.stdout)
     ]
 )

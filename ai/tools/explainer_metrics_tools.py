@@ -193,7 +193,7 @@ def edit_metric(
     
     Args:
         metric_identifier: Either metric ID (int) or metric key (str)
-        updates: Dictionary of fields to update
+        updates: Dictionary of fields to update, or JSON string representing dictionary
         
     Returns:
         dict: Result with status and message
@@ -209,6 +209,23 @@ def edit_metric(
             "definition": "Updated definition"
         })
     """
+    # Handle case where updates is passed as a JSON string
+    if isinstance(updates, str):
+        try:
+            updates = json.loads(updates)
+        except json.JSONDecodeError as e:
+            return {
+                "status": "error",
+                "message": f"Invalid JSON in updates parameter: {str(e)}"
+            }
+    
+    # Ensure updates is a dictionary
+    if not isinstance(updates, dict):
+        return {
+            "status": "error",
+            "message": "Updates parameter must be a dictionary or valid JSON string"
+        }
+    
     # First get the metric ID if a key was provided
     if isinstance(metric_identifier, str):
         metric_result = get_metric_by_key(metric_identifier)
