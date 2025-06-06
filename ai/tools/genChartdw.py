@@ -205,6 +205,14 @@ def create_datawrapper_chart(metric_id: str, intro: str = "", district: str = "0
     # Get executed_query_url from metadata if available
     executed_query_url = metadata.get("executed_query_url", "")
     
+    # Determine appropriate date format based on period_type
+    if period_type == "year":
+        date_format = "YYYY"  # Annual format: just the year
+    elif period_type == "quarter":
+        date_format = "Q YYYY"  # Quarterly format: Q1 2023
+    else:  # Default to monthly
+        date_format = "MMM YYYY"  # Monthly format: Apr 2023
+    
     customization_payload = {
         "metadata": {
             "describe": {
@@ -245,7 +253,7 @@ def create_datawrapper_chart(metric_id: str, intro: str = "", district: str = "0
                 "values": "numeric_value", # Y-axis data column
                 "y-grid": True,
                 "y-label": y_axis_label, # Use the y_axis_label from metadata
-                "dateFormat": "MMM YYYY", # Format dates as "Apr 2023"
+                "dateFormat": date_format, # Use conditional date format based on period_type
                 "y-min": 0 # Keep this as backup
             },
             "publish": { # Ensure chart is embeddable
@@ -519,6 +527,15 @@ def create_time_series_chart_from_data(chart_data, metadata):
     # Get executed_query_url from metadata if available
     executed_query_url = metadata.get("executed_query_url", "")
     
+    # Determine appropriate date format based on period_type from metadata
+    period_type = metadata.get('period_type', 'month')
+    if period_type == "year":
+        date_format = "YYYY"  # Annual format: just the year
+    elif period_type == "quarter":
+        date_format = "Q YYYY"  # Quarterly format: Q1 2023
+    else:  # Default to monthly
+        date_format = "MMM YYYY"  # Monthly format: Apr 2023
+    
     customization_payload = {
         "metadata": {
             "describe": {
@@ -544,7 +561,7 @@ def create_time_series_chart_from_data(chart_data, metadata):
                 "values": values_config,  # Y-axis data column(s)
                 "y-grid": True,
                 "y-label": y_axis_label,
-                "dateFormat": "MMM YYYY",  # Format dates as "Apr 2023"
+                "dateFormat": date_format,  # Use conditional date format based on period_type
                 "y-min": 0
             },
             "publish": {
@@ -725,6 +742,15 @@ if __name__ == '__main__':
         # Get executed_query_url from metadata if available
         executed_query_url = sample_data["metadata"].get("executed_query_url", "")
         
+        # Determine appropriate date format based on period_type from metadata
+        period_type = sample_data["metadata"].get('period_type', 'month')
+        if period_type == "year":
+            date_format = "YYYY"  # Annual format: just the year
+        elif period_type == "quarter":
+            date_format = "Q YYYY"  # Quarterly format: Q1 2023
+        else:  # Default to monthly
+            date_format = "MMM YYYY"  # Monthly format: Apr 2023
+        
         customization_payload = {
             "metadata": {
                 "describe": {
@@ -765,7 +791,7 @@ if __name__ == '__main__':
                     "values": "numeric_value", # Y-axis data column
                     "y-grid": True,
                     "y-label": y_axis_label, # Use the y_axis_label from metadata
-                    "dateFormat": "MMM YYYY", # Format dates as "Apr 2023"
+                    "dateFormat": date_format, # Use conditional date format based on period_type
                     "y-min": 0 # Keep this as backup
                 },
                 "publish": {

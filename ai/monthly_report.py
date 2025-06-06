@@ -1570,7 +1570,7 @@ def generate_monthly_report(report_date=None, district="0"):
         # Load officials data
         officials_data = {}
         try:
-            officials_path = Path(__file__).parent / 'data' / 'dashboard' / 'officials.json'
+            officials_path = Path(__file__).parent / 'data' / 'officials.json'
             with open(officials_path, 'r') as f:
                 officials_json = json.load(f)
                 for official in officials_json.get("officials", []):
@@ -4332,6 +4332,297 @@ def expand_chart_references(report_path):
         error_msg = f"Error in expand_chart_references: {str(e)}"
         logger.error(error_msg, exc_info=True)
         return report_path
+
+def reprioritize_deltas_for_report(filename, district="0", period_type="month", max_report_items=10):
+    """
+    Re-prioritize deltas for an existing newsletter by clearing the monthly_reporting data
+    and regenerating it from scratch. This function stops after storing the prioritized items
+    and does NOT generate explanations (use regenerate_explanations_for_report for that).
+    
+    Args:
+        filename: The newsletter filename (e.g., "monthly_report_0_2024_01.html")
+        district: District number (0 for citywide)
+        period_type: Time period type (month, quarter, year)
+        max_report_items: Maximum number of items to include in the newsletter
+        
+    Returns:
+        Status dictionary with success/error information
+    """
+    logger.info(f"Re-prioritizing deltas for newsletter: {filename}")
+    
+    try:
+        # Step 1: Find the existing report by filename
+        def find_and_clear_report_operation(connection):
+            cursor = connection.cursor(cursor_factory=psycopg2.extras.DictCursor)
+            
+            # Find the report by original filename
+            cursor.execute("""
+                SELECT id, district, period_type, max_items 
+                FROM reports 
+                WHERE original_filename = %s
+                ORDER BY created_at DESC 
+                LIMIT 1
+            """, (filename,))
+            
+            report = cursor.fetchone()
+            if not report:
+                cursor.close()
+                return None
+                
+            report_id = report['id']
+            logger.info(f"Found report with ID: {report_id}")
+            
+            # Clear all monthly_reporting records for this report
+            cursor.execute("""
+                DELETE FROM monthly_reporting 
+                WHERE report_id = %s
+            """, (report_id,))
+            
+            deleted_count = cursor.rowcount
+            logger.info(f"Deleted {deleted_count} existing monthly_reporting records for report {report_id}")
+            
+            connection.commit()
+            cursor.close()
+            
+            return {
+                "report_id": report_id,
+                "deleted_count": deleted_count,
+                "original_district": report['district'],
+                "original_period_type": report['period_type'],
+                "original_max_items": report['max_items']
+            }
+        
+        # Execute the find and clear operation
+        result = execute_with_connection(
+            operation=find_and_clear_report_operation,
+            db_host=DB_HOST,
+            db_port=DB_PORT,
+            db_name=DB_NAME,
+            db_user=DB_USER,
+            db_password=DB_PASSWORD
+        )
+        
+        if result["status"] != "success" or not result["result"]:
+            return {"status": "error", "message": f"Newsletter with filename '{filename}' not found"}
+        
+        report_info = result["result"]
+        report_id = report_info["report_id"]
+        
+        logger.info(f"Successfully cleared {report_info['deleted_count']} records for report {report_id}")
+        
+        # Use original report parameters if not overridden
+        actual_district = district if district != "0" else report_info["original_district"]
+        actual_period_type = period_type if period_type != "month" else report_info["original_period_type"]
+        actual_max_items = max_report_items if max_report_items != 10 else report_info["original_max_items"]
+        
+        logger.info(f"Using parameters: district={actual_district}, period_type={actual_period_type}, max_items={actual_max_items}")
+        
+        # Step 2: Select deltas to discuss (same as original process)
+        logger.info("Step 2: Selecting deltas to discuss")
+        deltas = select_deltas_to_discuss(period_type=actual_period_type, district=actual_district)
+        if deltas.get("status") != "success":
+            return {"status": "error", "message": f"Failed to select deltas: {deltas.get('message')}"}
+            
+        # Step 3: Prioritize deltas and get explanations
+        logger.info("Step 3: Prioritizing deltas")
+        prioritized = prioritize_deltas(deltas, max_items=actual_max_items)
+        if prioritized.get("status") != "success":
+            return {"status": "error", "message": f"Failed to prioritize deltas: {prioritized.get('message')}"}
+        
+        # Step 4: Store new prioritized items with the existing report_id
+        logger.info("Step 4: Storing new prioritized items")
+        
+        def store_reprioritized_items_operation(connection):
+            cursor = connection.cursor()
+            
+            # Get the report date from the existing report
+            cursor.execute("""
+                SELECT created_at FROM reports WHERE id = %s
+            """, (report_id,))
+            
+            report_record = cursor.fetchone()
+            if not report_record:
+                cursor.close()
+                return []
+                
+            report_date = report_record[0].date()
+            
+            # Insert each prioritized item with the existing report_id
+            inserted_ids = []
+            for item in prioritized.get("prioritized_items", []):
+                # Calculate percent change
+                comparison_mean = item.get("comparison_mean", 0)
+                if item.get("percent_change") is not None:
+                    # Use the percent_change from the API if available
+                    percent_change = item.get("percent_change")
+                elif comparison_mean != 0:
+                    # Fallback to calculating it if not provided
+                    percent_change = (item.get("difference", 0) / comparison_mean) * 100
+                else:
+                    percent_change = 0
+                    
+                # Log the data before insertion
+                logger.info(f"Storing item: {item.get('metric')} - Priority: {item.get('priority')}")
+                
+                # Create metadata JSON to store additional fields
+                metadata = {
+                    "trend_analysis": item.get("trend_analysis", ""),
+                    "follow_up": item.get("follow_up", ""),
+                    "change_type": item.get("change_type", "neutral"),
+                    "greendirection": item.get("greendirection")
+                }
+                
+                # Create item title from metric name and group
+                metric_name = item.get("metric", "")
+                metric_id = item.get("metric_id", "Unknown")
+                group_value = item.get("group") or "All"
+                item_title = f"{metric_name} - {group_value}" if group_value != "All" else metric_name
+                    
+                # Insert the new record
+                cursor.execute("""
+                    INSERT INTO monthly_reporting (
+                        report_id, report_date, item_title, metric_name, metric_id, group_value, group_field_name, 
+                        period_type, comparison_mean, recent_mean, difference, 
+                        percent_change, rationale, explanation, priority, district, metadata
+                    ) VALUES (
+                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                    ) RETURNING id
+                """, (
+                    report_id,  # Use existing report_id
+                    report_date,
+                    item_title,
+                    metric_name,
+                    metric_id,
+                    group_value,
+                    "group",
+                    actual_period_type,
+                    item.get("comparison_mean", 0),
+                    item.get("recent_mean", 0),
+                    item.get("difference", 0),
+                    percent_change,
+                    item.get("rationale", ""),
+                    "",  # explanation: will be empty until regenerate_explanations is called
+                    item.get("priority", 999),
+                    actual_district,
+                    json.dumps(metadata)
+                ))
+                
+                inserted_id = cursor.fetchone()[0]
+                inserted_ids.append(inserted_id)
+            
+            connection.commit()
+            cursor.close()
+            
+            logger.info(f"Successfully stored {len(inserted_ids)} reprioritized items")
+            return inserted_ids
+        
+        # Execute the store operation
+        store_result = execute_with_connection(
+            operation=store_reprioritized_items_operation,
+            db_host=DB_HOST,
+            db_port=DB_PORT,
+            db_name=DB_NAME,
+            db_user=DB_USER,
+            db_password=DB_PASSWORD
+        )
+        
+        if store_result["status"] != "success":
+            return {"status": "error", "message": f"Failed to store reprioritized items: {store_result['message']}"}
+            
+        inserted_ids = store_result["result"]
+        
+        logger.info(f"Successfully re-prioritized deltas for newsletter {filename} (explanations not generated)")
+        return {
+            "status": "success",
+            "message": f"Successfully re-prioritized deltas for newsletter {filename}. Use 'Re-explain deltas' to generate explanations.",
+            "report_id": report_id,
+            "deleted_count": report_info["deleted_count"],
+            "new_items_count": len(inserted_ids),
+            "inserted_ids": inserted_ids
+        }
+        
+    except Exception as e:
+        error_msg = f"Error in reprioritize_deltas_for_report: {str(e)}"
+        logger.error(error_msg, exc_info=True)
+        return {"status": "error", "message": error_msg}
+
+def regenerate_explanations_for_report(filename):
+    """
+    Regenerate explanations for an existing newsletter's monthly_reporting items.
+    This function finds the report by filename and regenerates explanations for all its items.
+    
+    Args:
+        filename: The newsletter filename (e.g., "monthly_report_0_2024_01.html")
+        
+    Returns:
+        Status dictionary with success/error information
+    """
+    logger.info(f"Regenerating explanations for newsletter: {filename}")
+    
+    try:
+        # Step 1: Find the existing report and get its monthly_reporting items
+        def find_report_items_operation(connection):
+            cursor = connection.cursor(cursor_factory=psycopg2.extras.DictCursor)
+            
+            # Find the report by original filename
+            cursor.execute("""
+                SELECT r.id as report_id, mr.id as item_id
+                FROM reports r
+                JOIN monthly_reporting mr ON r.id = mr.report_id
+                WHERE r.original_filename = %s
+                ORDER BY r.created_at DESC, mr.priority ASC
+            """, (filename,))
+            
+            results = cursor.fetchall()
+            cursor.close()
+            
+            if not results:
+                return None
+                
+            report_id = results[0]['report_id']
+            item_ids = [row['item_id'] for row in results]
+            
+            logger.info(f"Found report {report_id} with {len(item_ids)} items to explain")
+            return {
+                "report_id": report_id,
+                "item_ids": item_ids
+            }
+        
+        # Execute the find operation
+        result = execute_with_connection(
+            operation=find_report_items_operation,
+            db_host=DB_HOST,
+            db_port=DB_PORT,
+            db_name=DB_NAME,
+            db_user=DB_USER,
+            db_password=DB_PASSWORD
+        )
+        
+        if result["status"] != "success" or not result["result"]:
+            return {"status": "error", "message": f"Newsletter with filename '{filename}' not found or has no items"}
+        
+        report_info = result["result"]
+        item_ids = report_info["item_ids"]
+        
+        # Step 2: Generate explanations for all items
+        logger.info(f"Generating explanations for {len(item_ids)} items")
+        explanation_result = generate_explanations(item_ids)
+        
+        if explanation_result.get("status") != "success":
+            return {"status": "error", "message": f"Failed to generate explanations: {explanation_result.get('message')}"}
+        
+        logger.info(f"Successfully regenerated explanations for newsletter {filename}")
+        return {
+            "status": "success",
+            "message": f"Successfully regenerated explanations for {len(item_ids)} items in newsletter {filename}",
+            "report_id": report_info["report_id"],
+            "explained_items_count": len(item_ids)
+        }
+        
+    except Exception as e:
+        error_msg = f"Error in regenerate_explanations_for_report: {str(e)}"
+        logger.error(error_msg, exc_info=True)
+        return {"status": "error", "message": error_msg}
 
 if __name__ == "__main__":
     # Run the monthly report process

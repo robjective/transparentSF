@@ -1064,7 +1064,8 @@ async def get_top_metric_changes(
     limit: int = 10,
     object_id: str = None,   # Now this is optional
     district: str = "0",    # Changed from int to str to support 'all'
-    show_both: bool = True
+    show_both: bool = True,
+    show_on_dash: bool = False  # Add show_on_dash parameter
 ):
     """
     Get metrics with the greatest changes over the specified period.
@@ -1075,6 +1076,7 @@ async def get_top_metric_changes(
         object_id: Optional - Filter by specific object_id 
         district: Filter by specific district (default: 0)
         show_both: If True, return both top and bottom changes; if False, return only top changes
+        show_on_dash: If True, only return metrics that are shown on dashboard
         
     Returns:
         JSON with metrics sorted by delta (highest to lowest)
@@ -1085,7 +1087,7 @@ async def get_top_metric_changes(
         from datetime import datetime, date
         import calendar
         
-        logger.info(f"get_top_metric_changes called with: period_type={period_type}, limit={limit}, object_id={object_id}, district={district}")
+        logger.info(f"get_top_metric_changes called with: period_type={period_type}, limit={limit}, object_id={object_id}, district={district}, show_on_dash={show_on_dash}")
         
         # Calculate report date based on period_type
         today = date.today()
@@ -1125,31 +1127,36 @@ async def get_top_metric_changes(
         query_params = []
         
         # Always filter by period_type and district
-        where_conditions.append("period_type = %s")
+        where_conditions.append("tsm.period_type = %s")
         query_params.append(period_type)
         
         # Only add district filter if not 'all'
         if district != 'all':
-            where_conditions.append("district = %s")
+            where_conditions.append("tsm.district = %s")
             query_params.append(district)
         else:
             logger.info("No district filter applied - showing metrics from all districts")
         
         # Only add object_id filter if it's provided
         if object_id:
-            where_conditions.append("object_id = %s")
+            where_conditions.append("tsm.object_id = %s")
             query_params.append(object_id)
         
         # Filter for only charts where group_field is null
-        where_conditions.append("group_field IS NULL")
+        where_conditions.append("tsm.group_field IS NULL")
         
         # Filter for only active records
-        where_conditions.append("is_active = TRUE")
+        where_conditions.append("tsm.is_active = TRUE")
+        
+        # Add show_on_dash filter if requested
+        if show_on_dash:
+            where_conditions.append("m.show_on_dash = TRUE")
         
         # Combine WHERE conditions
         where_clause = " AND ".join(where_conditions)
         
         # Get the chart_ids for the specified filters, including their most recent time_period
+        # Now join with metrics table to check show_on_dash
         chart_query = f"""
         WITH latest_periods AS (
             SELECT 
@@ -1160,6 +1167,7 @@ async def get_top_metric_changes(
                 MAX(tsd.time_period) as latest_period
             FROM time_series_metadata tsm
             JOIN time_series_data tsd ON tsm.chart_id = tsd.chart_id
+            LEFT JOIN metrics m ON tsm.object_id::integer = m.id
             WHERE {where_clause}
             GROUP BY tsm.chart_id, tsm.object_name, tsm.group_field, tsm.object_id
         )
@@ -1179,7 +1187,7 @@ async def get_top_metric_changes(
         charts = cursor.fetchall()
         
         if not charts:
-            filter_desc = f"period_type={period_type}, district={district}, group_field=NULL, report_date={report_date}"
+            filter_desc = f"period_type={period_type}, district={district}, group_field=NULL, report_date={report_date}, show_on_dash={show_on_dash}"
             if object_id:
                 filter_desc += f", object_id={object_id}"
                 
@@ -1199,6 +1207,17 @@ async def get_top_metric_changes(
             cursor.execute("SELECT COUNT(*) AS count FROM time_series_metadata WHERE group_field IS NULL")
             null_group_count = cursor.fetchone()['count']
             logger.info(f"Charts with group_field IS NULL: {null_group_count}")
+            
+            # Check show_on_dash if filtering by it
+            if show_on_dash:
+                cursor.execute("""
+                    SELECT COUNT(*) AS count 
+                    FROM time_series_metadata tsm 
+                    LEFT JOIN metrics m ON tsm.object_id = m.id 
+                    WHERE m.show_on_dash = TRUE
+                """)
+                show_on_dash_count = cursor.fetchone()['count']
+                logger.info(f"Charts with show_on_dash=TRUE: {show_on_dash_count}")
             
             return JSONResponse(
                 content={

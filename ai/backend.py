@@ -4092,6 +4092,149 @@ async def rerun_monthly_report_proofreading(request: Request):
             }
         )
 
+@router.post("/reprioritize_deltas")
+async def reprioritize_deltas_endpoint(request: Request):
+    """
+    Re-prioritize deltas for an existing newsletter by clearing the monthly_reporting data
+    and regenerating it from scratch.
+    """
+    try:
+        # Get request data
+        data = await request.json()
+        filename = data.get("filename")
+        district = data.get("district", "0")
+        period_type = data.get("period_type", "month")
+        max_report_items = data.get("max_report_items", 10)
+        
+        if not filename:
+            return JSONResponse(
+                content={"status": "error", "message": "Filename is required"},
+                status_code=400
+            )
+        
+        # Import here to avoid circular imports
+        from ai.monthly_report import reprioritize_deltas_for_report
+        
+        # Run the re-prioritization in a background task with timeout
+        import asyncio
+        
+        try:
+            # Add a timeout to prevent hanging (5 minutes max)
+            result = await asyncio.wait_for(
+                asyncio.to_thread(
+                    reprioritize_deltas_for_report,
+                    filename=filename,
+                    district=district,
+                    period_type=period_type,
+                    max_report_items=max_report_items
+                ),
+                timeout=300.0  # 5 minutes
+            )
+            
+            if result.get("status") == "success":
+                return JSONResponse(content=result)
+            else:
+                return JSONResponse(
+                    content=result,
+                    status_code=500
+                )
+                
+        except asyncio.TimeoutError:
+            return JSONResponse(
+                content={
+                    "status": "error",
+                    "message": "Re-prioritization timed out after 5 minutes. The process may still be running in the background."
+                },
+                status_code=408
+            )
+        except Exception as e:
+            logger.error(f"Error in reprioritize_deltas_endpoint: {str(e)}", exc_info=True)
+            return JSONResponse(
+                content={
+                    "status": "error",
+                    "message": f"Error re-prioritizing deltas: {str(e)}"
+                },
+                status_code=500
+            )
+            
+    except Exception as e:
+        logger.error(f"Error parsing request in reprioritize_deltas_endpoint: {str(e)}", exc_info=True)
+        return JSONResponse(
+            content={
+                "status": "error",
+                "message": f"Error processing request: {str(e)}"
+            },
+            status_code=400
+        )
+
+@router.post("/regenerate_explanations")
+async def regenerate_explanations_endpoint(request: Request):
+    """
+    Regenerate explanations for an existing newsletter's monthly_reporting items.
+    """
+    try:
+        # Get request data
+        data = await request.json()
+        filename = data.get("filename")
+        
+        if not filename:
+            return JSONResponse(
+                content={"status": "error", "message": "Filename is required"},
+                status_code=400
+            )
+        
+        # Import here to avoid circular imports
+        from ai.monthly_report import regenerate_explanations_for_report
+        
+        # Run the explanation generation in a background task with timeout
+        import asyncio
+        
+        try:
+            # Add a timeout to prevent hanging (10 minutes max for explanations)
+            result = await asyncio.wait_for(
+                asyncio.to_thread(
+                    regenerate_explanations_for_report,
+                    filename=filename
+                ),
+                timeout=600.0  # 10 minutes
+            )
+            
+            if result.get("status") == "success":
+                return JSONResponse(content=result)
+            else:
+                return JSONResponse(
+                    content=result,
+                    status_code=500
+                )
+                
+        except asyncio.TimeoutError:
+            return JSONResponse(
+                content={
+                    "status": "error",
+                    "message": "Explanation generation timed out after 10 minutes. The process may still be running in the background."
+                },
+                status_code=408
+            )
+        except Exception as e:
+            logger.error(f"Error in regenerate_explanations_endpoint: {str(e)}", exc_info=True)
+            return JSONResponse(
+                content={
+                    "status": "error",
+                    "message": f"Error regenerating explanations: {str(e)}"
+                },
+                status_code=500
+            )
+            
+    except Exception as e:
+        logger.error(f"Error parsing request in regenerate_explanations_endpoint: {str(e)}", exc_info=True)
+        return JSONResponse(
+            content={
+                "status": "error",
+                "message": f"Error processing request: {str(e)}"
+            },
+            status_code=400
+        )
+
 @router.post("/update-chart-groups/{chart_id}")
 async def update_chart_groups(chart_id: int, request: Request):
     """

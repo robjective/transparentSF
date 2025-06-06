@@ -852,13 +852,19 @@
                 </div>
                 
                 <div class="report-actions" style="display: flex; gap: 10px; align-items: flex-end;">
+                    <button id="reprioritize-deltas-btn" class="action-btn primary-btn">
+                        Re-prioritize deltas
+                    </button>
+                    <button id="reexplain-deltas-btn" class="action-btn primary-btn">
+                        Re-explain deltas
+                    </button>
                     <button id="rerunReportBtn" class="action-btn primary-btn">
                         Re-write newsletter
                     </button>
                     <button id="rerun-proofreading" class="action-btn">Re-run Proofreading</button>
                     <button id="rerun-postproofing" class="action-btn">Re-run Email</button>
                     <button id="generate-narration" class="action-btn">Generate Narration</button>
-                    <button id="delete-report" class="action-btn delete-btn">Delete Newsletter</button>
+                    <button id="delete-report-btn" class="action-btn delete-btn">Delete Report</button>
                 </div>
             </div>
             
@@ -1317,7 +1323,7 @@
                     loadReportDetails(selectedReport);
                     
                     // Set up the delete button
-                    const deleteBtn = document.getElementById('delete-report');
+                    const deleteBtn = document.getElementById('delete-report-btn');
                     if (deleteBtn) {
                         deleteBtn.onclick = () => {
                             deleteReport(selectedReport);
@@ -1351,6 +1357,24 @@
                         generateNarrationBtn.onclick = () => {
                             console.log("Generating narration for:", selectedReport);
                             generateNarration(selectedReport);
+                        };
+                    }
+
+                    // Set up the re-prioritize deltas button
+                    const reprioritizeDeltasBtn = document.getElementById('reprioritize-deltas-btn');
+                    if (reprioritizeDeltasBtn) {
+                        reprioritizeDeltasBtn.onclick = () => {
+                            console.log("Re-prioritizing deltas for:", selectedReport);
+                            reprioritizeDeltas(selectedReport);
+                        };
+                    }
+
+                    // Set up the re-explain deltas button
+                    const reexplainDeltasBtn = document.getElementById('reexplain-deltas-btn');
+                    if (reexplainDeltasBtn) {
+                        reexplainDeltasBtn.onclick = () => {
+                            console.log("Re-explaining deltas for:", selectedReport);
+                            reexplainDeltas(selectedReport);
                         };
                     }
                 } else {
@@ -1646,7 +1670,7 @@
                 }
 
                 try {
-                    const deleteBtn = document.getElementById('delete-report');
+                    const deleteBtn = document.getElementById('delete-report-btn');
                     deleteBtn.disabled = true;
                     deleteBtn.innerHTML = '<div style="display: flex; align-items: center; justify-content: center;"><span class="loading"></span> Deleting...</div>';
 
@@ -1685,7 +1709,7 @@
                 } catch (error) {
                     alert(`Error deleting newsletter: ${error.message}`);
                 } finally {
-                    const deleteBtn = document.getElementById('delete-report');
+                    const deleteBtn = document.getElementById('delete-report-btn');
                     deleteBtn.disabled = false;
                     deleteBtn.textContent = 'Delete Newsletter';
                 }
@@ -1769,7 +1793,22 @@
                         <div class="headlines-container" style="margin-top: 20px; margin-bottom: 20px; padding: 15px; background-color: #f8f9fa; border-radius: 8px;">
                             <h2>Headlines</h2>
                             <div class="headlines-list">
-                                ${report.headlines.map(headline => `<h3 style="margin: 10px 0; color: #333;">${headline}</h3>`).join('')}
+                                ${report.headlines.map(headline => {
+                                    // Check if headline is an object with headline/subtitle properties
+                                    if (typeof headline === 'object' && headline !== null) {
+                                        let headlineHtml = '';
+                                        if (headline.headline) {
+                                            headlineHtml += `<h3 style="margin: 10px 0 5px 0; color: #333;">${headline.headline}</h3>`;
+                                        }
+                                        if (headline.subtitle) {
+                                            headlineHtml += `<h4 style="margin: 5px 0 10px 0; color: #666; font-weight: normal; font-style: italic;">${headline.subtitle}</h4>`;
+                                        }
+                                        return headlineHtml || `<h3 style="margin: 10px 0; color: #333;">${JSON.stringify(headline)}</h3>`;
+                                    } else {
+                                        // Handle simple string headlines
+                                        return `<h3 style="margin: 10px 0; color: #333;">${headline}</h3>`;
+                                    }
+                                }).join('')}
                             </div>
                         </div>
                     `;
@@ -1781,7 +1820,22 @@
                             <div class="headlines-container" style="margin-top: 20px; margin-bottom: 20px; padding: 15px; background-color: #f8f9fa; border-radius: 8px;">
                                 <h2>Headlines</h2>
                                 <div class="headlines-list">
-                                    ${headlineValues.map(headline => `<h3 style="margin: 10px 0; color: #333;">${headline}</h3>`).join('')}
+                                    ${headlineValues.map(headline => {
+                                        // Check if headline is an object with headline/subtitle properties
+                                        if (typeof headline === 'object' && headline !== null) {
+                                            let headlineHtml = '';
+                                            if (headline.headline) {
+                                                headlineHtml += `<h3 style="margin: 10px 0 5px 0; color: #333;">${headline.headline}</h3>`;
+                                            }
+                                            if (headline.subtitle) {
+                                                headlineHtml += `<h4 style="margin: 5px 0 10px 0; color: #666; font-weight: normal; font-style: italic;">${headline.subtitle}</h4>`;
+                                            }
+                                            return headlineHtml || `<h3 style="margin: 10px 0; color: #333;">${JSON.stringify(headline)}</h3>`;
+                                        } else {
+                                            // Handle simple string headlines
+                                            return `<h3 style="margin: 10px 0; color: #333;">${headline}</h3>`;
+                                        }
+                                    }).join('')}
                                 </div>
                             </div>
                         `;
@@ -2598,6 +2652,119 @@
                     return url.protocol === 'http:' || url.protocol === 'https:';
                 } catch (_) {
                     return false;
+                }
+            }
+
+            // Function to re-prioritize deltas for a newsletter
+            async function reprioritizeDeltas(filename) {
+                if (!filename) {
+                    alert('No newsletter selected');
+                    return;
+                }
+
+                if (!confirm('Are you sure you want to re-prioritize deltas for this newsletter? This will remove the current monthly_reporting data and regenerate it from the top.')) {
+                    return;
+                }
+
+                try {
+                    const reprioritizeBtn = document.getElementById('reprioritize-deltas-btn');
+                    reprioritizeBtn.disabled = true;
+                    reprioritizeBtn.innerHTML = '<div style="display: flex; align-items: center; justify-content: center;"><span class="loading"></span> Re-prioritizing...</div>';
+
+                    // Get the reports list to find the report ID and other details
+                    const reportsResponse = await fetch('/backend/get_monthly_reports');
+                    const reportsData = await reportsResponse.json();
+                    
+                    if (reportsData.status !== 'success' || !reportsData.reports) {
+                        throw new Error('Failed to get reports list');
+                    }
+
+                    // Find the report with matching filename
+                    const report = reportsData.reports.find(r => r.original_filename === filename);
+                    if (!report) {
+                        throw new Error('Report not found');
+                    }
+
+                    // Call the backend to re-prioritize deltas
+                    const response = await fetch('/backend/reprioritize_deltas', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            filename: filename,
+                            district: report.district || '0',
+                            period_type: report.period_type || 'month',
+                            max_report_items: report.max_items || 10
+                        })
+                    });
+
+                    const data = await response.json();
+
+                    if (data.status === 'success') {
+                        alert('Deltas re-prioritized successfully! The monthly_reporting data has been cleared and regenerated.');
+                        // Reload the reports list and details
+                        loadReports();
+                        setTimeout(() => {
+                            // Reselect the current report to refresh its details
+                            reportSelect.value = filename;
+                            loadReportDetails(filename);
+                        }, 1000);
+                    } else {
+                        throw new Error(data.message || 'Failed to re-prioritize deltas');
+                    }
+                } catch (error) {
+                    alert(`Error re-prioritizing deltas: ${error.message}`);
+                } finally {
+                    const reprioritizeBtn = document.getElementById('reprioritize-deltas-btn');
+                    reprioritizeBtn.disabled = false;
+                    reprioritizeBtn.textContent = 'Re-prioritize deltas';
+                }
+            }
+
+            // Function to re-explain deltas for a newsletter
+            async function reexplainDeltas(filename) {
+                if (!filename) {
+                    alert('No newsletter selected');
+                    return;
+                }
+
+                if (!confirm('Are you sure you want to regenerate explanations for this newsletter? This will replace all existing explanations with new AI-generated ones.')) {
+                    return;
+                }
+
+                try {
+                    const reexplainBtn = document.getElementById('reexplain-deltas-btn');
+                    reexplainBtn.disabled = true;
+                    reexplainBtn.innerHTML = '<div style="display: flex; align-items: center; justify-content: center;"><span class="loading"></span> Re-explaining...</div>';
+
+                    const response = await fetch('/backend/regenerate_explanations', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            filename: filename
+                        })
+                    });
+
+                    const result = await response.json();
+
+                    if (response.ok && result.status === 'success') {
+                        alert(`Success! ${result.message}`);
+                        // Optionally refresh the newsletter details
+                        updateReportDetails(filename);
+                    } else {
+                        alert(`Error: ${result.message || 'Unknown error occurred'}`);
+                    }
+
+                } catch (error) {
+                    console.error('Error re-explaining deltas:', error);
+                    alert(`Error re-explaining deltas: ${error.message}`);
+                } finally {
+                    const reexplainBtn = document.getElementById('reexplain-deltas-btn');
+                    reexplainBtn.disabled = false;
+                    reexplainBtn.textContent = 'Re-explain deltas';
                 }
             }
         });
