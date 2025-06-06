@@ -122,21 +122,41 @@ def recreate_collection(collection_name, vector_size):
         # Check if collection exists
         if qdrant.collection_exists(collection_name):
             logger.info(f"Collection '{collection_name}' exists, deleting...")
-            qdrant.delete_collection(collection_name)
-            time.sleep(2)  # Wait for deletion to complete
-            logger.info(f"Collection '{collection_name}' deleted.")
+            try:
+                qdrant.delete_collection(collection_name)
+                # Wait longer for deletion to complete
+                time.sleep(5)  # Increased from 2 to 5 seconds
+                
+                # Verify collection is actually deleted
+                max_retries = 3
+                for attempt in range(max_retries):
+                    if not qdrant.collection_exists(collection_name):
+                        logger.info(f"Collection '{collection_name}' successfully deleted.")
+                        break
+                    if attempt < max_retries - 1:
+                        logger.warning(f"Collection still exists, waiting longer... (attempt {attempt + 1}/{max_retries})")
+                        time.sleep(5)  # Wait another 5 seconds
+                    else:
+                        raise Exception(f"Collection '{collection_name}' still exists after deletion attempts")
+            except Exception as e:
+                logger.error(f"Error during collection deletion: {e}")
+                raise
         
         # Create new collection
         logger.info(f"Creating collection '{collection_name}' with vector size {vector_size}")
-        qdrant.create_collection(
-            collection_name=collection_name,
-            vectors_config=rest.VectorParams(
-                distance=rest.Distance.COSINE,
-                size=vector_size,
-            ),
-            timeout=60  # Increase timeout to allow for directory cleanup
-        )
-        logger.info(f"Collection '{collection_name}' created successfully.")
+        try:
+            qdrant.create_collection(
+                collection_name=collection_name,
+                vectors_config=rest.VectorParams(
+                    distance=rest.Distance.COSINE,
+                    size=vector_size,
+                ),
+                timeout=120  # Increased timeout to 120 seconds
+            )
+            logger.info(f"Collection '{collection_name}' created successfully.")
+        except Exception as e:
+            logger.error(f"Error creating collection: {e}")
+            raise
         
     except Exception as e:
         logger.error(f"Failed to recreate collection '{collection_name}': {e}")

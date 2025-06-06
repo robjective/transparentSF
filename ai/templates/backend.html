@@ -18,7 +18,7 @@
             --sky-tint: #B8D8E3;
             
             /* Layout Variables */
-            --explainer-width: 400px;
+            --explainer-width: 460px;
         }
         
         body { 
@@ -1342,9 +1342,12 @@
             </div>
             <!-- Analysis Buttons - Main blue -->
             <button id="analyze-ytd-btn" class="analysis-btn">Run Dashboard Metrics</button>
-            <button id="reload-vector-db-btn" class="management-btn">Reload Vector DB</button>
-            <button id="reload-sfpublic-btn" class="management-btn">Reload SF Public Data</button>
-            <button id="fetch-metadata-btn" class="management-btn">Fetch Metadata</button>
+            <button id="reload-sfpublic-metadata-btn" class="management-btn">Reload SF Public Metadata</button>
+            
+            <div class="nav-section">
+                <h3>Management</h3>
+            </div>
+            <button data-href="/backend/database-admin" class="management-btn">Database Admin</button>
             
             <div class="sidebar-divider"></div>
             
@@ -1565,7 +1568,7 @@
         
         // Resize functionality
         let isResizing = false;
-        let explainerWidth = 400; // Default width
+        let explainerWidth = 480; // Default width
         let resizeStartX = 0;
         let resizeStartWidth = 0;
         
@@ -2193,7 +2196,7 @@
                     
                     // Format the metric change information
                     const metricName = metric.object_name || 'Unknown Metric';
-                    const metricId = metric.id || metric.ID || 'Unknown ID';
+                    const metricId = metric.object_id || metric.id || metric.ID || 'Unknown ID';
                     const metricKey = metric.object_id || 'Unknown Key';
                     const district = metric.district === '0' ? 'citywide' : `District ${metric.district}`;
                     const previousValue = formatValue(metric.previous_value);
@@ -2474,64 +2477,38 @@ Can you help me understand:
                 }
             });
 
-            // Monthly report button handler - removed since we're using data-href now
-            
             // Update reload functions to show loading state
-            document.getElementById('reload-vector-db-btn').addEventListener('click', async () => {
-                const button = document.getElementById('reload-vector-db-btn');
+            document.getElementById('reload-sfpublic-metadata-btn').addEventListener('click', async () => {
+                const button = document.getElementById('reload-sfpublic-metadata-btn');
                 const originalText = button.textContent;
                 
                 button.disabled = true;
-                button.textContent = 'Reloading...';
-                showLoading('Reloading vector database...');
+                button.textContent = 'Processing...';
+                
+                let fetchResults = null;
+                let reloadResults = null;
                 
                 try {
-                    const response = await fetch('/backend/reload_vector_db');
-                    const data = await response.json();
+                    // Step 1: Fetch Metadata
+                    showLoading('Fetching SF metadata...');
                     
-                    hideLoading();
+                    const fetchResponse = await fetch('/backend/fetch_metadata');
+                    fetchResults = await fetchResponse.json();
                     
-                    if (data.status === 'success') {
-                        button.textContent = 'Reload Successful ✓';
-                        setTimeout(() => {
-                            button.textContent = originalText;
-                            button.disabled = false;
-                        }, 3000);
-                    } else {
-                        button.textContent = 'Reload Failed ×';
-                        console.error('Vector DB reload failed:', data.message);
-                        setTimeout(() => {
-                            button.textContent = originalText;
-                            button.disabled = false;
-                        }, 3000);
+                    if (fetchResults.status !== 'success') {
+                        throw new Error(`Fetch metadata failed: ${fetchResults.message}`);
                     }
-                } catch (error) {
-                    hideLoading();
-                    button.textContent = 'Reload Failed ×';
-                    console.error('Error reloading vector DB:', error);
-                    setTimeout(() => {
-                        button.textContent = originalText;
-                        button.disabled = false;
-                    }, 3000);
-                }
-            });
-            
-            // Update the SF Public data reload
-            document.getElementById('reload-sfpublic-btn').addEventListener('click', async function() {
-                const button = this;
-                const originalText = button.textContent;
-                
-                button.disabled = true;
-                button.textContent = 'Reloading...';
-                showLoading('Reloading SF public data...');
-                
-                try {
-                    const response = await fetch('/backend/reload_sfpublic');
-                    const data = await response.json();
+                    
+                    // Step 2: Reload SF Public Data
+                    showLoading('Reloading SF public data...');
+                    
+                    const reloadResponse = await fetch('/backend/reload_sfpublic');
+                    reloadResults = await reloadResponse.json();
                     
                     hideLoading();
                     
-                    // Display results in iframe
+                    // Display combined results in iframe
+                    const overallSuccess = fetchResults.status === 'success' && reloadResults.status === 'success';
                     const htmlContent = `
                         <html>
                             <head>
@@ -2541,18 +2518,33 @@ Can you help me understand:
                                     .status { font-weight: bold; margin-bottom: 10px; }
                                     .success { color: #28a745; }
                                     .error { color: #dc3545; }
+                                    .section { margin: 20px 0; padding: 15px; border: 1px solid #ddd; border-radius: 5px; }
+                                    .section h3 { margin-top: 0; }
                                 </style>
                             </head>
                             <body>
-                                <h2>SF Public Data Reload Results</h2>
-                                <div class="status ${data.status === 'success' ? 'success' : 'error'}">
-                                    Status: ${data.status}
+                                <h2>SF Public Metadata Reload Results</h2>
+                                <div class="status ${overallSuccess ? 'success' : 'error'}">
+                                    Overall Status: ${overallSuccess ? 'Success' : 'Failed'}
                                 </div>
-                                <div>
-                                    <p>${data.message}</p>
+                                
+                                <div class="section">
+                                    <h3>Step 1: Fetch Metadata</h3>
+                                    <div class="status ${fetchResults.status === 'success' ? 'success' : 'error'}">
+                                        Status: ${fetchResults.status}
+                                    </div>
+                                    <p>${fetchResults.message}</p>
+                                    ${fetchResults.log_content ? `<h4>Log Output:</h4><pre>${fetchResults.log_content}</pre>` : ''}
                                 </div>
-                                <h3>Log Output:</h3>
-                                <pre>${data.log_content}</pre>
+                                
+                                <div class="section">
+                                    <h3>Step 2: Reload SF Public Data</h3>
+                                    <div class="status ${reloadResults.status === 'success' ? 'success' : 'error'}">
+                                        Status: ${reloadResults.status}
+                                    </div>
+                                    <p>${reloadResults.message}</p>
+                                    ${reloadResults.log_content ? `<h4>Log Output:</h4><pre>${reloadResults.log_content}</pre>` : ''}
+                                </div>
                             </body>
                         </html>
                     `;
@@ -2561,9 +2553,23 @@ Can you help me understand:
                     const url = URL.createObjectURL(blob);
                     document.getElementById('content-frame').src = url;
                     
+                    if (overallSuccess) {
+                        button.textContent = 'Reload Successful ✓';
+                        setTimeout(() => {
+                            button.textContent = originalText;
+                            button.disabled = false;
+                        }, 3000);
+                    } else {
+                        button.textContent = 'Reload Failed ×';
+                        setTimeout(() => {
+                            button.textContent = originalText;
+                            button.disabled = false;
+                        }, 3000);
+                    }
+                    
                 } catch (error) {
                     hideLoading();
-                    console.error('Error:', error);
+                    console.error('Error reloading SF public metadata:', error);
                     
                     // Show error in iframe
                     const htmlContent = `
@@ -2572,13 +2578,21 @@ Can you help me understand:
                                 <style>
                                     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; padding: 20px; }
                                     .error { color: #dc3545; font-weight: bold; }
+                                    .section { margin: 20px 0; padding: 15px; border: 1px solid #ddd; border-radius: 5px; }
                                 </style>
                             </head>
                             <body>
-                                <h2>SF Public Data Reload Error</h2>
+                                <h2>SF Public Metadata Reload Error</h2>
                                 <div class="error">
                                     ${error.message || 'Unknown error occurred'}
                                 </div>
+                                
+                                ${fetchResults ? `
+                                    <div class="section">
+                                        <h3>Fetch Metadata Results (Completed)</h3>
+                                        <p>${fetchResults.message}</p>
+                                    </div>
+                                ` : ''}
                             </body>
                         </html>
                     `;
@@ -2586,84 +2600,12 @@ Can you help me understand:
                     const blob = new Blob([htmlContent], { type: 'text/html' });
                     const url = URL.createObjectURL(blob);
                     document.getElementById('content-frame').src = url;
-                } finally {
-                    // Reset button state
-                    button.disabled = false;
-                    button.textContent = originalText;
-                }
-            });
-
-            // Fetch Metadata button handler
-            document.getElementById('fetch-metadata-btn').addEventListener('click', async function() {
-                const button = this;
-                const originalText = button.textContent;
-
-                button.disabled = true;
-                button.textContent = 'Fetching...';
-                showLoading('Fetching SF metadata...');
-
-                try {
-                    const response = await fetch('/backend/fetch_metadata');
-                    const data = await response.json();
-
-                    hideLoading();
-
-                    // Build results HTML similar to other operations
-                    const htmlContent = `
-                        <html>
-                            <head>
-                                <style>
-                                    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; padding: 20px; }
-                                    pre { background: #f5f5f5; padding: 15px; border-radius: 5px; overflow: auto; }
-                                    .status { font-weight: bold; margin-bottom: 10px; }
-                                    .success { color: #28a745; }
-                                    .error { color: #dc3545; }
-                                </style>
-                            </head>
-                            <body>
-                                <h2>Fetch Metadata Results</h2>
-                                <div class="status ${data.status === 'success' ? 'success' : 'error'}">
-                                    Status: ${data.status}
-                                </div>
-                                <div>
-                                    <p>${data.message}</p>
-                                </div>
-                                ${data.log_content ? `<h3>Log Output:</h3><pre>${data.log_content}</pre>` : ''}
-                            </body>
-                        </html>
-                    `;
-
-                    const blob = new Blob([htmlContent], { type: 'text/html' });
-                    const url = URL.createObjectURL(blob);
-                    document.getElementById('content-frame').src = url;
-
-                } catch (error) {
-                    hideLoading();
-                    console.error('Error fetching metadata:', error);
-
-                    const htmlContent = `
-                        <html>
-                            <head>
-                                <style>
-                                    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; padding: 20px; }
-                                    .error { color: #dc3545; font-weight: bold; }
-                                </style>
-                            </head>
-                            <body>
-                                <h2>Fetch Metadata Error</h2>
-                                <div class="error">
-                                    ${error.message || 'Unknown error occurred'}
-                                </div>
-                            </body>
-                        </html>
-                    `;
-
-                    const blob = new Blob([htmlContent], { type: 'text/html' });
-                    const url = URL.createObjectURL(blob);
-                    document.getElementById('content-frame').src = url;
-                } finally {
-                    button.disabled = false;
-                    button.textContent = originalText;
+                    
+                    button.textContent = 'Reload Failed ×';
+                    setTimeout(() => {
+                        button.textContent = originalText;
+                        button.disabled = false;
+                    }, 3000);
                 }
             });
 

@@ -1,0 +1,512 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Database Admin - SF Public Data Dashboard</title>
+    <style>
+        /* Import brand fonts */
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap');
+        
+        :root {
+            /* Brand Colors */
+            --ink-black: #222222;
+            --cloud-gray: #E8E9EB;
+            --warm-coral: #FF6B5A;
+            --bright-purple: #ad35fa;
+            --soft-sand: #F6F1EA;
+            --sky-tint: #B8D8E3;
+        }
+        
+        body { 
+            font-family: 'IBM Plex Sans', Arial, Helvetica, sans-serif; 
+            margin: 0;
+            padding: 20px;
+            font-size: 14px;
+            color: var(--ink-black);
+            background-color: #ffffff;
+            line-height: 1.5;
+        }
+        
+        .header {
+            margin-bottom: 30px;
+            padding-bottom: 15px;
+            border-bottom: 2px solid var(--cloud-gray);
+        }
+        
+        .header h1 {
+            font-family: 'Inter', sans-serif;
+            font-weight: 600;
+            font-size: 24px;
+            color: var(--ink-black);
+            margin: 0 0 8px 0;
+        }
+        
+        .header p {
+            color: var(--ink-black);
+            opacity: 0.8;
+            margin: 0;
+        }
+        
+        .admin-section {
+            background: #ffffff;
+            border: 1px solid var(--cloud-gray);
+            border-radius: 8px;
+            padding: 25px;
+            margin-bottom: 25px;
+        }
+        
+        .admin-section h2 {
+            font-family: 'Inter', sans-serif;
+            font-weight: 600;
+            font-size: 18px;
+            color: var(--ink-black);
+            margin: 0 0 15px 0;
+        }
+        
+        .admin-section p {
+            color: var(--ink-black);
+            opacity: 0.8;
+            margin: 0 0 15px 0;
+        }
+        
+        .action-buttons {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            margin-top: 20px;
+        }
+        
+        .admin-btn {
+            padding: 12px 20px;
+            border: none;
+            border-radius: 6px;
+            font-family: 'IBM Plex Sans', sans-serif;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            min-width: 140px;
+            justify-content: center;
+        }
+        
+        .backup-btn {
+            background: var(--bright-purple);
+            color: white;
+        }
+        
+        .backup-btn:hover {
+            background: #8e2bbf;
+        }
+        
+        .danger-btn {
+            background: var(--warm-coral);
+            color: white;
+        }
+        
+        .danger-btn:hover {
+            background: #e55a4a;
+        }
+        
+        .secondary-btn {
+            background: var(--cloud-gray);
+            color: var(--ink-black);
+        }
+        
+        .secondary-btn:hover {
+            background: #d5d6d8;
+        }
+        
+        .file-input-wrapper {
+            position: relative;
+            display: inline-block;
+            margin-top: 15px;
+        }
+        
+        .file-input {
+            position: absolute;
+            opacity: 0;
+            width: 100%;
+            height: 100%;
+            cursor: pointer;
+        }
+        
+        .file-input-label {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 12px 20px;
+            background: var(--cloud-gray);
+            color: var(--ink-black);
+            border-radius: 6px;
+            cursor: pointer;
+            font-family: 'IBM Plex Sans', sans-serif;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.2s ease;
+            min-width: 140px;
+            justify-content: center;
+        }
+        
+        .file-input-label:hover {
+            background: #d5d6d8;
+        }
+        
+        .file-selected {
+            background: var(--bright-purple) !important;
+            color: white !important;
+        }
+        
+        .restore-section {
+            margin-top: 20px;
+            padding: 20px;
+            background: #fff8f8;
+            border: 1px solid var(--warm-coral);
+            border-left: 4px solid var(--warm-coral);
+            border-radius: 6px;
+        }
+        
+        .warning-text {
+            color: var(--warm-coral);
+            font-weight: 500;
+            margin-bottom: 15px;
+        }
+        
+        .status-message {
+            padding: 12px 15px;
+            border-radius: 6px;
+            margin: 15px 0;
+            font-weight: 500;
+            display: none;
+        }
+        
+        .status-success {
+            background: #e8f5e9;
+            color: #1b5e20;
+            border: 1px solid #4caf50;
+        }
+        
+        .status-error {
+            background: #ffebee;
+            color: #b71c1c;
+            border: 1px solid var(--warm-coral);
+        }
+        
+        .status-info {
+            background: #e3f2fd;
+            color: #0d47a1;
+            border: 1px solid #2196f3;
+        }
+        
+        .loading-spinner {
+            display: none;
+            inline-size: 16px;
+            block-size: 16px;
+            border: 2px solid transparent;
+            border-top: 2px solid currentColor;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .btn-loading {
+            pointer-events: none;
+            opacity: 0.7;
+        }
+        
+        .database-info {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 6px;
+            margin-bottom: 20px;
+            border: 1px solid var(--cloud-gray);
+        }
+        
+        .info-row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+        }
+        
+        .info-label {
+            font-weight: 500;
+        }
+        
+        .info-value {
+            font-family: 'IBM Plex Mono', 'Courier New', monospace;
+            font-size: 13px;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Database Administration</h1>
+        <p>Backup and restore database operations for SF Public Data Dashboard</p>
+    </div>
+    
+    <div class="admin-section">
+        <h2>📊 Database Information</h2>
+        <div class="database-info" id="database-info">
+            <div class="info-row">
+                <span class="info-label">Status:</span>
+                <span class="info-value" id="db-status">Loading...</span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">Size:</span>
+                <span class="info-value" id="db-size">Loading...</span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">Last Backup:</span>
+                <span class="info-value" id="last-backup">Loading...</span>
+            </div>
+        </div>
+        
+        <button class="admin-btn secondary-btn" onclick="refreshDatabaseInfo()">
+            <span>🔄</span>
+            <span>Refresh Info</span>
+        </button>
+    </div>
+    
+    <div class="admin-section">
+        <h2>💾 Database Backup</h2>
+        <p>Create and download a complete backup of the database. This includes all tables, data, and schema.</p>
+        
+        <div class="action-buttons">
+            <button class="admin-btn backup-btn" onclick="createBackup()">
+                <div class="loading-spinner" id="backup-spinner"></div>
+                <span>📤</span>
+                <span id="backup-btn-text">Create & Download Backup</span>
+            </button>
+        </div>
+        
+        <div class="status-message" id="backup-status"></div>
+    </div>
+    
+    <div class="admin-section">
+        <h2>📥 Database Restore</h2>
+        <p>Upload and restore a database backup. This will replace all existing data.</p>
+        
+        <div class="restore-section">
+            <div class="warning-text">⚠️ Warning: Restoring a backup will completely replace all existing database data. This action cannot be undone.</div>
+            
+            <div class="file-input-wrapper">
+                <input type="file" id="restore-file" class="file-input" accept=".sql,.gz,.tar,.zip" onchange="handleFileSelect(this)">
+                <label for="restore-file" class="file-input-label" id="file-input-label">
+                    <span>📁</span>
+                    <span>Choose Backup File</span>
+                </label>
+            </div>
+            
+            <div class="action-buttons">
+                <button class="admin-btn danger-btn" onclick="restoreBackup()" id="restore-btn" disabled>
+                    <div class="loading-spinner" id="restore-spinner"></div>
+                    <span>⚠️</span>
+                    <span id="restore-btn-text">Restore Database</span>
+                </button>
+            </div>
+        </div>
+        
+        <div class="status-message" id="restore-status"></div>
+    </div>
+
+    <script>
+        let selectedFile = null;
+        
+        // Load database info on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            refreshDatabaseInfo();
+        });
+        
+        async function refreshDatabaseInfo() {
+            try {
+                const response = await fetch('/backend/api/database-info');
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    document.getElementById('db-status').textContent = data.db_status || 'Connected';
+                    document.getElementById('db-size').textContent = data.db_size || 'Unknown';
+                    document.getElementById('last-backup').textContent = data.last_backup || 'Never';
+                } else {
+                    document.getElementById('db-status').textContent = 'Error';
+                    document.getElementById('db-size').textContent = 'Error';
+                    document.getElementById('last-backup').textContent = 'Error';
+                }
+            } catch (error) {
+                console.error('Error fetching database info:', error);
+                document.getElementById('db-status').textContent = 'Connection Error';
+                document.getElementById('db-size').textContent = 'Unknown';
+                document.getElementById('last-backup').textContent = 'Unknown';
+            }
+        }
+        
+        async function createBackup() {
+            const btn = document.querySelector('.backup-btn');
+            const spinner = document.getElementById('backup-spinner');
+            const btnText = document.getElementById('backup-btn-text');
+            const statusDiv = document.getElementById('backup-status');
+            
+            // Show loading state
+            btn.classList.add('btn-loading');
+            spinner.style.display = 'inline-block';
+            btnText.textContent = 'Creating Backup...';
+            
+            // Hide any previous status messages
+            statusDiv.style.display = 'none';
+            statusDiv.className = 'status-message';
+            
+            try {
+                const response = await fetch('/backend/api/database-backup', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    }
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    // Show success message
+                    statusDiv.className = 'status-message status-success';
+                    statusDiv.textContent = '✅ Backup created successfully! Download will start automatically.';
+                    statusDiv.style.display = 'block';
+                    
+                    // Trigger download
+                    if (data.download_url) {
+                        const link = document.createElement('a');
+                        link.href = data.download_url;
+                        link.download = data.filename || 'database_backup.sql';
+                        document.body.appendChild(link);
+                        link.click();
+                        document.body.removeChild(link);
+                    }
+                    
+                    // Refresh database info to update last backup time
+                    setTimeout(refreshDatabaseInfo, 1000);
+                    
+                } else {
+                    throw new Error(data.message || 'Backup creation failed');
+                }
+                
+            } catch (error) {
+                console.error('Error creating backup:', error);
+                statusDiv.className = 'status-message status-error';
+                statusDiv.textContent = `❌ Error creating backup: ${error.message}`;
+                statusDiv.style.display = 'block';
+            } finally {
+                // Reset button state
+                btn.classList.remove('btn-loading');
+                spinner.style.display = 'none';
+                btnText.textContent = 'Create & Download Backup';
+            }
+        }
+        
+        function handleFileSelect(input) {
+            const label = document.getElementById('file-input-label');
+            const restoreBtn = document.getElementById('restore-btn');
+            
+            if (input.files && input.files[0]) {
+                selectedFile = input.files[0];
+                label.classList.add('file-selected');
+                label.innerHTML = `
+                    <span>✅</span>
+                    <span>Selected: ${selectedFile.name}</span>
+                `;
+                restoreBtn.disabled = false;
+            } else {
+                selectedFile = null;
+                label.classList.remove('file-selected');
+                label.innerHTML = `
+                    <span>📁</span>
+                    <span>Choose Backup File</span>
+                `;
+                restoreBtn.disabled = true;
+            }
+        }
+        
+        async function restoreBackup() {
+            if (!selectedFile) {
+                alert('Please select a backup file first.');
+                return;
+            }
+            
+            // Double confirmation for this dangerous operation
+            if (!confirm(`⚠️ WARNING: This will completely replace all database data with the contents of "${selectedFile.name}".\n\nThis action CANNOT be undone.\n\nAre you absolutely sure you want to continue?`)) {
+                return;
+            }
+            
+            if (!confirm('Final confirmation: Click OK to proceed with database restore, or Cancel to abort.')) {
+                return;
+            }
+            
+            const btn = document.getElementById('restore-btn');
+            const spinner = document.getElementById('restore-spinner');
+            const btnText = document.getElementById('restore-btn-text');
+            const statusDiv = document.getElementById('restore-status');
+            
+            // Show loading state
+            btn.classList.add('btn-loading');
+            spinner.style.display = 'inline-block';
+            btnText.textContent = 'Restoring Database...';
+            
+            // Hide any previous status messages
+            statusDiv.style.display = 'none';
+            statusDiv.className = 'status-message';
+            
+            try {
+                // Create FormData with the file
+                const formData = new FormData();
+                formData.append('backup_file', selectedFile);
+                
+                const response = await fetch('/backend/api/database-restore', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    statusDiv.className = 'status-message status-success';
+                    statusDiv.textContent = '✅ Database restored successfully! The application may need to be restarted.';
+                    statusDiv.style.display = 'block';
+                    
+                    // Refresh database info
+                    setTimeout(refreshDatabaseInfo, 2000);
+                    
+                    // Reset file selection
+                    document.getElementById('restore-file').value = '';
+                    handleFileSelect(document.getElementById('restore-file'));
+                    
+                } else {
+                    throw new Error(data.message || 'Database restore failed');
+                }
+                
+            } catch (error) {
+                console.error('Error restoring database:', error);
+                statusDiv.className = 'status-message status-error';
+                statusDiv.textContent = `❌ Error restoring database: ${error.message}`;
+                statusDiv.style.display = 'block';
+            } finally {
+                // Reset button state
+                btn.classList.remove('btn-loading');
+                spinner.style.display = 'none';
+                btnText.textContent = 'Restore Database';
+            }
+        }
+    </script>
+</body>
+</html> 

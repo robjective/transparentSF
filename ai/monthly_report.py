@@ -496,7 +496,7 @@ def select_deltas_to_discuss(period_type='month', top_n=20, bottom_n=20, distric
         # Use the top-metric-changes API endpoint to get both positive and negative changes
         # The updated API returns both in one call, so we use the max of top_n and bottom_n for the limit
         limit = max(top_n, bottom_n)
-        url = f"{API_BASE_URL}/anomaly-analyzer/api/top-metric-changes?period_type={period_type}&limit={limit}&district={district}&show_both=true"
+        url = f"{API_BASE_URL}/anomaly-analyzer/api/top-metric-changes?period_type={period_type}&limit={limit}&district={district}&show_both=true&show_on_dash=true"
         logger.info(f"Requesting metric changes from: {url}")
         
         response = requests.get(url)

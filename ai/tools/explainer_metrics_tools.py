@@ -226,14 +226,17 @@ def edit_metric(
             "message": "Updates parameter must be a dictionary or valid JSON string"
         }
     
-    # First get the metric ID if a key was provided
-    if isinstance(metric_identifier, str):
-        metric_result = get_metric_by_key(metric_identifier)
+    # Try to convert to int if it's a numeric string
+    if isinstance(metric_identifier, str) and metric_identifier.isdigit():
+        metric_id = int(metric_identifier)
+    elif isinstance(metric_identifier, int):
+        metric_id = metric_identifier
+    else:
+        # It's a string key, get the metric ID
+        metric_result = get_metric_by_key(str(metric_identifier))
         if metric_result["status"] != "success":
             return metric_result
         metric_id = metric_result["metric"]["id"]
-    else:
-        metric_id = metric_identifier
     
     return update_metric(metric_id, updates)
 
@@ -250,14 +253,17 @@ def disable_metric(context_variables: Dict[str, Any], metric_identifier: Any) ->
     Example:
         result = disable_metric("old_metric_key")
     """
-    # First get the metric ID if a key was provided
-    if isinstance(metric_identifier, str):
-        metric_result = get_metric_by_key(metric_identifier)
+    # Try to convert to int if it's a numeric string
+    if isinstance(metric_identifier, str) and metric_identifier.isdigit():
+        metric_id = int(metric_identifier)
+    elif isinstance(metric_identifier, int):
+        metric_id = metric_identifier
+    else:
+        # It's a string key, get the metric ID
+        metric_result = get_metric_by_key(str(metric_identifier))
         if metric_result["status"] != "success":
             return metric_result
         metric_id = metric_result["metric"]["id"]
-    else:
-        metric_id = metric_identifier
     
     return deactivate_metric(metric_id)
 
@@ -274,14 +280,17 @@ def enable_metric(context_variables: Dict[str, Any], metric_identifier: Any) -> 
     Example:
         result = enable_metric("metric_key")
     """
-    # First get the metric ID if a key was provided
-    if isinstance(metric_identifier, str):
-        metric_result = get_metric_by_key(metric_identifier)
+    # Try to convert to int if it's a numeric string
+    if isinstance(metric_identifier, str) and metric_identifier.isdigit():
+        metric_id = int(metric_identifier)
+    elif isinstance(metric_identifier, int):
+        metric_id = metric_identifier
+    else:
+        # It's a string key, get the metric ID
+        metric_result = get_metric_by_key(str(metric_identifier))
         if metric_result["status"] != "success":
             return metric_result
         metric_id = metric_result["metric"]["id"]
-    else:
-        metric_id = metric_identifier
     
     return activate_metric(metric_id)
 

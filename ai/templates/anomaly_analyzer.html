@@ -1198,11 +1198,8 @@
         const detailAbsChange = document.getElementById('detail-abs-change');
         const detailPercentChange = document.getElementById('detail-percent-change');
         const detailChartContainer = document.getElementById('detail-chart-container');
-        const detailChartLoading = document.getElementById('detail-chart-loading');
         const detailChart = document.getElementById('detail-chart');
         const detailAnalysisText = document.getElementById('detail-analysis-text');
-        const detailAnalyzeButton = document.getElementById('detail-analyze-button');
-        const detailViewDataButton = document.getElementById('detail-view-data-button');
         
         // Event listeners
         refreshButton.addEventListener('click', fetchMetricChanges);
@@ -1512,6 +1509,10 @@
             // Format the district display
             const districtDisplay = metric.district === '0' ? 'Citywide' : `District ${metric.district}`;
             
+            // Create a unique ID for this row to reference the metric data
+            const rowId = 'metric-row-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
+            row.id = rowId;
+            
             // Create row HTML
             row.innerHTML = `
                 <td>${metric.object_name}</td>
@@ -1521,7 +1522,7 @@
                 <td class="${changeClass}">${formatValue(metric.delta)}</td>
                 <td class="${changeClass}">${formatPercentChange(metric.percent_change)}</td>
                 <td>
-                    <button class="action-button" onclick="analyzeMetricChange(${JSON.stringify(metric).replace(/"/g, '&quot;')})">
+                    <button class="action-button" onclick="analyzeMetricFromRow('${rowId}')">
                         Analyze
                     </button>
                 </td>
@@ -1545,6 +1546,23 @@
             });
             
             metricsTbody.appendChild(row);
+        }
+        
+        // Helper function to analyze metric from row data
+        function analyzeMetricFromRow(rowId) {
+            const row = document.getElementById(rowId);
+            if (row) {
+                const metricDataStr = row.getAttribute('data-metric');
+                if (metricDataStr) {
+                    try {
+                        const metric = JSON.parse(metricDataStr);
+                        analyzeMetricChange(metric);
+                    } catch (error) {
+                        console.error('Error parsing metric data:', error);
+                        alert('Error loading metric data. Please try again.');
+                    }
+                }
+            }
         }
         
         // Function to append an anomaly row
@@ -1661,8 +1679,7 @@
             console.log('Available metric fields:', Object.keys(metric));
             
             // Format and prepare metric data
-            // For regular metrics from top-metric-changes API, the ID field is 'object_id'
-            // For anomalies, it's already set as 'id' in the passed object
+            // The metric ID should be in object_id from the API response
             const metricId = metric.object_id || metric.id || '';
             console.log('Extracted metric ID:', metricId);
             
@@ -1955,15 +1972,6 @@ Can you help me understand:
                         </div>
                     `;
                 });
-            
-            // Set up the analyze button to open the full analysis modal
-            detailAnalyzeButton.onclick = function() {
-                analyzeMetricChange(metricData);
-            };
-            
-            // TODO: Implement the chart visualization with historical data
-            detailChartLoading.style.display = 'block';
-            // This would be implemented separately with time series data
         }
         
         // Function to format anomalies data

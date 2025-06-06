@@ -121,6 +121,7 @@ from backend import router as backend_router, set_templates, get_chart_by_metric
 from metrics_manager import router as metrics_router
 from anomalyAnalyzer import router as anomaly_analyzer_router, set_templates as set_anomaly_templates
 from routes.dw_charts import router as dw_charts_router
+from routes.database_admin import router as database_admin_router, set_templates as set_database_admin_templates
 from evals_routes import router as evals_router, set_templates as set_evals_templates
 
 app = FastAPI()
@@ -648,6 +649,11 @@ logger.debug("Included metrics router")
 set_evals_templates(templates)
 app.include_router(evals_router, prefix="/backend", tags=["evals"])
 logger.debug("Included evals router at /backend")
+
+# Mount database admin router
+set_database_admin_templates(templates)
+app.include_router(database_admin_router, prefix="/backend", tags=["database-admin"])
+logger.debug("Included database admin router at /backend")
 
 # Add redirect for anomaly analyzer without trailing slash
 @app.get("/anomaly-analyzer")

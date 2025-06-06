@@ -51,15 +51,14 @@ def get_charts_for_review(
         Dictionary containing chart information organized by type
     """
     try:
-        # Set default chart types if not provided
-        if chart_types is None:
-            chart_types = []
-            if include_time_series:
-                chart_types.append('time_series')
-            if include_anomalies:
-                chart_types.append('anomaly')
-            if include_maps:
-                chart_types.append('map')
+        # Set chart types based on include flags only (ignore chart_types parameter)
+        chart_types = []
+        if include_time_series:
+            chart_types.append('time_series')
+        if include_anomalies:
+            chart_types.append('anomaly')
+        if include_maps:
+            chart_types.append('map')
         
         # Calculate date cutoff
         cutoff_date = datetime.now() - timedelta(days=days_back)

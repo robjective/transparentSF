@@ -303,7 +303,7 @@ def _prepare_locator_marker_data(location_data, series_field=None, color_palette
         # Generate a title if none provided
         title = loc.get("title")
         if not title:
-            title=""
+            title=" "
         
         # Skip if no valid location data
         if not parsed_coordinates and not has_lat_lon and not has_address:
@@ -361,8 +361,7 @@ def _prepare_locator_marker_data(location_data, series_field=None, color_palette
             },
             "coordinates": parsed_coordinates or [float(loc["lon"]), float(loc["lat"])],
             "tooltip": {
-                "text": loc.get("tooltip", loc.get("description", "")),  # Try tooltip first, then description
-                "enabled": True
+                "text": loc.get("tooltip", loc.get("description", "")) or "Location"
             }
         }
         
@@ -727,7 +726,6 @@ def _create_and_configure_locator_map(chart_title, markers_json_string, center_c
         # Attempt to get chart_id if it was created before the error
         if 'chart_id' in locals() and chart_id:
             logger.error(f"An error occurred after chart {chart_id} was created. The chart might be in an incomplete state.")
-            return chart_id # Return potentially incomplete chart ID
         return None
 
 def process_location_data(location_data, map_type):
@@ -1077,11 +1075,10 @@ def create_datawrapper_chart(chart_title, location_data, map_type="supervisor_di
                                     # Validate coordinates are in San Francisco area
                                     if 37.6 <= lat <= 37.9 and -122.6 <= lon <= -122.2:
                                         processed_item = {
-                                            "coordinates": [lon, lat],  # Keep [lon, lat] order
+                                            "location": location_obj,  # Keep original DataSF format
                                             "title": item.get('title', ''),
-                                            "tooltip": item.get('description', '')  # Use tooltip instead of description
+                                            "tooltip": item.get('tooltip', item.get('description', ''))
                                         }
-                                        
                                         # Copy over any series field data
                                         if series_field and series_field in item:
                                             processed_item[series_field] = item[series_field]
@@ -1557,6 +1554,9 @@ def generate_map(context_variables, map_title, map_type, location_data=None, map
             logger.info(f"Using dataset from context_variables with shape: {dataset.shape}")
             logger.info(f"Dataset columns: {dataset.columns.tolist()}")
             
+            # Clean the dataset to prevent JSON serialization errors with NaN values
+            dataset = dataset.fillna('')
+            
             # Convert DataFrame to location_data based on map_type
             if map_type in ["point", "address", "intersection"]:
                 # For locator maps, convert DataSF format to our format
@@ -1570,8 +1570,8 @@ def generate_map(context_variables, map_title, map_type, location_data=None, map
                             if coords and len(coords) >= 2:
                                 processed_item = {
                                     "location": location_obj,  # Keep original DataSF format
-                                    "title": row.get('title', ''),
-                                    "tooltip": row.get('description', '')
+                                    "title": row.get('title'),
+                                    "tooltip": row.get('tooltip', row.get('description', ''))
                                 }
                                 # Copy over any series field data
                                 if series_field and series_field in row:
@@ -1590,8 +1590,8 @@ def generate_map(context_variables, map_title, map_type, location_data=None, map
                                 processed_item = {
                                     "lat": lat,
                                     "lon": lon,
-                                    "title": row.get('title', ''),
-                                    "tooltip": row.get('description', '')
+                                    "title": row.get('title'),
+                                    "tooltip": row.get('tooltip', row.get('description', ''))
                                 }
                                 # Copy over any series field data
                                 if series_field and series_field in row:
@@ -1616,13 +1616,11 @@ def generate_map(context_variables, map_title, map_type, location_data=None, map
                             "title": row.get('title'),
                             "address": row['address'],
                             "value": row.get('value', 1),
-                            "tooltip": row.get('description', ''),
+                            "description": row.get('description', ''),
+                            "series": row.get('series', '')
                         }
-                        # Copy over any series field data
-                        if series_field and series_field in row:
-                            item[series_field] = row[series_field]
-                        location_data.append(item)
                         logger.info(f"DEBUG: Added item: {item}")
+                        location_data.append(item)
                     else:
                         logger.warning(f"DEBUG: Row {idx} missing 'address' field or address is None")
                 
@@ -1872,8 +1870,9 @@ def generate_map(context_variables, map_title, map_type, location_data=None, map
                 # For CSV data, store as text in a wrapper object
                 location_data_json = {"csv_data": location_data, "type": "csv"}
             elif isinstance(location_data, list):
-                # For list data, store directly
-                location_data_json = {"data": location_data, "type": "list"}
+                # For list data, clean and store
+                cleaned_data = clean_data_for_json(location_data)
+                location_data_json = {"data": cleaned_data, "type": "list"}
             else:
                 # For other types, convert to string
                 location_data_json = {"data": str(location_data), "type": "other"}
@@ -2451,6 +2450,33 @@ def process_symbol_map_data(location_data):
     
     return processed_locations
 
+def clean_data_for_json(data):
+    """
+    Clean data structure to remove NaN values and other non-JSON-serializable values.
+    """
+    if isinstance(data, dict):
+        cleaned = {}
+        for key, value in data.items():
+            cleaned_value = clean_data_for_json(value)
+            if cleaned_value is not None:  # Only include non-None values
+                cleaned[key] = cleaned_value
+        return cleaned
+    elif isinstance(data, list):
+        cleaned = []
+        for item in data:
+            cleaned_item = clean_data_for_json(item)
+            if cleaned_item is not None:  # Only include non-None items
+                cleaned.append(cleaned_item)
+        return cleaned
+    elif isinstance(data, float) and (math.isnan(data) or math.isinf(data)):
+        return ""  # Convert NaN/Inf to empty string
+    elif data is None:
+        return ""  # Convert None to empty string
+    elif isinstance(data, str) and data.lower() in ['nan', 'null', 'none']:
+        return ""  # Convert string representations of null values
+    else:
+        return data
+
 # Testing
 if __name__ == "__main__":
     import sys
@@ -2625,10 +2651,10 @@ if __name__ == "__main__":
         # Create a mock dataset similar to what would come from DataSF
         mock_data = [
             {
-                "dba_name": "Sample Business 1",
-                "naic_code_description": "Food Services",
+                "title": "Sample Business 1",
+                "description": "Food Services",
                 "location": {
-                    "type": "Point",
+                    "type": "Point", 
                     "coordinates": [-122.4194, 37.7749]  # SF City Hall area
                 },
                 "markerColor": "#ff0000",
@@ -2636,8 +2662,8 @@ if __name__ == "__main__":
                 "opacity": 1.0
             },
             {
-                "dba_name": "Sample Business 2", 
-                "naic_code_description": "Retail Trade",
+                "title": "Sample Business 2",
+                "description": "Retail Trade", 
                 "location": {
                     "type": "Point",
                     "coordinates": [-122.3937, 37.7955]  # Ferry Building area
@@ -2647,8 +2673,8 @@ if __name__ == "__main__":
                 "opacity": 1.0
             },
             {
-                "dba_name": "Sample Business 3",
-                "naic_code_description": "Professional Services", 
+                "title": "Sample Business 3",
+                "description": "Professional Services",
                 "location": {
                     "type": "Point",
                     "coordinates": [-122.3893, 37.7786]  # Near Oracle Park

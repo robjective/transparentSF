@@ -423,13 +423,12 @@ CORE_TOOLS_INSTRUCTIONS = """TOOLS YOU SHOULD USE:
   Use this to get complete information about a specific anomaly, including its time series data and metadata.
 
 - get_charts_for_review: Get available charts for newsletter inclusion review
-  USAGE: get_charts_for_review(context_variables, limit=20, days_back=30, district_filter=None, chart_types=None, include_time_series=True, include_anomalies=True, include_maps=True)
+  USAGE: get_charts_for_review(context_variables, limit=20, days_back=30, district_filter=None, include_time_series=True, include_anomalies=True, include_maps=True)
   
   Parameter guidelines:
   - limit: Maximum number of charts to return per type (default: 20)
   - days_back: Number of days back to look for charts (default: 30)
   - district_filter: Filter by specific district ('0' for citywide, '1'-'11' for districts)
-  - chart_types: List of chart types to include ['time_series', 'anomaly', 'map']
   - include_time_series: Whether to include time series charts (default: True)
   - include_anomalies: Whether to include anomaly charts (default: True)
   - include_maps: Whether to include maps (default: True)
@@ -717,22 +716,46 @@ For example: [CHART:map:123]"""
 DATASF_MAPS_INSTRUCTIONS = """SERIES MAPS WITH DATASF DATA - PRACTICAL EXAMPLES:
 
 1. BUSINESS DATA (endpoint: g8m3-pdis):
-   Example 1: Map of new businesses in April.
+   Example 1: Map of new businesses by industry type
+   ```python
+   # First, query the business data
+   set_dataset(context_variables, 
+              endpoint="g8m3-pdis",
+              query="SELECT location, 
+                    location, 
+                    dba_name || ' - ' || naic_code_description as description,
+                    naic_code_description as series
+                    WHERE dba_start_date >= CURRENT_DATE - INTERVAL '30 days'
+                    ORDER BY dba_start_date DESC")
+   
+   # Then create the map
+   result = generate_map(
+       context_variables,
+       map_title="New Business Registrations by Industry",
+       map_type="point",
+       series_field="series",
+       color_palette="categorical"
+   )
+   ```
 
-First, query the business data
-set_dataset(context_variables, 
-           endpoint="g8m3-pdis",
-           query="SELECT location, dba_name as title, naic_code_description as description,
-                 WHERE dba_start_date >= '2025-04-01' and dba_start_date < '2025-05-01'
-                 ORDER BY dba_start_date DESC")
-
-# Then create the map
-result = generate_map(
-    context_variables,
-    map_title="April Business Registrations", 
-    map_type="point",
-    color_palette="categorical"
-)
+   Example 2: Map of business closures by district
+   ```python
+   # First, query the business data aggregated by district
+   set_dataset(context_variables,
+              endpoint="g8m3-pdis",
+              query="SELECT supervisor_district, 
+                    COUNT(*) as value
+                    WHERE location_end_date >= CURRENT_DATE - INTERVAL '30 days'
+                    GROUP BY supervisor_district")
+   
+   # Then create the map
+   result = generate_map(
+       context_variables,
+       map_title="Business Closures by District",
+       map_type="supervisor_district",
+       map_metadata={"description": "Number of business closures in the last 30 days"}
+   )
+   ```
 
 2. CRIME DATA (endpoint: wg3w-h783):
    Example 1: Map of recent crimes by type
