@@ -132,18 +132,18 @@ app.add_middleware(
     allow_origins=[
         "https://dashboard.transparentsf.com",
         "https://transparentsf.com",
-        "https://*.transparentsf.com",
+        "https://platform.transparentsf.com",
         "https://*.replit.app",
         "http://localhost:8081",
         "https://*.replit.dev",
         "http://c8f21de5-50d5-4932-9f30-db3b51e8af74-00-3cldcjjo20ql9.riker.replit.dev",
-        "https://0ea7c615-87bb-43af-8dc3-9d1816811571-00-3jirn7oguyp0q.picard.replit.dev/",
-    ],  # Only allow specific origins
-    allow_credentials=True,  # Required for cookies
-    allow_methods=["*"],    # Allows all methods
-    allow_headers=["*"],    # Allows all headers
-    expose_headers=["Set-Cookie"],  # Expose Set-Cookie header
-    max_age=3600,          # Cache preflight requests for 1 hour
+        "https://0ea7c615-87bb-43af-8dc3-9d1816811571-00-3jirn7oguyp0q.picard.replit.dev"
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+    expose_headers=["Set-Cookie"],
+    max_age=3600,
 )
 
 # Initialize templates with absolute path
