@@ -371,6 +371,10 @@ def _prepare_locator_marker_data(location_data, series_field=None, color_palette
             marker["markerColor"] = series_color_map.get(series_value, marker["markerColor"])
             marker["series"] = series_value
         
+        # Debug logging for tooltip content
+        tooltip_text = marker["tooltip"]["text"]
+        logger.debug(f"Created marker for '{title}': tooltip='{tooltip_text[:50]}...' if len(tooltip_text) > 50 else tooltip_text")
+        
         markers.append(marker)
     
     # Create the final marker data structure
@@ -908,8 +912,8 @@ def create_datawrapper_chart(chart_title, location_data, map_type="supervisor_di
                 # If it's not JSON, treat as CSV data and pass through
                 logger.info(f"location_data appears to be CSV string, using as-is")
         
-        # NEW: Attempt to parse string-formatted location_data for locator maps (point, address, intersection)
-        if isinstance(location_data, str) and map_type in ["point", "address", "intersection"]:
+        # NEW: Attempt to parse string-formatted location_data for locator maps (point, address, intersection, symbol)
+        if isinstance(location_data, str) and map_type in ["point", "address", "intersection", "symbol"]:
             # First, try JSON parsing
             try:
                 possible_list = json.loads(location_data)
@@ -1003,10 +1007,40 @@ def create_datawrapper_chart(chart_title, location_data, map_type="supervisor_di
         
         # Handle location_data format conversion for symbol maps (coordinate-based)
         elif map_type == "symbol":
-            # Symbol maps are now handled as locator maps, so skip CSV conversion
-            pass
+            # Symbol maps use cloning approach and need CSV format like district maps
+            if isinstance(location_data, list):
+                logger.info(f"Converting symbol map data to CSV format")
+                
+                # First process and geocode the address data
+                geocoded_data = process_symbol_map_data(location_data)
+                
+                # Create CSV format for symbol map: lat,lon,value,title,tooltip,series
+                # Note: Datawrapper symbol maps expect 'tooltip' column for hover text
+                csv_data = "lat,lon,value,title,tooltip,series\n"
+                for item in geocoded_data:
+                    if item.get('lat') is not None and item.get('lon') is not None:
+                        lat = item['lat']
+                        lon = item['lon']
+                        value = item.get('value', 1)
+                        title = item.get('title', '')
+                        # Use description as tooltip, or fall back to tooltip field
+                        tooltip = item.get('description', item.get('tooltip', ''))
+                        series = item.get('series', '')
+                        
+                        # Escape any commas or quotes in text fields
+                        title = str(title).replace('"', '""')
+                        tooltip = str(tooltip).replace('"', '""')
+                        series = str(series).replace('"', '""')
+                        
+                        # Log the tooltip text for debugging
+                        logger.debug(f"Adding tooltip for {title}: {tooltip[:50]}...")
+                        
+                        csv_data += f'{lat},{lon},{value},"{title}","{tooltip}","{series}"\n'
+                
+                location_data = csv_data
+                logger.info(f"Converted {len(geocoded_data)} symbol locations to CSV format")
         
-        # Handle locator maps (point, address, intersection) with the new logic
+        # Handle locator maps (point, address, intersection) with the new logic  
         if map_type in ["point", "address", "intersection"]:
             logger.info(f"Preparing locator map: {chart_title} (type: {map_type})")
             if not isinstance(location_data, list):
@@ -1021,8 +1055,34 @@ def create_datawrapper_chart(chart_title, location_data, map_type="supervisor_di
                     logger.error(f"Failed to parse location_data as list for {map_type} map: {e}")
                     return None
             
+            # For symbol maps, process addresses and geocode them first
+            if map_type == "symbol":
+                logger.info(f"Processing symbol map with {len(location_data)} locations")
+                # Use existing geocoding function but prepare for locator map format
+                geocoded_data = process_symbol_map_data(location_data)
+                
+                # Convert geocoded data to locator map format with proper coordinate structure
+                location_data = []
+                for item in geocoded_data:
+                    if item.get('lat') is not None and item.get('lon') is not None:
+                        # Get the best available description/tooltip text
+                        tooltip_text = item.get("description", item.get("tooltip", ""))
+                        
+                        locator_item = {
+                            "coordinates": [item['lon'], item['lat']],  # Datawrapper expects [longitude, latitude]
+                            "title": item.get("title", ""),
+                            "tooltip": tooltip_text,  # Use tooltip for Datawrapper
+                            "description": tooltip_text,  # Keep description for compatibility
+                            "value": item.get("value", 1),
+                            "series": item.get("series", "")
+                        }
+                        location_data.append(locator_item)
+                        logger.debug(f"Converted symbol location: title='{locator_item['title']}', tooltip='{tooltip_text[:50]}...' series='{locator_item['series']}'")
+                
+                logger.info(f"Converted {len(location_data)} symbol locations to locator format")
+            
             # For address maps, geocode addresses to get coordinates
-            if map_type == "address":
+            elif map_type == "address":
                 logger.info(f"Geocoding {len(location_data)} addresses for more reliable positioning")
                 geocoded_data = []
                 
@@ -1238,27 +1298,6 @@ def create_datawrapper_chart(chart_title, location_data, map_type="supervisor_di
         elif isinstance(location_data, str):
             data_to_upload = location_data # Assume it's a CSV string
             logger.info("Using provided string as data for chart.")
-        elif isinstance(location_data, list) and map_type == "symbol":
-            # Special handling for symbol maps: geocode addresses and convert to CSV
-            logger.info(f"Processing {len(location_data)} symbol map locations with geocoding")
-            
-            # Geocode the data using our existing function
-            geocoded_data = process_symbol_map_data(location_data)
-            logger.info(f"Successfully processed {len(geocoded_data)} geocoded symbol locations")
-            
-            # Convert to CSV format for the symbol map reference chart
-            csv_data = "latitude,longitude,title,value,description,series\n"
-            for item in geocoded_data:
-                lat = item.get('lat', 0)
-                lon = item.get('lon', 0)
-                title = item.get('title', '').replace(',', ';')  # Replace commas to avoid CSV issues
-                value = item.get('value', 1)
-                description = item.get('description', '').replace(',', ';')
-                series = item.get('series', '')
-                csv_data += f"{lat},{lon},{title},{value},{description},{series}\n"
-            
-            data_to_upload = csv_data
-            logger.info(f"Converted {len(geocoded_data)} symbol locations to CSV format")
         else:
             logger.error("location_data for non-locator maps must be a file path or CSV string.")
             # Attempt to delete the partially created chart
@@ -1285,20 +1324,40 @@ def create_datawrapper_chart(chart_title, location_data, map_type="supervisor_di
         # Apply custom styling before publishing (only for district maps that need special choropleth styling)
         if map_type in ["supervisor_district", "police_district"]:
             _apply_custom_map_styling(chart_id, map_type, map_metadata)
+        elif map_type == "symbol":
+            # Configure symbol map metadata to enable tooltips
+            symbol_metadata = {
+                "metadata": {
+                    "visualize": {
+                        "tooltip": {
+                            "enabled": True,
+                            "body": "{{tooltip}}",
+                            "title": "{{title}}",
+                            "sticky": True
+                        }
+                    }
+                }
+            }
+            _make_dw_request(
+                "PATCH",
+                f"/charts/{chart_id}",
+                json_payload=symbol_metadata
+            )
+            logger.info(f"Applied tooltip configuration to symbol map {chart_id}")
 
         return chart_id
     
     except Exception as e:
         logger.error(f"Error in create_datawrapper_chart for \'{chart_title}\': {str(e)}", exc_info=True)
         # If a chart was partially created before an error, attempt to delete it for non-locator maps
-        if chart_id and map_type not in ["point", "address", "intersection"]:
+        if chart_id and map_type not in ["point", "address", "intersection", "symbol"]:
             logger.warning(f"An error occurred after chart {chart_id} was cloned. Attempting to delete it.")
             try:
                 _make_dw_request("DELETE", f"/charts/{chart_id}")
                 logger.info(f"Successfully deleted partially created chart: {chart_id}")
             except Exception as del_e:
                 logger.error(f"Failed to delete chart {chart_id} during cleanup: {del_e}")
-        elif chart_id and map_type in ["point", "address", "intersection"]:
+        elif chart_id and map_type in ["point", "address", "intersection", "symbol"]:
             logger.warning(f"An error occurred with locator map {chart_id}. It might be in an incomplete state.")
         return None
 
@@ -1663,8 +1722,8 @@ def generate_map(context_variables, map_title, map_type, location_data=None, map
             # If it's not JSON, treat as CSV data and pass through
             logger.info(f"location_data appears to be CSV string, using as-is")
     
-    # NEW: Attempt to parse string-formatted location_data for locator maps (point, address, intersection)
-    if isinstance(location_data, str) and map_type in ["point", "address", "intersection"]:
+    # NEW: Attempt to parse string-formatted location_data for locator maps (point, address, intersection, symbol)
+    if isinstance(location_data, str) and map_type in ["point", "address", "intersection", "symbol"]:
         # First, try JSON parsing
         try:
             possible_list = json.loads(location_data)
@@ -1779,14 +1838,14 @@ def generate_map(context_variables, map_title, map_type, location_data=None, map
                 chart_args["color_palette"] = map_metadata["color"]
     
     # Add series support for locator maps
-    if map_type in ["point", "address", "intersection"]:
+    if map_type in ["point", "address", "intersection", "symbol"]:
         if series_field:
             chart_args["series_field"] = series_field
         if color_palette:
             chart_args["color_palette"] = color_palette
     
     # For non-locator maps, pass reference_chart_id if provided
-    if map_type not in ["point", "address", "intersection"]:
+    if map_type not in ["point", "address", "intersection", "symbol"]:
         chart_args["reference_chart_id"] = reference_chart_id
 
     chart_id = None
@@ -1825,6 +1884,26 @@ def generate_map(context_variables, map_title, map_type, location_data=None, map
         # Apply custom styling before publishing (only for district maps that need special choropleth styling)
         if map_type in ["supervisor_district", "police_district"]:
             _apply_custom_map_styling(chart_id, map_type, map_metadata)
+        elif map_type == "symbol":
+            # Configure symbol map metadata to enable tooltips
+            symbol_metadata = {
+                "metadata": {
+                    "visualize": {
+                        "tooltip": {
+                            "enabled": True,
+                            "body": "{{tooltip}}",
+                            "title": "{{title}}",
+                            "sticky": True
+                        }
+                    }
+                }
+            }
+            _make_dw_request(
+                "PATCH",
+                f"/charts/{chart_id}",
+                json_payload=symbol_metadata
+            )
+            logger.info(f"Applied tooltip configuration to symbol map {chart_id}")
 
         # Publish the chart once with all styling applied
         logger.info(f"Publishing chart {chart_id}")
@@ -2187,6 +2266,44 @@ def get_active_maps_for_metric(context_variables, metric_id, group_field, map_su
         logger.error(f"Error retrieving active maps: {str(e)}")
         return {"status": "error", "message": f"Error retrieving active maps: {str(e)}"}
 
+def _clean_address_typos(address):
+    """
+    Clean common typos in San Francisco street addresses to improve geocoding success.
+    
+    Args:
+        address (str): The address to clean
+        
+    Returns:
+        str: Address with common typos corrected
+    """
+    if not address:
+        return address
+    
+    # Common typo corrections
+    typo_corrections = {
+        'streeet': 'street',
+        'aveneue': 'avenue', 
+        'terracwe': 'terrace',
+        'blvd': 'boulevard',
+        'ave': 'avenue',
+        'st': 'street',
+        'dr': 'drive',
+        'rd': 'road',
+        'ct': 'court',
+        'ln': 'lane',
+        'pl': 'place'
+    }
+    
+    # Apply corrections (case insensitive)
+    cleaned_address = address
+    for typo, correction in typo_corrections.items():
+        # Use word boundaries to avoid partial word replacements
+        import re
+        pattern = r'\b' + re.escape(typo) + r'\b'
+        cleaned_address = re.sub(pattern, correction, cleaned_address, flags=re.IGNORECASE)
+    
+    return cleaned_address
+
 def geocode_address(address, max_retries=3, delay=1):
     """
     Geocode an address to get latitude and longitude coordinates.
@@ -2208,6 +2325,9 @@ def geocode_address(address, max_retries=3, delay=1):
     address = address.strip()
     if not address:
         return None, None
+    
+    # Apply basic typo corrections for common street name errors
+    address = _clean_address_typos(address)
     
     # Ensure San Francisco is in the address for better results
     if "san francisco" not in address.lower() and "sf" not in address.lower():
@@ -2433,16 +2553,20 @@ def process_symbol_map_data(location_data):
         # If we have valid coordinates, create the processed location
         if lat is not None and lon is not None:
             try:
+                # Get description/tooltip - preserve both field names for compatibility
+                description_text = item.get("description", item.get("tooltip", ""))
+                
                 processed_location = {
                     "lat": float(lat),
                     "lon": float(lon),
                     "title": item.get("title", ""),
                     "value": float(item.get("value", 1)),  # Convert value to float
-                    "tooltip": item.get("tooltip", item.get("description", "")),  # Support both tooltip and description
+                    "description": description_text,  # Keep as description for consistency
+                    "tooltip": description_text,      # Also keep as tooltip for compatibility
                     "series": item.get("series", "")  # Include series if present
                 }
                 processed_locations.append(processed_location)
-                logger.debug(f"Processed location: {processed_location}")
+                logger.debug(f"Processed location: title='{processed_location['title']}', description='{description_text[:50]}...' if description_text else '(empty)', series='{processed_location['series']}'")
             except (ValueError, TypeError) as e:
                 logger.warning(f"Could not convert coordinates or value to float: {e}")
         else:
@@ -2582,42 +2706,63 @@ if __name__ == "__main__":
     def test_symbol_map():
         test_location_data = [
             {
-                "name": "District 1",
-                "latitude": 37.7800,
-                "longitude": -122.4800,
-                "value": 50,
-                "color": "#ad35fa",
-                "description": "District 1: 50 units"
+                "address": "1151 Fairfax Avenue",
+                "value": "76",
+                "description": "1151 Fairfax Avenue: Initial TCO (76 units)",
+                "series": "Initial TCO"
             },
             {
-                "name": "District 2",
-                "latitude": 37.7900,
-                "longitude": -122.4200,
-                "value": 80,
-                "color": "#4A7463",
-                "description": "District 2: 80 units"
+                "address": "42 Farragut Avenue",
+                "value": "1",
+                "description": "42 Farragut Avenue: CFC (1 units)",
+                "series": "CFC"
             },
             {
-                "name": "District 3",
-                "latitude": 37.7600,
-                "longitude": -122.4100,
-                "value": 30,
-                "color": "#FF6B5A",
-                "description": "District 3: 30 units"
+                "address": "423-431 Union Street",
+                "value": "1",
+                "description": "423-431 Union Street: CFC (1 units)",
+                "series": "CFC"
+            },
+            {
+                "address": "2844 Lyon Street",
+                "value": "4",
+                "description": "2844 Lyon Street: CFC (4 units)",
+                "series": "CFC"
+            },
+            {
+                "address": "53A Ledyard Streeet",
+                "value": "1",
+                "description": "53A Ledyard Streeet: CFC (1 units)",
+                "series": "CFC"
             }
         ]
-        test_metadata = {
-            "description": "Test symbol map",
-            "source": "Test data",
-            "date_created": datetime.now().isoformat(),
-            "color": "#ad35fa"
+        
+        # Create DataFrame and context_variables like the real system would from a DataSF query
+        import pandas as pd
+        df = pd.DataFrame(test_location_data)
+        test_context_variables = {
+            "dataset": df,
+            "executed_query_url": "https://data.sfgov.org/resource/j67f-aayr.json"
         }
+        
+        test_metadata = {
+            "description": "Test symbol map with housing certificate data from context dataset",
+            "source": "DataSF Housing Certificates",
+            "date_created": datetime.now().isoformat()
+        }
+        
+        print(f"Testing symbol map with context dataset...")
+        print(f"Dataset shape: {df.shape}")
+        print(f"Dataset columns: {df.columns.tolist()}")
+        
         result = generate_map(
-            {},
-            map_title="Test Symbol Map",
+            context_variables=test_context_variables,
+            map_title="Test Symbol Map - Housing Certificates (Context)",
             map_type="symbol",
-            location_data=test_location_data,
-            map_metadata=test_metadata
+            # location_data=None,  # Use dataset from context_variables instead
+            map_metadata=test_metadata,
+            series_field="series",
+            color_palette="categorical"
         )
         print(f"Result: {result}")
 
