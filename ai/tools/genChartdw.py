@@ -258,7 +258,9 @@ def create_datawrapper_chart(metric_id: str, intro: str = "", district: str = "0
             },
             "publish": { # Ensure chart is embeddable
                 "embed-width": 600, # Default or adjust
-                "embed-height": 400 # Default or adjust
+                "embed-height": 400, # Default or adjust
+                "autoDarkMode": True,
+                "chart-height": 0
             }
         }
     }
@@ -566,7 +568,9 @@ def create_time_series_chart_from_data(chart_data, metadata):
             },
             "publish": {
                 "embed-width": 700,
-                "embed-height": 450
+                "embed-height": 450,
+                "autoDarkMode": True,
+                "chart-height": 0
             }
         }
     }
@@ -632,6 +636,132 @@ def create_time_series_chart_from_data(chart_data, metadata):
         return public_url
     else:
         logger.error(f"Failed to retrieve public URL for chart ID: {chart_id} after publishing.")
+        return None
+
+def create_ytd_trend_chart(
+    trend_data: dict,
+    metadata: dict,
+    district: str = None
+):
+    """
+    Creates a Datawrapper YTD trend chart for district-specific trend data.
+    
+    Args:
+        trend_data: Dictionary with date keys and numeric values (e.g., {"2024-01-01": 10.5})
+        metadata: Dictionary with chart metadata
+        district: District identifier (e.g., "1", "2", etc., or None for citywide)
+        
+    Returns:
+        The public URL of the created and published Datawrapper chart, or None if failed.
+    """
+    # Create district-specific title
+    chart_title = metadata.get('chart_title', 'YTD Trend Chart')
+    district_name = f"District {district}" if district and district != '0' else "Citywide"
+    full_title = f"{chart_title} - {district_name}"
+    
+    logger.info(f"Starting Datawrapper YTD trend chart creation for district {district or 'citywide'}, title: '{full_title}'")
+
+    if not DATAWRAPPER_API_KEY:
+        logger.error("Cannot create chart: DATAWRAPPER_API_KEY is not set.")
+        return None
+
+    if not trend_data:
+        logger.error("No trend data provided")
+        return None
+
+    # Convert trend_data dictionary to CSV format
+    csv_data_lines = ["date,value"]  # CSV header
+    for date_str, value in trend_data.items():
+        csv_data_lines.append(f"{date_str},{value}")
+    csv_data = "\n".join(csv_data_lines)
+    
+    logger.debug(f"Prepared CSV data for YTD trend chart:\n{csv_data[:250]}...")
+
+    # Create a new chart in Datawrapper
+    logger.info("Creating new YTD trend chart in Datawrapper...")
+    create_payload = {
+        "title": full_title,
+        "type": "d3-lines",  # Line chart
+    }
+    created_chart_info = _make_dw_request("POST", "/charts", json_payload=create_payload)
+
+    if not created_chart_info or "id" not in created_chart_info:
+        logger.error("Failed to create Datawrapper YTD trend chart.")
+        return None
+    
+    chart_id = created_chart_info["id"]
+    logger.info(f"Datawrapper YTD trend chart created with ID: {chart_id}")
+
+    # Upload data to the chart
+    logger.info(f"Uploading data to YTD trend chart ID: {chart_id}...")
+    upload_headers = {"Content-Type": "text/csv"}
+    upload_response = _make_dw_request("PUT", f"/charts/{chart_id}/data", headers=upload_headers, data=csv_data.encode('utf-8'))
+    
+    logger.info(f"Data upload process completed for YTD trend chart ID: {chart_id}")
+
+    # Customize chart styling for YTD trends
+    logger.info(f"Customizing YTD trend chart ID: {chart_id}...")
+    
+    # Create description with district information
+    description = f"Year-to-date trend data for {district_name.lower()}"
+    if metadata.get('caption'):
+        description += f"\n\n{metadata['caption']}"
+    
+    # Customize chart properties for YTD trends
+    chart_properties = {
+        "metadata": {
+            "describe": {
+                "intro": description
+            },
+            "visualize": {
+                "type": "d3-lines",
+                "interpolate": "monotone",  # Smooth line interpolation
+                "lineWidth": 2,
+                "color": "#1f77b4"
+            },
+            "axes": {
+                "x": {
+                    "type": "date",
+                    "label": "Date",
+                    "format": "%B %d, %Y"
+                },
+                "y": {
+                    "label": metadata.get('y_axis_label', 'Value'),
+                    "grid": True
+                }
+            },
+            "style": {
+                "plot": {
+                    "background-color": "white"
+                },
+                "chart": {
+                    "background-color": "white"
+                }
+            }
+        }
+    }
+    
+    # Apply chart properties
+    properties_response = _make_dw_request("PATCH", f"/charts/{chart_id}", json_payload=chart_properties)
+    
+    if not properties_response:
+        logger.warning(f"Failed to apply properties to YTD trend chart {chart_id}, but continuing...")
+
+    # Publish the chart
+    logger.info(f"Publishing YTD trend chart ID: {chart_id}...")
+    publish_response = _make_dw_request("POST", f"/charts/{chart_id}/publish")
+    
+    if not publish_response:
+        logger.error(f"Failed to publish YTD trend chart {chart_id}")
+        return None
+
+    # Get the public URL
+    public_url = publish_response.get("publicUrl")
+    if public_url:
+        logger.info(f"YTD trend chart published successfully: {public_url}")
+        return public_url
+    else:
+        logger.error(f"Failed to get public URL for YTD trend chart {chart_id}")
         return None
 
 if __name__ == '__main__':
@@ -796,7 +926,9 @@ if __name__ == '__main__':
                 },
                 "publish": {
                     "embed-width": 700,
-                    "embed-height": 450
+                    "embed-height": 450,
+                    "autoDarkMode": True,
+                    "chart-height": 0
                 }
             }
         }

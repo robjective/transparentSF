@@ -192,13 +192,40 @@
         /* Add media query for wider screens */
         @media (min-width: 768px) {
             #anomaly-chart {
-                padding-bottom: 100%; /* Maintain square aspect ratio on wider screens */
+                padding-bottom: 75%; /* Maintain 4:3 aspect ratio on wider screens */
             }
         }
         
         @media (min-width: 1200px) {
             #anomaly-chart {
-                padding-bottom: 100%; /* Maintain square aspect ratio on very wide screens */
+                padding-bottom: 75%; /* Maintain 4:3 aspect ratio on very wide screens */
+            }
+        }
+        
+        /* Special handling for small embedded windows */
+        @media (max-height: 500px) {
+            #anomaly-chart {
+                padding-bottom: 60%; /* Even shorter for very small height windows */
+            }
+            
+            .chart-container {
+                padding: 5px;
+            }
+        }
+        
+        /* Special handling for very small embedded windows (like 437x437) */
+        @media (max-width: 450px) and (max-height: 450px) {
+            #anomaly-chart {
+                padding-bottom: 55%; /* Even more compact for very small windows */
+            }
+            
+            .chart-container {
+                padding: 3px;
+                max-width: 100%;
+            }
+            
+            body {
+                padding: 5px;
             }
         }
         
@@ -249,7 +276,7 @@
             display: none !important;
         }
         
-        /* Ensure chart is square and contains text properly */
+        /* Ensure chart is responsive and contains text properly */
         .square-container {
             position: relative;
             width: 100%;
@@ -260,7 +287,7 @@
         .square-container:before {
             content: "";
             display: block;
-            padding-top: 100%; /* 1:1 Aspect Ratio */
+            padding-top: 75%; /* Changed from 100% to 75% for 4:3 aspect ratio */
         }
         
         .square-content {
@@ -281,7 +308,7 @@
         #anomaly-chart {
             width: 100%;
             height: 0;
-            padding-bottom: 100%;
+            padding-bottom: 75%; /* Changed from 100% to 75% for better fit in 437x437 window */
             position: relative;
             overflow: visible;
             display: block;
@@ -296,6 +323,9 @@
             height: 100% !important;
         }
     </style>
+
+    <!-- Dark Mode CSS -->
+    <link rel="stylesheet" href="/static/css/darkmode.css">
 </head>
 <body>
     <div class="container">
@@ -664,8 +694,8 @@
             embedCode += ` frameborder="0" scrolling="no"></iframe>`;
             
             if (isResponsive) {
-                // Use square aspect ratio (100%) for anomaly charts
-                embedCode = `<div style="position: relative; width: 100%; height: 0; padding-bottom: 100%;">\n  <div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%;">\n    ${embedCode}\n  </div>\n</div>`;
+                // Use 4:3 aspect ratio (75%) for responsive charts
+                embedCode = `<div style="position: relative; width: 100%; height: 0; padding-bottom: 75%;">\n  <div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%;">\n    ${embedCode}\n  </div>\n</div>`;
             }
             
             document.getElementById('embedCode').value = embedCode;
@@ -781,11 +811,30 @@
                     // Parse the date string into a Date object
                     let dateObj;
                     try {
-                        const dateParts = dateStr.split('-');
-                        const year = parseInt(dateParts[0]);
-                        const month = parseInt(dateParts[1]) - 1;
-                        const day = dateParts.length > 2 ? parseInt(dateParts[2]) : 1;
-                        dateObj = new Date(year, month, day);
+                        // Check if this is a weekly format (YYYY-WXX)
+                        if (dateStr.includes('W') && dateStr.includes('-')) {
+                            const [yearPart, weekPart] = dateStr.split('-');
+                            const year = parseInt(yearPart);
+                            const weekNum = parseInt(weekPart.replace('W', ''));
+                            
+                            // Create a date for the first day of the year
+                            const jan1 = new Date(year, 0, 1);
+                            
+                            // Find the first Monday of the year (ISO week starts on Monday)
+                            // If Jan 1 is Monday (weekday=0), we're good. Otherwise, find the next Monday
+                            const daysUntilMonday = (7 - jan1.getDay()) % 7;
+                            const firstMonday = new Date(jan1.getTime() + daysUntilMonday * 24 * 60 * 60 * 1000);
+                            
+                            // Calculate the target date by adding weeks
+                            dateObj = new Date(firstMonday.getTime() + (weekNum - 1) * 7 * 24 * 60 * 60 * 1000);
+                        } else {
+                            // Handle regular date formats
+                            const dateParts = dateStr.split('-');
+                            const year = parseInt(dateParts[0]);
+                            const month = parseInt(dateParts[1]) - 1;
+                            const day = dateParts.length > 2 ? parseInt(dateParts[2]) : 1;
+                            dateObj = new Date(year, month, day);
+                        }
                         
                         if (isNaN(dateObj.getTime())) {
                             console.error(`Invalid date: ${dateStr}`);
@@ -830,7 +879,8 @@
                     x: allDates,
                     y: upperBound,
                     type: 'scatter',
-                    mode: 'none',
+                    mode: 'lines',
+                    line: { color: 'rgba(74, 116, 99, 0.3)', width: 1 },
                     fill: 'tonexty',
                     fillcolor: 'rgba(74, 116, 99, 0.15)', // Spruce Green with transparency
                     name: 'Normal Range',
@@ -845,11 +895,11 @@
                     y: comparisonValues,
                     type: 'scatter',
                     mode: 'lines+markers',
-                    name: 'Time Series Data',
+                    name: 'Historical Data',
                     line: { color: '#ad35fa', width: 2 }, // Bright Blue
                     marker: { color: '#ad35fa', size: 6 }, // Bright Blue
                     showlegend: true,
-                    hovertemplate: '%{x|%B %Y}<br>%{y}<extra></extra>'
+                    hovertemplate: anomaly.period_type === 'week' ? '%{x|%B %d, %Y}<br>%{y}<extra></extra>' : '%{x|%B %Y}<br>%{y}<extra></extra>'
                 });
             }
             
@@ -863,8 +913,8 @@
                     name: 'Recent Data',
                     line: { color: '#ad35fa', width: 2 }, // Same color as historical
                     marker: { color: '#ad35fa', size: 6 }, // Same color as historical
-                    showlegend: false,
-                    hovertemplate: '%{x|%B %Y}<br>%{y}<extra></extra>'
+                    showlegend: true,
+                    hovertemplate: anomaly.period_type === 'week' ? '%{x|%B %d, %Y}<br>%{y}<extra></extra>' : '%{x|%B %Y}<br>%{y}<extra></extra>'
                 });
             }
             
@@ -930,7 +980,7 @@
                         }
                     },
                     showgrid: false,
-                    tickformat: '%b %Y',
+                    tickformat: anomaly.period_type === 'week' ? '%b %d, %Y' : '%b %Y',
                     tickfont: { 
                         family: 'IBM Plex Sans, Arial, sans-serif',
                         size: 9,
@@ -941,16 +991,32 @@
                     ticktext: [...comparisonDates, ...recentDates].sort((a, b) => a - b).map((d, index) => {
                         const month = d.getMonth();
                         const year = d.getFullYear();
+                        const day = d.getDate();
                         const fullMonths = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-                        let label = fullMonths[month].charAt(0);
                         
-                        if (index === 0 || [...comparisonDates, ...recentDates].sort((a, b) => a - b)[index - 1].getFullYear() !== year) {
-                            label += `<br>${year}`;
+                        if (anomaly.period_type === 'week') {
+                            // For weekly data, show month and day
+                            let label = `${fullMonths[month].substring(0, 3)} ${day}`;
+                            
+                            if (index === 0 || [...comparisonDates, ...recentDates].sort((a, b) => a - b)[index - 1].getFullYear() !== year) {
+                                label += `<br>${year}`;
+                            } else {
+                                label += "<br> ";
+                            }
+                            
+                            return label;
                         } else {
-                            label += "<br> ";
+                            // For monthly/yearly data, show month abbreviation
+                            let label = fullMonths[month].charAt(0);
+                            
+                            if (index === 0 || [...comparisonDates, ...recentDates].sort((a, b) => a - b)[index - 1].getFullYear() !== year) {
+                                label += `<br>${year}`;
+                            } else {
+                                label += "<br> ";
+                            }
+                            
+                            return label;
                         }
-                        
-                        return label;
                     }),
                     tickangle: 0,
                     ticklen: 3,
@@ -1029,6 +1095,9 @@
                 
                 // Display metadata
                 displayMetadata(anomaly);
+
+                // Apply initial theme colors
+                applyThemeToPlot(document.documentElement.getAttribute('data-theme') || 'light');
             });
             
             // Add responsive resize handler to update layout on window resize
@@ -1111,6 +1180,40 @@
         
         // Load data when the page loads
         document.addEventListener('DOMContentLoaded', fetchAnomalyData);
+
+        // Function to apply theme colors to Plotly chart
+        function applyThemeToPlot(theme) {
+            const isDark = theme === 'dark';
+            const styles = getComputedStyle(document.documentElement);
+            const textColor = styles.getPropertyValue('--text-primary').trim() || (isDark ? '#ffffff' : '#222222');
+            const gridColor = isDark ? 'rgba(60,60,60,0.5)' : 'rgba(232, 233, 235, 0.5)';
+            const borderColor = styles.getPropertyValue('--border-primary').trim() || gridColor;
+            const paperBg = styles.getPropertyValue('--bg-primary').trim() || (isDark ? '#121212' : '#ffffff');
+
+            Plotly.relayout('anomaly-plot', {
+                'font.color': textColor,
+                'xaxis.tickfont.color': textColor,
+                'xaxis.linecolor': borderColor,
+                'yaxis.title.font.color': textColor,
+                'yaxis.tickfont.color': textColor,
+                'yaxis.gridcolor': gridColor,
+                'legend.font.color': textColor,
+                'title.font.color': textColor,
+                'paper_bgcolor': paperBg,
+                'plot_bgcolor': paperBg
+            });
+        }
+
+        // Listen for dark-mode changes dispatched by DarkModeManager
+        window.addEventListener('themeChanged', (e) => {
+            if (e && e.detail && e.detail.theme) {
+                applyThemeToPlot(e.detail.theme);
+            }
+        });
     </script>
+
+    <!-- Dark Mode JavaScript -->
+    <script src="/static/js/darkmode.js"></script>
+    <script src="/static/js/iframe-darkmode.js"></script>
 </body>
 </html> 

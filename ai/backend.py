@@ -33,6 +33,8 @@ import asyncio
 # Import the new function
 from tools.genGhostPost import publish_newsletter_to_ghost
 from monthly_report import expand_chart_references, generate_email_compatible_report
+from typing import Optional
+from tools.analysis.weekly import run_weekly_analysis
 
 # Use the root logger configured elsewhere (e.g., in monthly_report.py)
 logger = logging.getLogger(__name__)
@@ -870,7 +872,8 @@ async def generate_weekly_report():
     logger.debug("Generate weekly report called")
     try:
         # Import the necessary functions
-        from generate_weekly_analysis import run_weekly_analysis, generate_weekly_newsletter
+        from tools.analysis.weekly import run_weekly_analysis
+        # from tools.analysis.weekly import generate_weekly_newsletter
         
         # Run the weekly analysis with specific metrics instead of empty list
         # Using metric IDs 1-3 as defaults, which are usually the most reliable metrics
@@ -879,7 +882,8 @@ async def generate_weekly_report():
         results = run_weekly_analysis(metrics_list=metrics_to_process, process_districts=True)
         
         # Generate a newsletter
-        newsletter_path = generate_weekly_newsletter(results)
+        # Newsletter generation temporarily disabled
+        # newsletter_path = generate_weekly_newsletter(results)
         
         if results and len(results) > 0:
             successful = len(results)
@@ -1034,15 +1038,16 @@ async def run_all_metrics(period_type: str = 'year'):
             logger.info("Running weekly analysis for all default metrics")
             
             # Import necessary functions
-            from generate_weekly_analysis import run_weekly_analysis, generate_weekly_newsletter
+            from tools.analysis.weekly import run_weekly_analysis
             
             # Run the weekly analysis
             results = run_weekly_analysis(process_districts=True)
             
-            # Generate a newsletter
-            newsletter_path = generate_weekly_newsletter(results)
-            
-            if results:
+            if results and len(results) > 0:
+                # Generate a newsletter
+                # Newsletter generation temporarily disabled
+                # newsletter_path = generate_weekly_newsletter(results)
+                
                 successful = len(results)
                 failed = 0
                 
@@ -1057,13 +1062,13 @@ async def run_all_metrics(period_type: str = 'year'):
                         "successful": successful,
                         "failed": 0,
                         "metrics": metric_ids,
-                        "newsletter_path": newsletter_path
+                        # "newsletter_path": newsletter_path
                     }
                 })
             else:
                 return JSONResponse({
                     "status": "error",
-                    "message": "Weekly analysis returned no results.",
+                    "message": "Weekly analysis returned no results. Check logs for details.",
                     "results": {
                         "total": 0,
                         "successful": 0,
@@ -6108,6 +6113,7 @@ async def get_selected_columns_db(endpoint: str, metric_id: str = None):
     try:
         from tools.db_utils import get_postgres_connection
         import psycopg2.extras
+        import json
         
         connection = get_postgres_connection()
         if not connection:
@@ -6136,8 +6142,20 @@ async def get_selected_columns_db(endpoint: str, metric_id: str = None):
         connection.close()
         
         if row and row['category_fields']:
+            # Parse the JSON string if it's a string, otherwise use as-is
+            category_fields = row['category_fields']
+            if isinstance(category_fields, str):
+                try:
+                    category_fields = json.loads(category_fields)
+                except json.JSONDecodeError as e:
+                    logger.error(f"Error parsing category_fields JSON for endpoint '{endpoint}': {e}")
+                    return JSONResponse({
+                        "status": "success",
+                        "columns": []
+                    })
+            
             # Extract field names from category_fields
-            selected_columns = [field["fieldName"] for field in row['category_fields'] if field.get("fieldName")]
+            selected_columns = [field["fieldName"] for field in category_fields if field.get("fieldName")]
             
             logger.info(f"Found selected columns for endpoint {endpoint}" + 
                        (f" and metric_id {metric_id}" if metric_id else "") + 
@@ -6413,3 +6431,51 @@ async def fetch_metadata_route():
             "message": str(e),
             "log_content": "Error occurred before log file could be read"
         })
+
+@router.get("/api/charts-for-review")
+async def get_charts_for_review_api(
+    limit: int = 20,
+    days_back: int = 30,
+    district_filter: Optional[str] = None,
+    include_time_series: bool = True,
+    include_anomalies: bool = True,
+    include_maps: bool = True,
+    only_active: bool = True,
+    metric_filter: Optional[str] = None,
+    object_type_filter: Optional[str] = None,
+    metric_id: Optional[str] = None
+):
+    """Get charts from various sources for AI review and potential newsletter inclusion."""
+    try:
+        from tools.get_charts_for_review import get_charts_for_review
+        
+        context_variables = {}  # Add any context variables needed
+        result = get_charts_for_review(
+            context_variables=context_variables,
+            limit=limit,
+            days_back=days_back,
+            district_filter=district_filter,
+            include_time_series=include_time_series,
+            include_anomalies=include_anomalies,
+            include_maps=include_maps,
+            only_active=only_active,
+            metric_filter=metric_filter,
+            object_type_filter=object_type_filter,
+            metric_id=metric_id
+        )
+        return JSONResponse(content=result)
+    except Exception as e:
+        logger.error(f"Error getting charts for review: {str(e)}")
+        return JSONResponse(
+            status_code=500,
+            content={
+                "success": False,
+                "error": str(e),
+                "data": {
+                    "time_series_charts": [],
+                    "anomaly_charts": [],
+                    "map_charts": [],
+                    "summary": {"total_charts": 0, "error": str(e)}
+                }
+            }
+        )

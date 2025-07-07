@@ -16,6 +16,7 @@ from tools.genGhostPost import generate_ghost_post
 from tools.generate_map import generate_map, get_map_by_id, get_recent_maps
 from tools.gen_map_dw import create_datawrapper_map
 from tools.notes_manager import get_notes, load_and_combine_notes, initialize_notes
+from tools.dashboard_metric_tool import get_dashboard_metric
 from pathlib import Path
 # Import FastAPI and related modules
 from fastapi import APIRouter, Request, Cookie
@@ -424,6 +425,11 @@ def get_dashboard_metric(context_variables, district_number=0, metric_id=None):
             "metric_id": metric_id,
             "data": data
         }
+        
+        # Add endpoint from metric data if available
+        if isinstance(data, dict) and "endpoint" in data:
+            result["endpoint"] = data["endpoint"]
+            logger.info(f"Found endpoint in metric data: {data['endpoint']}")
         
         # NEW CODE: Try to find and add corresponding analysis files
         analysis_content = {}

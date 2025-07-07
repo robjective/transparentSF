@@ -210,7 +210,13 @@ def store_anomalies_in_db(connection, results, metadata):
         else:
             # Try to convert district to integer
             try:
-                district = int(district)
+                # Handle both string and numeric decimal values
+                if isinstance(district, str):
+                    # Try to convert string to float first, then to int
+                    district = int(float(district))
+                else:
+                    # Handle numeric types (float, int, etc.)
+                    district = int(float(district))
             except (ValueError, TypeError):
                 district = 0
         
@@ -284,6 +290,25 @@ def store_anomalies_in_db(connection, results, metadata):
                                 date_obj = datetime.datetime.strptime(date_str, "%Y").date()
                             elif period_type == 'month':
                                 date_obj = datetime.datetime.strptime(f"{date_str}-01", "%Y-%m-%d").date()
+                            elif period_type == 'week':
+                                # Handle weekly format (YYYY-WXX)
+                                if '-' in date_str and 'W' in date_str:
+                                    year_part, week_part = date_str.split('-')
+                                    year = int(year_part)
+                                    week_num = int(week_part.replace('W', ''))
+                                    
+                                    # Create a date for the first day of the year
+                                    jan1 = datetime.datetime(year, 1, 1).date()
+                                    
+                                    # Find the first Monday of the year (ISO week starts on Monday)
+                                    days_until_monday = (7 - jan1.weekday()) % 7
+                                    first_monday = jan1 + datetime.timedelta(days=days_until_monday)
+                                    
+                                    # Calculate the target date by adding weeks
+                                    date_obj = first_monday + datetime.timedelta(weeks=week_num - 1)
+                                else:
+                                    # Fallback to regular date parsing
+                                    date_obj = datetime.datetime.strptime(date_str, "%Y-%m-%d").date()
                             else:
                                 date_obj = datetime.datetime.strptime(date_str, "%Y-%m-%d").date()
                             
@@ -326,7 +351,7 @@ def store_anomalies_in_db(connection, results, metadata):
                 # Generate a title for the anomaly in the new format
                 percent_change = int(abs((result['difference'] / result['comparison_mean']) * 100)) if result['comparison_mean'] else 0
                 trend_type = "Spike" if result['difference'] > 0 else "Drop"
-                group_field_display = group_field_name.replace("_", " ").title()
+                group_field_display = group_field_name.replace("_", " ").title() if group_field_name else "Group"
                 
                 # Generate the title with the exact HTML formatting:
                 # - Object name in default weight (which is bold in Datawrapper)
@@ -589,7 +614,7 @@ def get_anomalies(
     else:
         return result
 
-def get_anomaly_details(
+def _original_get_anomaly_details(
     anomaly_id,
     db_host=None,
     db_port=None,
@@ -598,40 +623,30 @@ def get_anomaly_details(
     db_password=None
 ) -> Dict[str, Any]:
     """
-    Get detailed information about a specific anomaly by ID.
-    
-    Args:
-        anomaly_id: The ID of the anomaly to retrieve
-        db_host: Database host
-        db_port: Database port
-        db_name: Database name
-        db_user: Database user
-        db_password: Database password
-        
-    Returns:
-        dict: Detailed anomaly information
+    Original implementation of ``get_anomaly_details`` that queries the
+    anomalies table for a single record.
     """
     def get_details_operation(connection):
         # Create cursor with dictionary-like results
         cursor = connection.cursor(cursor_factory=RealDictCursor)
-        
+
         # Query for the specific anomaly
         query = "SELECT * FROM anomalies WHERE id = %s"
         cursor.execute(query, (anomaly_id,))
         anomaly = cursor.fetchone()
-        
+
         if not anomaly:
             cursor.close()
             return None
-        
+
         # Convert to dict and handle datetime objects
         item = dict(anomaly)
         if 'created_at' in item and isinstance(item['created_at'], datetime.datetime):
             item['created_at'] = item['created_at'].isoformat()
-        
+
         cursor.close()
         return item
-    
+
     result = execute_with_connection(
         operation=get_details_operation,
         db_host=db_host,
@@ -640,7 +655,7 @@ def get_anomaly_details(
         db_user=db_user,
         db_password=db_password
     )
-    
+
     if result["status"] == "success":
         if result["result"] is None:
             return {
@@ -653,6 +668,65 @@ def get_anomaly_details(
         }
     else:
         return result
+
+def get_anomaly_details(*args, **kwargs):
+    """
+    Flexible wrapper around the original ``get_anomaly_details`` implementation.
+
+    Agents occasionally invoke this function with the following (now all valid)
+    call signatures:
+
+        1. get_anomaly_details(anomaly_id=123)
+        2. get_anomaly_details(123)
+        3. get_anomaly_details(context_variables, anomaly_id=123)
+        4. get_anomaly_details(context_variables, 123)
+
+    Previously, signatures that mixed a positional ``anomaly_id`` with the
+    keyword ``anomaly_id`` raised a ``TypeError`` ("got multiple values for
+    argument 'anomaly_id'"). This wrapper normalizes the inputs so we always
+    forward exactly one ``anomaly_id`` positional argument to the original
+    implementation, along with any database-connection overrides provided via
+    ``kwargs``.
+    """
+    # Determine if the first positional arg is a context_variables dict
+    anomaly_id = None
+    remaining_args = ()
+
+    if args:
+        # If the first arg looks like context_variables, skip it
+        if isinstance(args[0], dict):
+            if len(args) >= 2:
+                anomaly_id = args[1]
+                remaining_args = args[2:]
+            else:
+                anomaly_id = kwargs.pop("anomaly_id", None)
+                remaining_args = ()
+        else:
+            anomaly_id = args[0]
+            remaining_args = args[1:]
+
+    # Fallback to keyword argument if not yet set
+    if anomaly_id is None:
+        anomaly_id = kwargs.pop("anomaly_id", None)
+
+    # Handle alternative key names that some wrappers pass
+    if anomaly_id is None and "args" in kwargs:
+        possible = kwargs.pop("args")
+        # If the value is a list/tuple take first element, else take as-is
+        if isinstance(possible, (list, tuple)):
+            anomaly_id = possible[0] if possible else None
+        else:
+            anomaly_id = possible
+
+    # Some callers might use a generic 'id' field
+    if anomaly_id is None and "id" in kwargs:
+        anomaly_id = kwargs.pop("id")
+
+    if anomaly_id is None:
+        raise ValueError("anomaly_id must be provided to get_anomaly_details")
+
+    # Forward call to the original implementation
+    return _original_get_anomaly_details(anomaly_id, *remaining_args, **kwargs)
 
 def clear_anomalies_by_metrics_id(
     metrics_id,

@@ -7,6 +7,9 @@
             name="viewport"
             content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"
         />
+        <link rel="stylesheet" href="/static/darkmode.css">
+        <script src="/static/js/darkmode.js"></script>
+        <script src="/static/js/iframe-darkmode.js"></script>
         <style>
             /* Reset and base styles */
             * {
@@ -19,7 +22,7 @@
             html {
                 height: 100%;
                 font-family: Arial, sans-serif;
-                background-color: #f9f9f9;
+                background-color: var(--bg-primary);
                 /* Base font size */
                 font-size: 12px;
             }
@@ -62,7 +65,7 @@
                 height: 100vh;
                 display: flex;
                 flex-direction: column;
-                border-right: 1px solid #ccc;
+                border-right: 1px solid var(--border-primary);
                 /* Ensure padding for better readability */
                 padding: 20px;
             }
@@ -73,6 +76,7 @@
                 margin-bottom: 20px;
                 text-align: center;
                 position: relative; /* Add this to position the new chat button */
+                color: var(--text-primary);
             }
 
             #chat-container {
@@ -88,9 +92,9 @@
                 flex-grow: 1;
                 overflow-y: auto;
                 height: calc(100% - 80px); /* Adjusted for increased padding */
-                border: 1px solid #eee;
+                border: 1px solid var(--border-primary);
                 padding: 15px; /* Increased padding */
-                background-color: #ffffff;
+                background-color: var(--bg-primary);
                 /* Increase font size for messages */
                 font-size: 1.1em;
                 /* Prevent horizontal scroll */
@@ -112,25 +116,27 @@
             }
 
             .user-message {
-                background-color: #e6f7ff;
+                background-color: var(--bg-secondary);
+                color: var(--text-primary);
                 align-self: flex-end;
                 float: right;
             }
             .ai-message {
-                background-color: #f0f0f0;
+                background-color: var(--bg-secondary);
+                color: var(--text-primary);
                 align-self: flex-start;
                 float: left;
             }
 
             .system-message {
-                background-color: #e6ffe6;
+                background-color: var(--bg-tertiary);
+                color: var(--text-secondary);
                 align-self: center;
                 float: none;
                 text-align: center;
                 width: 100%;
                 clear: both;
                 font-style: italic;
-                color: #555;
             }
 
             .sender {
@@ -141,10 +147,10 @@
 
             /* Tool call styling */
             .tool-call {
-                background-color: #fffae6;
-                color: #6b5b95;
+                background-color: var(--bg-secondary);
+                color: var(--text-primary);
                 font-style: italic;
-                border-left: 4px solid #6b5b95;
+                border-left: 4px solid var(--bright-purple);
                 padding: 8px; /* Increased padding */
                 margin: 12px 0; /* Increased margin */
                 font-size: 1em; /* Increased font size */
@@ -159,8 +165,10 @@
             #userInput {
                 flex-grow: 1;
                 padding: 12px; /* Increased padding */
-                border: 1px solid #ccc;
+                border: 1px solid var(--border-primary);
                 border-radius: 5px;
+                background-color: var(--bg-secondary);
+                color: var(--text-primary);
                 /* Ensure font size is at least 16px to prevent zoom */
                 font-size: 16px;
             }
@@ -169,7 +177,7 @@
                 margin-left: 12px; /* Increased margin */
                 padding: 12px 24px; /* Increased padding */
                 border: none;
-                background-color: #ad35fa;
+                background-color: var(--bright-purple);
                 color: #ffffff;
                 border-radius: 5px;
                 cursor: pointer;

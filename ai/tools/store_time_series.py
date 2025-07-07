@@ -11,7 +11,7 @@ from psycopg2.extras import Json
 import logging
 import pandas as pd
 from typing import Dict, List, Any, Optional, Union, Tuple
-from datetime import datetime
+from datetime import datetime, date
 from tools.db_utils import get_postgres_connection, execute_with_connection, CustomJSONEncoder
 from dotenv import load_dotenv
 
@@ -50,12 +50,55 @@ def extract_district_from_filter_conditions(filter_conditions: List[Dict[str, An
     else:
         # Try to convert district to integer
         try:
-            district = int(district)
+            # Handle both string and numeric decimal values
+            if isinstance(district, str):
+                # Try to convert string to float first, then to int
+                district = int(float(district))
+            else:
+                # Handle numeric types (float, int, etc.)
+                district = int(float(district))
         except (ValueError, TypeError):
             logging.warning(f"Non-numeric district value '{district}' converted to 0")
             district = 0
     
     return district
+
+def convert_iso_week_to_date(iso_week_str: str) -> date:
+    """
+    Convert ISO week string (e.g., '2025-W13') to the Monday date of that week.
+    
+    Args:
+        iso_week_str: ISO week string in format 'YYYY-WNN'
+        
+    Returns:
+        date: Monday date of the specified ISO week
+    """
+    try:
+        if not isinstance(iso_week_str, str) or '-' not in iso_week_str or 'W' not in iso_week_str:
+            # If it's not an ISO week string, try to parse as regular date
+            if isinstance(iso_week_str, str):
+                return datetime.strptime(iso_week_str, '%Y-%m-%d').date()
+            elif isinstance(iso_week_str, (datetime, date)):
+                return iso_week_str.date() if isinstance(iso_week_str, datetime) else iso_week_str
+            else:
+                raise ValueError(f"Cannot convert {iso_week_str} to date")
+        
+        # Parse ISO week string
+        year_part, week_part = iso_week_str.split('-')
+        year = int(year_part)
+        week_num = int(week_part.replace('W', ''))
+        
+        # Get the Monday of that ISO week
+        return date.fromisocalendar(year, week_num, 1)
+        
+    except Exception as e:
+        logging.error(f"Error converting ISO week '{iso_week_str}' to date: {e}")
+        # Fallback: try to parse as regular date string
+        try:
+            return datetime.strptime(str(iso_week_str), '%Y-%m-%d').date()
+        except:
+            logging.error(f"Failed to parse '{iso_week_str}' as any date format")
+            raise
 
 def store_time_series_in_db(connection, chart_data, metadata):
     """
@@ -96,18 +139,45 @@ def store_time_series_in_db(connection, chart_data, metadata):
         
         # First, deactivate any existing active charts with the same parameters
         with connection.cursor() as cursor:
+            # Log the current state before deactivation
+            cursor.execute("""
+                SELECT COUNT(*) as active_count 
+                FROM time_series_metadata 
+                WHERE object_id = %s 
+                AND period_type = %s
+                AND district::TEXT = %s::TEXT
+                AND group_field IS NOT DISTINCT FROM %s
+                AND is_active = TRUE
+            """, (object_id, period_type, str(district), group_field))
+            active_before = cursor.fetchone()[0]
+            logging.info(f"Found {active_before} active charts before deactivation for object_id={object_id}, period_type={period_type}, district={district}, group_field={group_field}")
+
+            # Perform the deactivation
             cursor.execute("""
                 UPDATE time_series_metadata 
                 SET is_active = FALSE
-                WHERE object_type = %s 
-                AND object_id = %s
-                AND object_name = %s
-                AND field_name = %s
+                WHERE object_id = %s 
                 AND period_type = %s
-                AND district = %s
+                AND district::TEXT = %s::TEXT
+                AND group_field IS NOT DISTINCT FROM %s
                 AND is_active = TRUE
-            """, (object_type, object_id, object_name, field_name, period_type, district))
+            """, (object_id, period_type, str(district), group_field))
+            rows_updated = cursor.rowcount
             
+            # Log the state after deactivation
+            cursor.execute("""
+                SELECT COUNT(*) as active_count 
+                FROM time_series_metadata 
+                WHERE object_id = %s 
+                AND period_type = %s
+                AND district::TEXT = %s::TEXT
+                AND group_field IS NOT DISTINCT FROM %s
+                AND is_active = TRUE
+            """, (object_id, period_type, str(district), group_field))
+            active_after = cursor.fetchone()[0]
+            
+            logging.info(f"Deactivated {rows_updated} charts. Active charts before: {active_before}, after: {active_after}")
+        
         # Then, insert the metadata to get a chart_id
         chart_id = None
         with connection.cursor() as cursor:
@@ -127,13 +197,33 @@ def store_time_series_in_db(connection, chart_data, metadata):
         inserted_count = 0
         with connection.cursor() as cursor:
             for point in chart_data:
+                # Convert time_period to proper date format for database storage
+                time_period = point['time_period']
+                if isinstance(time_period, str) and 'W' in time_period and '-' in time_period:
+                    # This is likely an ISO week string, convert to date
+                    try:
+                        db_date = convert_iso_week_to_date(time_period)
+                    except Exception as e:
+                        logging.error(f"Failed to convert time_period '{time_period}' to date: {e}")
+                        continue
+                elif isinstance(time_period, (datetime, date)):
+                    # Already a date object
+                    db_date = time_period.date() if isinstance(time_period, datetime) else time_period
+                else:
+                    # Try to parse as regular date string
+                    try:
+                        db_date = datetime.strptime(str(time_period), '%Y-%m-%d').date()
+                    except Exception as e:
+                        logging.error(f"Failed to parse time_period '{time_period}' as date: {e}")
+                        continue
+                
                 cursor.execute("""
                     INSERT INTO time_series_data (
                         chart_id, time_period, numeric_value, group_value
                     ) VALUES (%s, %s, %s, %s)
                 """, (
                     chart_id,
-                    point['time_period'],
+                    db_date,
                     point['value'],
                     point.get('group_value')
                 ))

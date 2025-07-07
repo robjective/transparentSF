@@ -2,6 +2,7 @@ TransparentAnalysis.code-workspace
 Archive
 swarm-main
 
+ai/backups
 ai/climate
 ai/data/climate
 ai/data/datasets/old
@@ -25,3 +26,4 @@ qdrant_storage/raft_state.json
 qdrant_storage/aliases/data.json
 qdrant_storage/
 .venv/
+venv/

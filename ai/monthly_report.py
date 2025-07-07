@@ -20,6 +20,7 @@ import plotly.graph_objects as go
 import plotly.io as pio
 from plotly.subplots import make_subplots
 from tools.generate_report_text import generate_report_text
+from tools.dashboard_metric_tool import get_dashboard_metric
 
 # Set up paths to look for .env file
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -144,7 +145,7 @@ try:
 except ImportError:
     try:
         # If that fails, try to import from the local directory
-        from webChat import get_dashboard_metric, swarm_client, context_variables, client, AGENT_MODEL, load_and_combine_notes
+        from webChat import swarm_client, context_variables, client, AGENT_MODEL, load_and_combine_notes
         from agents.explainer_agent import create_explainer_agent
         logger.warning("Successfully imported from webChat and agents.explainer_agent")
     except ImportError:
@@ -551,7 +552,8 @@ def select_deltas_to_discuss(period_type='month', top_n=20, bottom_n=20, distric
                     "district": district,
                     "change_type": "positive",  # Mark as positive change (good change based on greendirection)
                     "percent_change": item.get("percent_change"),  # Preserve percent_change from API
-                    "greendirection": item.get("greendirection")  # Preserve greendirection for reference
+                    "greendirection": item.get("greendirection"),  # Preserve greendirection for reference
+                    "citywide_changes": item.get("citywide_changes", "")  # Include citywide changes data
                 })
             except (ValueError, TypeError) as e:
                 logger.error(f"Error processing positive change item: {e}")
@@ -577,7 +579,8 @@ def select_deltas_to_discuss(period_type='month', top_n=20, bottom_n=20, distric
                     "district": district,
                     "change_type": "negative",  # Mark as negative change (bad change based on greendirection)
                     "percent_change": item.get("percent_change"),  # Preserve percent_change from API
-                    "greendirection": item.get("greendirection")  # Preserve greendirection for reference
+                    "greendirection": item.get("greendirection"),  # Preserve greendirection for reference
+                    "citywide_changes": item.get("citywide_changes", "")  # Include citywide changes data
                 })
             except (ValueError, TypeError) as e:
                 logger.error(f"Error processing negative change item: {e}")
@@ -641,6 +644,8 @@ def prioritize_deltas(deltas, max_items=10):
             recent = change.get("recent_mean", 0)
             comparison = change.get("comparison_mean", 0)
             district = change.get("district", "0")
+            citywide_changes = change.get("citywide_changes", "")
+            greendirection = change.get("greendirection", "neutral")
             
             # Add an index field to each change for reference
             change["index"] = idx
@@ -652,7 +657,9 @@ def prioritize_deltas(deltas, max_items=10):
             else:
                 pct_text = "N/A"
             
+            # Format the change text with additional context
             changes_text += f"{idx}. {metric} for {group}: {recent:.1f} vs {comparison:.1f} ({pct_text}), District: {district}\n"
+            changes_text += f"   Direction: {greendirection}, Citywide Changes: {citywide_changes}\n\n"
         
         # Load prompt from JSON file
         prompts = load_prompts()
@@ -660,7 +667,7 @@ def prioritize_deltas(deltas, max_items=10):
         system_message = prompts['monthly_report']['prioritize_deltas']['system']
         
         # Truncate notes_text for the prompt
-        notes_text_short = notes_text[:5000]
+        notes_text_short = notes_text
         
         # Format the prompt with the required variables
         prompt = prompt_template.format(
@@ -668,6 +675,22 @@ def prioritize_deltas(deltas, max_items=10):
             changes_text=changes_text,
             notes_text_short=notes_text_short
         )
+
+        # Create logs directory if it doesn't exist
+        logs_dir = os.path.join(project_root,'ai', 'logs')
+        os.makedirs(logs_dir, exist_ok=True)
+        
+        # Save the complete prompts to a log file
+        prompt_log_path = os.path.join(logs_dir, 'prioritize_deltas_prompt.txt')
+        try:
+            with open(prompt_log_path, 'w', encoding='utf-8') as f:
+                f.write(f"Timestamp: {datetime.now().isoformat()}\n")
+                f.write(f"System Message:\n{system_message}\n\n")
+                f.write(f"User Prompt:\n{prompt}\n\n")
+                f.write(f"Input Deltas Data:\n{json.dumps(deltas, indent=2)}\n")
+            logger.info(f"Saved complete prioritize deltas prompts to {prompt_log_path}")
+        except Exception as log_error:
+            logger.error(f"Error saving prioritize deltas prompts to log file: {log_error}")
 
         # Make API call to get prioritized list
         response = client.chat.completions.create(
@@ -757,7 +780,8 @@ def prioritize_deltas(deltas, max_items=10):
                             "follow_up": item.get("follow_up", ""),
                             "change_type": original_change.get("change_type", "neutral"),  # Preserve change_type
                             "percent_change": original_change.get("percent_change"),  # Preserve percent_change
-                            "greendirection": original_change.get("greendirection")  # Preserve greendirection
+                            "greendirection": original_change.get("greendirection"),  # Preserve greendirection
+                            "citywide_changes": original_change.get("citywide_changes", "")  # Include citywide changes
                         })
                     else:
                         logger.warning(f"Could not find original data for item index {item_index}")
@@ -788,7 +812,8 @@ def prioritize_deltas(deltas, max_items=10):
                                 "follow_up": item.get("follow_up", ""),
                                 "change_type": original_change.get("change_type", "neutral"),  # Preserve change_type
                                 "percent_change": original_change.get("percent_change"),  # Preserve percent_change
-                                "greendirection": original_change.get("greendirection")  # Preserve greendirection
+                                "greendirection": original_change.get("greendirection"),  # Preserve greendirection
+                                "citywide_changes": original_change.get("citywide_changes", "")  # Include citywide changes
                             })
                         else:
                             logger.warning(f"Could not find original data for metric: {metric_name}, group: {group_value}")
@@ -820,7 +845,8 @@ def prioritize_deltas(deltas, max_items=10):
                             "follow_up": item.get("follow_up", ""),
                             "change_type": original_change.get("change_type", "neutral"),  # Preserve change_type
                             "percent_change": original_change.get("percent_change"),  # Preserve percent_change
-                            "greendirection": original_change.get("greendirection")  # Preserve greendirection
+                            "greendirection": original_change.get("greendirection"),  # Preserve greendirection
+                            "citywide_changes": original_change.get("citywide_changes", "")  # Include citywide changes
                         })
                     else:
                         logger.warning(f"Could not find original data for metric: {metric_name}, group: {group_value}")
@@ -849,13 +875,11 @@ def prioritize_deltas(deltas, max_items=10):
 
 def store_prioritized_items(prioritized_items, period_type='month', district="0"):
     """
-    Store the prioritized items in the monthly_reporting table
-    
+    Store prioritized items in the monthly_reporting table.
     Args:
-        prioritized_items: List of prioritized items with explanations
-        period_type: The time period type (month, quarter, year)
+        prioritized_items: List of prioritized items to store
+        period_type: Type of period (month, quarter, year)
         district: District number
-        
     Returns:
         Status dictionary
     """
@@ -866,6 +890,7 @@ def store_prioritized_items(prioritized_items, period_type='month', district="0"
     
     def store_items_operation(connection):
         cursor = connection.cursor()
+        stored_count = 0
         
         # Get the current date for the report
         report_date = datetime.now().date()
@@ -896,28 +921,13 @@ def store_prioritized_items(prioritized_items, period_type='month', district="0"
         # Insert each prioritized item
         inserted_ids = []
         for item in prioritized_items:
-            # Calculate percent change
-            comparison_mean = item.get("comparison_mean", 0)
-            if item.get("percent_change") is not None:
-                # Use the percent_change from the API if available
-                percent_change = item.get("percent_change")
-            elif comparison_mean != 0:
-                # Fallback to calculating it if not provided
-                percent_change = (item.get("difference", 0) / comparison_mean) * 100
-            else:
-                percent_change = 0
-                
-            # Log the data before insertion
-            logger.info(f"Storing item: {item.get('metric')} - Priority: {item.get('priority')}")
-            logger.info(f"  Explanation: '{item.get('rationale', '')[:50]}...' (length: {len(item.get('rationale', ''))})")
-            logger.info(f"  Trend analysis: '{item.get('trend_analysis', '')[:50]}...'")
-            
-            # Create metadata JSON to store additional fields
+            # Create metadata dictionary with citywide changes
             metadata = {
                 "trend_analysis": item.get("trend_analysis", ""),
                 "follow_up": item.get("follow_up", ""),
                 "change_type": item.get("change_type", "neutral"),  # Store change_type
-                "greendirection": item.get("greendirection")  # Store greendirection
+                "greendirection": item.get("greendirection"),  # Store greendirection
+                "citywide_changes": item.get("citywide_changes", "")  # Store citywide changes
             }
             
             # Create item title from metric name and group
@@ -925,8 +935,7 @@ def store_prioritized_items(prioritized_items, period_type='month', district="0"
             metric_id = item.get("metric_id", "Unknown")
             group_value = item.get("group") or "All"  # Handle None values properly
             item_title = f"{metric_name} - {group_value}" if group_value != "All" else metric_name
-                
-            # Prepare the data
+            
             cursor.execute("""
                 INSERT INTO monthly_reporting (
                     report_id, report_date, item_title, metric_name, metric_id, group_value, group_field_name, 
@@ -947,8 +956,8 @@ def store_prioritized_items(prioritized_items, period_type='month', district="0"
                 item.get("comparison_mean", 0),
                 item.get("recent_mean", 0),
                 item.get("difference", 0),
-                percent_change,
-                item.get("rationale", ""),  # rationale: now correctly from item['rationale']
+                item.get("percent_change", 0),
+                item.get("rationale", ""),
                 "",  # explanation: will be filled in by generate_explanations
                 item.get("priority", 999),
                 item.get("district", district),
@@ -957,17 +966,11 @@ def store_prioritized_items(prioritized_items, period_type='month', district="0"
             
             inserted_id = cursor.fetchone()[0]
             inserted_ids.append(inserted_id)
+            stored_count += 1
             
-            # Check if the insertion worked
-            cursor.execute("SELECT LENGTH(rationale) FROM monthly_reporting WHERE id = %s", (inserted_id,))
-            expl_length = cursor.fetchone()[0]
-            logger.info(f"Stored item with ID {inserted_id}, explanation length in DB: {expl_length}")
-        
         connection.commit()
         cursor.close()
-        
-        logger.info(f"Successfully stored {len(inserted_ids)} items in the database")
-        return inserted_ids
+        return {"status": "success", "inserted_ids": inserted_ids, "report_id": report_id}
     
     # Execute the operation with proper connection handling
     result = execute_with_connection(
@@ -980,7 +983,7 @@ def store_prioritized_items(prioritized_items, period_type='month', district="0"
     )
     
     if result["status"] == "success":
-        return {"status": "success", "inserted_ids": result["result"]}
+        return {"status": "success", "inserted_ids": result["result"]["inserted_ids"], "report_id": result["result"]["report_id"]}
     else:
         return {"status": "error", "message": result["message"]}
 
@@ -1064,8 +1067,7 @@ def generate_explanations(report_ids):
             prompt = f"""Please explain why the metric '{metric_name}' (ID: {metric_id})  {direction} from {comparison_mean} to {recent_mean} ({percent_change_str}) between {previous_month} and {recent_month} for district {district}.
 
 Use the available tools to research this change and provide a comprehensive explanation that can be included in a monthly newsletter for city residents.
-You should first look to supervisor district and see if there are localized trends in a particular neighborhood.  If so, you should include that in your explanation. 
-Other than that, prefer to share anomalies or data-points that explain a large portion of the difference in the metric.  
+Please share anomalies, groups or data-points that explain a large portion of the difference in the metric.  Your goal is a clear explanation of the change.  
 
 Your response MUST be returned as a properly formatted JSON object with the following fields:
 - "explanation": A clear and thorough explanation of what happened (at least 3 paragraphs)
@@ -1662,125 +1664,125 @@ def generate_monthly_report(report_date=None, district="0"):
         except Exception as log_error:
             logger.error(f"Error logging generated report content: {log_error}")
         
-        # Once we have the report text, insert any charts if they exist
-        for i, item in enumerate(report_data, 1):
-            # Try to insert all charts for this item
-            if item.get('chart_placeholders') and len(item['chart_placeholders']) > 0:
-                metric_mentions = [
-                    item['metric'],
-                    # Add variations if needed (e.g., removing emojis)
-                    item['metric'].replace("🏠", "Housing").replace("💊", "Drug").replace("🚫", "Business") 
-                ]
+        # # Once we have the report text, insert any charts if they exist
+        # for i, item in enumerate(report_data, 1):
+        #     # Try to insert all charts for this item
+        #     if item.get('chart_placeholders') and len(item['chart_placeholders']) > 0:
+        #         metric_mentions = [
+        #             item['metric'],
+        #             # Add variations if needed (e.g., removing emojis)
+        #             item['metric'].replace("🏠", "Housing").replace("💊", "Drug").replace("🚫", "Business") 
+        #         ]
                 
-                # Find all instances where the metric is mentioned
-                mention_positions = []
-                for mention in metric_mentions:
-                    pos = 0
-                    while True:
-                        pos = report_text.find(mention, pos)
-                        if pos == -1:
-                            break
-                        mention_positions.append({'pos': pos, 'len': len(mention)})
-                        pos += len(mention)
-                # Sort positions in ascending order
-                mention_positions.sort(key=lambda x: x['pos'])
-                # For each chart placeholder, find a suitable insertion point
-                for idx, chart_placeholder in enumerate(item['chart_placeholders']):
-                    # If we have multiple charts, space them out across mentions
-                    if mention_positions:
-                        # If we have more charts than mentions, cycle through mentions
-                        mention_index = idx % len(mention_positions)
-                        mention_pos = mention_positions[mention_index]['pos']
-                        mention_len = mention_positions[mention_index]['len']
-                        # Find the end of the paragraph containing the mention
-                        paragraph_end = report_text.find("\n\n", mention_pos)
-                        if paragraph_end != -1:
-                            insertion_point = paragraph_end + 2 # Insert after the double newline
-                        else:
-                            # If no double newline found, try finding the end of the line
-                            line_end = report_text.find("\n", mention_pos)
-                            if line_end != -1:
-                                insertion_point = line_end + 1 # Insert after the newline
-                            else:
-                                # If no newline found, just insert after the mention (less ideal)
-                                insertion_point = mention_pos + mention_len # Use length of the specific mention
-                        # Insert the chart placeholder
-                        report_text = report_text[:insertion_point] + f"\n{chart_placeholder}\n\n" + report_text[insertion_point:]
-                        logger.info(f"Inserted chart placeholder '{chart_placeholder}' after mention of '{item['metric']}' at position {insertion_point}")
-                        # Update all subsequent mention positions to account for the insertion
-                        # This needs to be robust: find new positions for remaining original mentions
-                        temp_report_text = report_text[insertion_point + len(f"\n{chart_placeholder}\n\n"):]
-                        original_mention_positions = sorted(list(set([mp['pos'] for mp in mention_positions]))) # unique sorted positions
-                        new_mention_positions = []
-                        current_scan_offset = 0
-                        for orig_pos in original_mention_positions:
-                            if orig_pos <= mention_pos: # Mentions at or before the current one are unaffected relative to start
-                                new_mention_positions.append({'pos': orig_pos, 'len': mention_len})
-                            else: # Mentions after the insertion point need recalculation
-                                new_mention_positions.append({'pos': orig_pos + len(f"\n{chart_placeholder}\n\n"), 'len': mention_len})
-                        # Deduplicate by 'pos' (keep the first occurrence for each position)
-                        seen = set()
-                        deduped = []
-                        for mp in new_mention_positions:
-                            if mp['pos'] not in seen:
-                                deduped.append(mp)
-                                seen.add(mp['pos'])
-                        mention_positions = sorted(deduped, key=lambda x: x['pos'])
-                    else:
-                        # If no mentions found, DO NOT append the chart at the end of the report
-                        logger.warning(f"No suitable mention found for '{item['metric']}' to insert chart placeholder '{chart_placeholder}'. Placeholder NOT inserted.")
+        #         # Find all instances where the metric is mentioned
+        #         mention_positions = []
+        #         for mention in metric_mentions:
+        #             pos = 0
+        #             while True:
+        #                 pos = report_text.find(mention, pos)
+        #                 if pos == -1:
+        #                     break
+        #                 mention_positions.append({'pos': pos, 'len': len(mention)})
+        #                 pos += len(mention)
+        #         # Sort positions in ascending order
+        #         mention_positions.sort(key=lambda x: x['pos'])
+        #         # For each chart placeholder, find a suitable insertion point
+        #         for idx, chart_placeholder in enumerate(item['chart_placeholders']):
+        #             # If we have multiple charts, space them out across mentions
+        #             if mention_positions:
+        #                 # If we have more charts than mentions, cycle through mentions
+        #                 mention_index = idx % len(mention_positions)
+        #                 mention_pos = mention_positions[mention_index]['pos']
+        #                 mention_len = mention_positions[mention_index]['len']
+        #                 # Find the end of the paragraph containing the mention
+        #                 paragraph_end = report_text.find("\n\n", mention_pos)
+        #                 if paragraph_end != -1:
+        #                     insertion_point = paragraph_end + 2 # Insert after the double newline
+        #                 else:
+        #                     # If no double newline found, try finding the end of the line
+        #                     line_end = report_text.find("\n", mention_pos)
+        #                     if line_end != -1:
+        #                         insertion_point = line_end + 1 # Insert after the newline
+        #                     else:
+        #                         # If no newline found, just insert after the mention (less ideal)
+        #                         insertion_point = mention_pos + mention_len # Use length of the specific mention
+        #                 # Insert the chart placeholder
+        #                 report_text = report_text[:insertion_point] + f"\n{chart_placeholder}\n\n" + report_text[insertion_point:]
+        #                 logger.info(f"Inserted chart placeholder '{chart_placeholder}' after mention of '{item['metric']}' at position {insertion_point}")
+        #                 # Update all subsequent mention positions to account for the insertion
+        #                 # This needs to be robust: find new positions for remaining original mentions
+        #                 temp_report_text = report_text[insertion_point + len(f"\n{chart_placeholder}\n\n"):]
+        #                 original_mention_positions = sorted(list(set([mp['pos'] for mp in mention_positions]))) # unique sorted positions
+        #                 new_mention_positions = []
+        #                 current_scan_offset = 0
+        #                 for orig_pos in original_mention_positions:
+        #                     if orig_pos <= mention_pos: # Mentions at or before the current one are unaffected relative to start
+        #                         new_mention_positions.append({'pos': orig_pos, 'len': mention_len})
+        #                     else: # Mentions after the insertion point need recalculation
+        #                         new_mention_positions.append({'pos': orig_pos + len(f"\n{chart_placeholder}\n\n"), 'len': mention_len})
+        #                 # Deduplicate by 'pos' (keep the first occurrence for each position)
+        #                 seen = set()
+        #                 deduped = []
+        #                 for mp in new_mention_positions:
+        #                     if mp['pos'] not in seen:
+        #                         deduped.append(mp)
+        #                         seen.add(mp['pos'])
+        #                 mention_positions = sorted(deduped, key=lambda x: x['pos'])
+        #             else:
+        #                 # If no mentions found, DO NOT append the chart at the end of the report
+        #                 logger.warning(f"No suitable mention found for '{item['metric']}' to insert chart placeholder '{chart_placeholder}'. Placeholder NOT inserted.")
             
-            # Also insert chart_html if it exists and wasn't already part of the placeholders
-            # This maintains backward compatibility with existing reports
-            elif item.get('chart_html'):
-                # Create the chart HTML content we want to insert
-                chart_content_to_insert = item['chart_html']
+        #     # Also insert chart_html if it exists and wasn't already part of the placeholders
+        #     # This maintains backward compatibility with existing reports
+        #     elif item.get('chart_html'):
+        #         # Create the chart HTML content we want to insert
+        #         chart_content_to_insert = item['chart_html']
                 
-                # Look for a section that mentions this metric to insert the chart nearby
-                metric_mentions = [
-                    item['metric'],
-                    # Add variations if needed (e.g., removing emojis)
-                    item['metric'].replace("🏠", "Housing").replace("💊", "Drug").replace("🚫", "Business") 
-                ]
+        #         # Look for a section that mentions this metric to insert the chart nearby
+        #         metric_mentions = [
+        #             item['metric'],
+        #             # Add variations if needed (e.g., removing emojis)
+        #             item['metric'].replace("🏠", "Housing").replace("💊", "Drug").replace("🚫", "Business") 
+        #         ]
                 
-                insertion_point = -1
-                best_mention_len = 0
+        #         insertion_point = -1
+        #         best_mention_len = 0
 
-                current_search_offset = 0
-                temp_mention_positions = []
-                for mention in metric_mentions:
-                    pos = 0
-                    while True:
-                        pos = report_text.find(mention, current_search_offset)
-                        if pos == -1:
-                            break
-                        temp_mention_positions.append({'pos': pos, 'len': len(mention)})
-                        pos += len(mention) # Continue searching after this mention
+        #         current_search_offset = 0
+        #         temp_mention_positions = []
+        #         for mention in metric_mentions:
+        #             pos = 0
+        #             while True:
+        #                 pos = report_text.find(mention, current_search_offset)
+        #                 if pos == -1:
+        #                     break
+        #                 temp_mention_positions.append({'pos': pos, 'len': len(mention)})
+        #                 pos += len(mention) # Continue searching after this mention
                 
-                if temp_mention_positions:
-                    # Prefer inserting after the first found mention
-                    first_mention = min(temp_mention_positions, key=lambda x: x['pos'])
-                    mention_pos = first_mention['pos']
-                    mention_len = first_mention['len']
+        #         if temp_mention_positions:
+        #             # Prefer inserting after the first found mention
+        #             first_mention = min(temp_mention_positions, key=lambda x: x['pos'])
+        #             mention_pos = first_mention['pos']
+        #             mention_len = first_mention['len']
 
-                    paragraph_end = report_text.find("\n\n", mention_pos)
-                    if paragraph_end != -1:
-                        insertion_point = paragraph_end + 2 
-                    else:
-                        line_end = report_text.find("\n", mention_pos)
-                        if line_end != -1:
-                            insertion_point = line_end + 1
-                        else:
-                            insertion_point = mention_pos + mention_len
+        #             paragraph_end = report_text.find("\n\n", mention_pos)
+        #             if paragraph_end != -1:
+        #                 insertion_point = paragraph_end + 2 
+        #             else:
+        #                 line_end = report_text.find("\n", mention_pos)
+        #                 if line_end != -1:
+        #                     insertion_point = line_end + 1
+        #                 else:
+        #                     insertion_point = mention_pos + mention_len
                 
 
-                if insertion_point != -1:
-                    # Insert the chart HTML at the determined point
-                    report_text = report_text[:insertion_point] + f"\n{chart_content_to_insert}\n\n" + report_text[insertion_point:]
-                    logger.info(f"Inserted chart HTML for '{item['metric']}' after its mention.")
-                else:
-                    # If we couldn't find a suitable mention, DO NOT append the chart at the end
-                    logger.warning(f"No suitable mention found for '{item['metric']}' to insert chart HTML. Chart HTML NOT inserted.")
+        #         if insertion_point != -1:
+        #             # Insert the chart HTML at the determined point
+        #             report_text = report_text[:insertion_point] + f"\n{chart_content_to_insert}\n\n" + report_text[insertion_point:]
+        #             logger.info(f"Inserted chart HTML for '{item['metric']}' after its mention.")
+        #         else:
+        #             # If we couldn't find a suitable mention, DO NOT append the chart at the end
+        #             logger.warning(f"No suitable mention found for '{item['metric']}' to insert chart HTML. Chart HTML NOT inserted.")
         
         # Create directory for reports if it doesn't exist
         reports_dir = Path(__file__).parent / 'output' / 'reports'
@@ -4468,8 +4470,9 @@ def reprioritize_deltas_for_report(filename, district="0", period_type="month", 
                 metadata = {
                     "trend_analysis": item.get("trend_analysis", ""),
                     "follow_up": item.get("follow_up", ""),
-                    "change_type": item.get("change_type", "neutral"),
-                    "greendirection": item.get("greendirection")
+                    "change_type": item.get("change_type", "neutral"),  # Store change_type
+                    "greendirection": item.get("greendirection"),  # Store greendirection
+                    "citywide_changes": item.get("citywide_changes", "")  # Store citywide changes
                 }
                 
                 # Create item title from metric name and group

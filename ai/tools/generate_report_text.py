@@ -5,6 +5,8 @@ from datetime import datetime
 from pathlib import Path
 import logging
 import psycopg2.extras
+import csv
+import io
 
 # Add the project root directory to Python path
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
@@ -54,6 +56,18 @@ def generate_report_text(report_ids, execute_with_connection, load_prompts, AGEN
             if not item:
                 logger.warning(f"Report item with ID {report_id} not found for report_text generation")
                 continue
+
+            # Get citywide changes from metadata
+            citywide_changes = ""
+            metadata = item.get("metadata") if isinstance(item, dict) else item["metadata"]
+            if metadata:
+                if isinstance(metadata, str):
+                    try:
+                        metadata = json.loads(metadata)
+                    except Exception:
+                        metadata = {}
+                citywide_changes = metadata.get("citywide_changes", "")
+
             # Gather all fields
             rationale = item.get("rationale", "") if isinstance(item, dict) else item["rationale"]
             explanation = item.get("explanation", "") if isinstance(item, dict) else item["explanation"]
@@ -62,15 +76,9 @@ def generate_report_text(report_ids, execute_with_connection, load_prompts, AGEN
             charts = ""
             citations = ""
             perplexity_context = ""
-            metadata = item.get("metadata") if isinstance(item, dict) else item["metadata"]
             
             # Log chart metadata
             if metadata:
-                if isinstance(metadata, str):
-                    try:
-                        metadata = json.loads(metadata)
-                    except Exception:
-                        metadata = {}
                 trend_analysis = metadata.get("trend_analysis", "")
                 follow_up = metadata.get("follow_up", "")
                 if "charts" in metadata:
@@ -155,8 +163,20 @@ def generate_report_text(report_ids, execute_with_connection, load_prompts, AGEN
                 follow_up=follow_up,
                 charts=charts_str,
                 citations=citations_str,
-                perplexity_context=perplexity_context
+                perplexity_context=perplexity_context,
+                citywide_changes=citywide_changes
             )
+
+            # Log the prompt before sending to LLM
+            # Log prompt to report_prompt file
+            try:
+                report_prompt_file = os.path.join(project_root,'ai', 'logs', 'report_prompt')
+                with open(report_prompt_file, 'w', encoding='utf-8') as f:
+                    f.write(f"Prompt for report_id {report_id}:\n{prompt}")
+                logger.info(f"Saved prompt to {report_prompt_file}")
+            except Exception as e:
+                logger.error(f"Failed to write prompt to report_prompt file: {e}")
+
             response = client.chat.completions.create(
                 model=AGENT_MODEL,
                 messages=[{"role": "system", "content": system_message},

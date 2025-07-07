@@ -15,7 +15,7 @@ from tools.anomaly_detection import anomaly_detection
 from tools.generate_map import generate_map
 from tools.genAggregate import aggregate_data  # Import aggregate_data function
 
-# Configure logging
+# Configure logging AFTER all imports to avoid being overridden by imported modules
 script_dir = os.path.dirname(os.path.abspath(__file__))
 logs_dir = os.path.join(script_dir, 'logs')
 os.makedirs(logs_dir, exist_ok=True)
@@ -30,9 +30,25 @@ MONTHLY_DIR = os.path.join(OUTPUT_DIR, 'monthly')
 os.makedirs(ANNUAL_DIR, exist_ok=True)
 os.makedirs(MONTHLY_DIR, exist_ok=True)
 
+# Load environment variables to get LOG_LEVEL
+from dotenv import load_dotenv
+dotenv_path = os.path.join(script_dir, '.env')
+load_dotenv(dotenv_path=dotenv_path)
+
+# Get log level from environment variable
+log_level_str = os.getenv("LOG_LEVEL", "INFO").upper()
+log_level_map = {
+    "DEBUG": logging.DEBUG,
+    "INFO": logging.INFO,
+    "WARNING": logging.WARNING,
+    "ERROR": logging.ERROR,
+    "CRITICAL": logging.CRITICAL,
+}
+log_level = log_level_map.get(log_level_str, logging.INFO)
+
 # Configure root logger first
 root_logger = logging.getLogger()
-root_logger.setLevel(logging.INFO)
+root_logger.setLevel(log_level)  # Use environment variable instead of hardcoded INFO
 formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
 # Remove any existing handlers from root logger
@@ -41,24 +57,26 @@ for handler in root_logger.handlers[:]:
 
 # Add file handler to root logger
 root_file_handler = logging.FileHandler(os.path.join(logs_dir, 'metric_analysis.log'))
+root_file_handler.setLevel(log_level)  # Use environment variable instead of hardcoded INFO
 root_file_handler.setFormatter(formatter)
 root_logger.addHandler(root_file_handler)
 
 # Add console handler to root logger
 root_console_handler = logging.StreamHandler()
+root_console_handler.setLevel(log_level)  # Use environment variable instead of hardcoded INFO
 root_console_handler.setFormatter(formatter)
 root_logger.addHandler(root_console_handler)
 
 # Now configure the module logger
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
+logger.setLevel(log_level)  # Use environment variable instead of hardcoded INFO
 
 # The module logger will inherit handlers from the root logger
 # so we don't need to add handlers to it
 
 # Log a message to confirm logging is set up
-logger.info("Logging configured for generate_metric_analysis.py")
-root_logger.info("Root logger configured for generate_metric_analysis.py")
+logger.info(f"Logging configured for generate_metric_analysis.py with level: {log_level_str}")
+root_logger.info(f"Root logger configured for generate_metric_analysis.py with level: {log_level_str}")
 
 def load_json_file(file_path):
     """Load a JSON file and return its contents."""

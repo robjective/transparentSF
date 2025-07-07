@@ -171,6 +171,11 @@ def group_data_by_field_and_date(data_array, group_field, numeric_field, date_fi
         elif period_type == 'month':
             # For month period, always use YYYY-MM format
             date_key = date_obj.strftime("%Y-%m")
+        elif period_type == 'week':
+            # For week period, use YYYY-WXX format
+            # Calculate week number (1-53) based on ISO week date
+            week_number = date_obj.isocalendar()[1]
+            date_key = f"{date_obj.year}-W{week_number:02d}"
         else:  # day
             date_key = date_obj.strftime("%Y-%m-%d")
 
@@ -228,6 +233,30 @@ def custom_parse_date(date_str, period_type='month'):
                 year = int(date_str)
             return datetime.date(year, 1, 1)
         except ValueError:
+            pass
+
+    # Handle YYYY-WXX format for week period type
+    if period_type == 'week' and isinstance(date_str, str) and 'W' in date_str:
+        try:
+            # Parse YYYY-WXX format (e.g., "2024-W25")
+            if '-' in date_str and 'W' in date_str:
+                year_part, week_part = date_str.split('-')
+                year = int(year_part)
+                week_num = int(week_part.replace('W', ''))
+                
+                # Create a date for the first day of the year
+                jan1 = datetime.date(year, 1, 1)
+                
+                # Find the first Monday of the year (ISO week starts on Monday)
+                # If Jan 1 is Monday (weekday=0), we're good. Otherwise, find the next Monday
+                days_until_monday = (7 - jan1.weekday()) % 7
+                first_monday = jan1 + datetime.timedelta(days=days_until_monday)
+                
+                # Calculate the target date by adding weeks
+                target_date = first_monday + datetime.timedelta(weeks=week_num - 1)
+                
+                return target_date
+        except (ValueError, IndexError):
             pass
 
     # Handle YYYY-MM format for month period type
@@ -760,12 +789,19 @@ def anomaly_detection(
 
     results = []
     for group_value, data_points in grouped_data.items():
+        # Add debug logging for each group
+        logging.info(f"=== Processing group: {group_value} ===")
+        logging.info(f"Data points keys: {list(data_points.keys())}")
+        logging.info(f"Data points values: {list(data_points.values())}")
+        
         # Get the first actual data point date for this group
         group_dates = sorted(data_points.keys())
         if not group_dates:
+            logging.info(f"No dates found for group {group_value}, skipping")
             continue  # Skip groups with no data
             
         first_group_date = group_dates[0]
+        logging.info(f"First group date: {first_group_date}")
         
         # Only fill zeros for months that are:
         # 1. After the first actual data point
@@ -775,6 +811,7 @@ def anomaly_detection(
             month for month in full_months 
             if month >= first_group_date
         ]
+        logging.info(f"Filtered full months: {filtered_full_months}")
 
         # Now expand data_points only for relevant months
         for month in filtered_full_months:
@@ -783,46 +820,52 @@ def anomaly_detection(
 
         dates = sorted(data_points.keys())
         counts = [data_points[date] for date in dates]
+        logging.info(f"Final dates: {dates}")
+        logging.info(f"Final counts: {counts}")
 
         comparison_counts = []
         recent_counts = []
 
-        # Only consider dates after the first actual data point
+        # Remove extra debug logging, keep only essential error logging
         for date_key in dates:
             if date_key >= first_group_date:  # Only process dates after first actual data
                 count = data_points[date_key]
                 if date_field:
                     try:
-                        # Use appropriate date format based on period_type
                         if period_type == 'year':
-                            # For year period, just compare the years as strings
                             item_year = date_key
                             comp_start_year = str(comparison_period['start'].year)
                             comp_end_year = str(comparison_period['end'].year)
                             recent_start_year = str(recent_period['start'].year)
                             recent_end_year = str(recent_period['end'].year)
-                            
                             if comp_start_year <= item_year <= comp_end_year:
                                 comparison_counts.append(count)
                             elif recent_start_year <= item_year <= recent_end_year:
                                 recent_counts.append(count)
-                        else:
-                            # For month/day periods, use full date comparison
-                            if period_type == 'month':
-                                item_date = datetime.datetime.strptime(date_key, "%Y-%m").date()
-                            else:  # day
-                                item_date = datetime.datetime.strptime(date_key, "%Y-%m-%d").date()
-                            
+                        elif period_type == 'week':
+                            item_date = custom_parse_date(date_key, 'week')
+                            if item_date is None:
+                                logging.error(f"Error parsing week date {date_key} for comparison")
+                                continue
                             if comparison_period['start'] <= item_date <= comparison_period['end']:
                                 comparison_counts.append(count)
                             elif recent_period['start'] <= item_date <= recent_period['end']:
                                 recent_counts.append(count)
-                    except ValueError:
+                        else:
+                            if period_type == 'month':
+                                item_date = datetime.datetime.strptime(date_key, "%Y-%m").date()
+                            else:
+                                item_date = datetime.datetime.strptime(date_key, "%Y-%m-%d").date()
+                            if comparison_period['start'] <= item_date <= comparison_period['end']:
+                                comparison_counts.append(count)
+                            elif recent_period['start'] <= item_date <= recent_period['end']:
+                                recent_counts.append(count)
+                    except ValueError as e:
+                        logging.error(f"Error parsing date {date_key}: {e}")
                         continue
-                else:
-                    comparison_counts = counts
-                    recent_counts = counts
-                    break
+
+        logging.info(f"Comparison counts: {comparison_counts}")
+        logging.info(f"Recent counts: {recent_counts}")
 
         # Initialize stats with default empty values
         comparison_stats = {'mean': None, 'stdDev': None}
@@ -832,6 +875,9 @@ def anomaly_detection(
             comparison_stats = calculate_stats(comparison_counts)
         if recent_counts:
             recent_stats = calculate_stats(recent_counts)
+
+        logging.info(f"Comparison stats: {comparison_stats}")
+        logging.info(f"Recent stats: {recent_stats}")
 
         if (
             comparison_stats['mean'] is not None and
@@ -844,6 +890,7 @@ def anomaly_detection(
                 comparison_std_dev = float(comparison_stats['stdDev'])
                 min_diff = float(min_diff)
             except ValueError:
+                logging.error(f"Error converting stats to float for group {group_value}")
                 continue
 
             difference = recent_mean - comparison_mean
@@ -866,6 +913,10 @@ def anomaly_detection(
                         'counts': counts,
                         'out_of_bounds': out_of_bounds
                     })
+        else:
+            logging.info(f"Skipping group {group_value} - missing stats")
+            logging.info(f"comparison_stats: {comparison_stats}")
+            logging.info(f"recent_stats: {recent_stats}")
 
     results.sort(key=lambda x: abs(x['difference']), reverse=True)
     
@@ -875,14 +926,14 @@ def anomaly_detection(
         'group_field': group_field,
         'date_field': date_field,
         'y_axis_label': y_axis_label,
-        'title': title or f"{numeric_field} by {group_field}",
+        'title': title or f"{numeric_field} by {group_field}" if group_field else f"{numeric_field}",
         'filter_conditions': filter_conditions,
         'numeric_field': numeric_field,
         'period_type': period_type,
         'agg_function': agg_function,
         'object_type': object_type,   # Add object_type to metadata
         'object_id': object_id,       # Add object_id to metadata
-        'object_name': object_name or title or f"{numeric_field} by {group_field}"    # Add object_name to metadata
+        'object_name': object_name or title or (f"{numeric_field} by {group_field}" if group_field else f"{numeric_field}")    # Add object_name to metadata
     }
 
     # Add executed_query_url to metadata if it exists in context_variables
@@ -910,7 +961,13 @@ def anomaly_detection(
     else:
         # Try to convert district to integer
         try:
-            district = int(district)
+            # Handle both string and numeric decimal values
+            if isinstance(district, str):
+                # Try to convert string to float first, then to int
+                district = int(float(district))
+            else:
+                # Handle numeric types (float, int, etc.)
+                district = int(float(district))
         except (ValueError, TypeError):
             district = 0
     

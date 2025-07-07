@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dark Mode Test</title>
+    <link rel="stylesheet" href="/static/darkmode.css">
+    <script src="/static/js/darkmode.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+            transition: all 0.3s ease;
+        }
+        
+        .test-container {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            border: 1px solid var(--border-primary);
+            border-radius: 8px;
+            background-color: var(--bg-primary);
+        }
+        
+        .test-button {
+            background-color: var(--bg-secondary);
+            color: var(--text-primary);
+            border: 1px solid var(--border-primary);
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 10px 5px;
+        }
+        
+        .test-button:hover {
+            background-color: var(--bg-tertiary);
+        }
+        
+        .test-input {
+            background-color: var(--bg-secondary);
+            color: var(--text-primary);
+            border: 1px solid var(--border-primary);
+            padding: 8px 12px;
+            border-radius: 4px;
+            margin: 10px 0;
+            width: 200px;
+        }
+        
+        .test-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+        }
+        
+        .test-table th,
+        .test-table td {
+            border: 1px solid var(--border-primary);
+            padding: 8px;
+            text-align: left;
+        }
+        
+        .test-table th {
+            background-color: var(--bg-secondary);
+        }
+    </style>
+</head>
+<body>
+    <div class="test-container">
+        <h1>Dark Mode Test Page</h1>
+        
+        <div style="text-align: center; margin: 20px 0;">
+            <button class="dark-mode-toggle" title="Toggle dark mode">
+                <span class="icon">🌙</span>
+            </button>
+        </div>
+        
+        <p>This is a test page to verify dark mode functionality. The theme should switch smoothly when you click the toggle button above.</p>
+        
+        <h2>Test Elements</h2>
+        
+        <div>
+            <label>Input field:</label><br>
+            <input type="text" class="test-input" placeholder="Type something here...">
+        </div>
+        
+        <div>
+            <button class="test-button">Regular Button</button>
+            <button class="test-button">Another Button</button>
+        </div>
+        
+        <table class="test-table">
+            <thead>
+                <tr>
+                    <th>Column 1</th>
+                    <th>Column 2</th>
+                    <th>Column 3</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>Row 1, Cell 1</td>
+                    <td>Row 1, Cell 2</td>
+                    <td>Row 1, Cell 3</td>
+                </tr>
+                <tr>
+                    <td>Row 2, Cell 1</td>
+                    <td>Row 2, Cell 2</td>
+                    <td>Row 2, Cell 3</td>
+                </tr>
+            </tbody>
+        </table>
+        
+        <h3>Current Theme: <span id="current-theme">light</span></h3>
+        
+        <p><strong>Features to test:</strong></p>
+        <ul>
+            <li>Click the toggle button multiple times - it should be smooth and responsive</li>
+            <li>Theme should persist across page refreshes</li>
+            <li>All elements should change color appropriately</li>
+            <li>No visual glitches or rapid toggling</li>
+        </ul>
+    </div>
+    
+    <script>
+        // Update the current theme display
+        function updateThemeDisplay() {
+            const themeSpan = document.getElementById('current-theme');
+            if (themeSpan && window.darkModeManager) {
+                themeSpan.textContent = window.darkModeManager.currentTheme;
+            }
+        }
+        
+        // Listen for theme changes
+        window.addEventListener('themeChanged', updateThemeDisplay);
+        
+        // Update on page load
+        document.addEventListener('DOMContentLoaded', updateThemeDisplay);
+    </script>
+</body>
+</html> 

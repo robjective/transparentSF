@@ -225,6 +225,27 @@ def generate_chart_html(item, chart_title, metadata, chart_counter, output_dir):
                     # For year period, expect YYYY format
                     year = int(date_entry)
                     date_obj = datetime.date(year, 1, 1)
+                elif period_type == 'week':
+                    # For week period, expect YYYY-WXX format (e.g., "2024-W25")
+                    if '-' in date_entry and 'W' in date_entry:
+                        year_part, week_part = date_entry.split('-')
+                        year = int(year_part)
+                        week_num = int(week_part.replace('W', ''))
+                        
+                        # Create a date for the first day of the year
+                        jan1 = datetime.date(year, 1, 1)
+                        
+                        # Find the first Monday of the year (ISO week starts on Monday)
+                        # If Jan 1 is Monday (weekday=0), we're good. Otherwise, find the next Monday
+                        days_until_monday = (7 - jan1.weekday()) % 7
+                        first_monday = jan1 + datetime.timedelta(days=days_until_monday)
+                        
+                        # Calculate the target date by adding weeks
+                        date_obj = first_monday + datetime.timedelta(weeks=week_num - 1)
+                    else:
+                        # Fallback: try to parse as regular date
+                        date_obj = datetime.datetime.strptime(date_entry, "%Y-%m-%d").date()
+                        logging.warning(f"Found non-week format in weekly mode for date: {date_entry}")
                 else:
                     # For monthly data, expect YYYY-MM format
                     if len(date_entry.split('-')) == 2:
@@ -361,6 +382,13 @@ def generate_chart_html(item, chart_title, metadata, chart_counter, output_dir):
             title=metadata.get('date_field', 'Value'),
             ticklabelmode='period'
         )
+    elif period_type == 'week':
+        xaxis_config = dict(
+            tickformat='%b %d, %Y',  # Show month, day, year for weekly data
+            dtick='W1',              # One tick per week
+            title=metadata.get('date_field', 'Week'),
+            ticklabelmode='period'
+        )
     else:
         xaxis_config = dict(
             tickformat='%b %Y',
@@ -401,9 +429,18 @@ def generate_chart_html(item, chart_title, metadata, chart_counter, output_dir):
     recent_period_label = f"{recent_start.strftime('%B %Y')}"
 
     y_axis_labels = metadata['y_axis_label'].lower()
+    
+    # Adjust caption text based on period type
+    if period_type == 'week':
+        period_unit = 'per week'
+    elif period_type == 'year':
+        period_unit = 'per year'
+    else:
+        period_unit = 'per month'
+    
     caption = (
-        f"In {recent_period_label}, there were {item['recent_mean']:,.0f} {item['group_value']} {y_axis_labels} per month, "
-        f"compared to an average of {comparison_mean:,.0f} per month over {comparison_period_label}, "
+        f"In {recent_period_label}, there were {item['recent_mean']:,.0f} {item['group_value']} {y_axis_labels} {period_unit}, "
+        f"compared to an average of {comparison_mean:,.0f} {period_unit} over {comparison_period_label}, "
         f"a {percent_difference:.1f}% {action}."
     )
 
@@ -453,6 +490,8 @@ def generate_markdown_summary(table_data, metadata, output_dir):
     period_type = metadata.get('period_type', 'month')
     if period_type == 'year':
         date_format = '%Y'
+    elif period_type == 'week':
+        date_format = '%b %d, %Y'  # Show month, day, year for weekly data
     else:  # month, day
         date_format = '%b %Y'
     

@@ -271,7 +271,7 @@ init_database
 # Start backend
 echo "Starting Main..."
 cd ai
-python main.py &
+python3 main.py &
 cd ..
 
 wait_for_service "http://0.0.0.0:8000/backend" "Backend"

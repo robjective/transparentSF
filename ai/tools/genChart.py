@@ -9,6 +9,7 @@ from tools.genAggregate import aggregate_data
 from tools.anomaly_detection import filter_data_by_date_and_conditions
 from tools.store_time_series import store_time_series_in_db
 from tools.db_utils import execute_with_connection
+import plotly.graph_objects as go
 
 # Configure logging
 logging.basicConfig(
@@ -101,7 +102,8 @@ def generate_time_series_chart(
     db_port: int = None,
     db_name: str = None,
     db_user: str = None,
-    db_password: str = None
+    db_password: str = None,
+    skip_aggregation: bool = False
 ) -> str:
     try:
         logging.info("Full context_variables: %s", context_variables)
@@ -189,7 +191,13 @@ def generate_time_series_chart(
                 logging.error("No data available after applying filters.")
                 return "**Error**: No data available after applying filters. Please adjust your filter conditions."
 
+        # Convert numeric fields to proper numeric types
         for field in numeric_fields:
+            if skip_aggregation:
+                # Skip conversion if data is already processed (for weekly analysis)
+                logging.info(f"Skipping numeric conversion for {field} due to skip_aggregation=True")
+                continue
+                
             pre_conversion_count = df[field].notna().sum()
             df[field] = df[field].astype(str).str.strip()
             df[field] = pd.to_numeric(df[field], errors='coerce')
@@ -225,28 +233,81 @@ def generate_time_series_chart(
             }
         logging.info("Aggregation functions: %s", agg_functions)
 
-        aggregated_df = aggregate_data(
-            df=df,
-            time_series_field=time_series_field,
-            numeric_fields=numeric_fields,
-            aggregation_period=aggregation_period,
-            group_field=group_field,
-            agg_functions=agg_functions
-        )
+        if skip_aggregation:
+            # Skip aggregation - use data as-is (for weekly analysis where data is already aggregated)
+            logging.info("Skipping aggregation - using data as-is")
+            aggregated_df = df.copy()
+            # Rename the time field to time_period for consistency
+            if time_series_field in aggregated_df.columns:
+                aggregated_df = aggregated_df.rename(columns={time_series_field: 'time_period'})
+            else:
+                logging.error(f"Time series field '{time_series_field}' not found in dataset")
+                return f"**Error**: Time series field '{time_series_field}' not found in dataset"
+            # Debug: Log data types and values when skipping aggregation
+            logging.info(f"[genChart] Data sample after skip_aggregation:\n{aggregated_df.head(10).to_string()}")
+            logging.info(f"[genChart] Data types after skip_aggregation:\n{aggregated_df.dtypes}")
+            for col in aggregated_df.columns:
+                if col in numeric_fields:
+                    logging.info(f"  {col} sample values: {aggregated_df[col].head().tolist()}")
+                    logging.info(f"  {col} unique values: {aggregated_df[col].unique()[:5]}")
+        else:
+            # Perform normal aggregation
+            aggregated_df = aggregate_data(
+                df=df,
+                time_series_field=time_series_field,
+                numeric_fields=numeric_fields,
+                aggregation_period=aggregation_period,
+                group_field=group_field,
+                agg_functions=agg_functions
+            )
 
         if 'time_period' not in aggregated_df.columns:
             logging.error("'time_period' column is missing after aggregation.")
             return "**Error**: The 'time_period' column is missing after aggregation. Check the 'aggregate_data' function for proper time grouping."
 
-        # Ensure 'time_period' is datetime and sort the DataFrame
-        aggregated_df['time_period'] = pd.to_datetime(aggregated_df['time_period'])
-        aggregated_df = aggregated_df.sort_values('time_period')
+        # Handle time_period based on aggregation period
+        if aggregation_period == 'week':
+            # For weekly aggregation, check if time_period is in ISO week format (YYYY-Www)
+            if aggregated_df['time_period'].dtype == 'object' and aggregated_df['time_period'].str.contains(r'^\d{4}-W\d{2}$', na=False).all():
+                # ISO week format - keep as string, but create a datetime column for sorting
+                logging.info("Detected ISO week format in time_period, keeping as string for display")
+                # Create a datetime column for sorting (use the week_start if available, otherwise parse)
+                if 'week_start' in aggregated_df.columns:
+                    aggregated_df['time_period_dt'] = aggregated_df['week_start']
+                else:
+                    # Parse ISO week to get the Monday of that week for sorting
+                    def parse_iso_week(iso_week_str):
+                        try:
+                            year, week = iso_week_str.split('-W')
+                            year, week = int(year), int(week)
+                            # Get the Monday of that ISO week
+                            return date.fromisocalendar(year, week, 1)
+                        except:
+                            return pd.NaT
+                    
+                    aggregated_df['time_period_dt'] = aggregated_df['time_period'].apply(parse_iso_week)
+                
+                # Sort by the datetime column
+                aggregated_df = aggregated_df.sort_values('time_period_dt')
+            else:
+                # Regular datetime format - convert to datetime
+                aggregated_df['time_period'] = pd.to_datetime(aggregated_df['time_period'])
+                aggregated_df['time_period_dt'] = aggregated_df['time_period']
+        else:
+            # For other aggregation periods, convert to datetime as before
+            aggregated_df['time_period'] = pd.to_datetime(aggregated_df['time_period'])
+            aggregated_df['time_period_dt'] = aggregated_df['time_period']
+        
         logging.debug("Aggregated DataFrame sorted by 'time_period'.")
         
         # Compute values for the caption
         try:
-            last_time_period = aggregated_df['time_period'].max()
-            earliest_time_period = aggregated_df['time_period'].min()
+            # Use time_period_dt for calculations, time_period for display
+            time_period_col = 'time_period_dt' if 'time_period_dt' in aggregated_df.columns else 'time_period'
+            display_col = 'time_period' if aggregation_period == 'week' and aggregated_df['time_period'].dtype == 'object' else 'time_period'
+            
+            last_time_period = aggregated_df[time_period_col].max()
+            earliest_time_period = aggregated_df[time_period_col].min()
 
             # Get the appropriate time period name based on aggregation_period
             if aggregation_period == 'year':
@@ -257,7 +318,13 @@ def generate_time_series_chart(
                 quarter = (last_time_period.month - 1) // 3 + 1
                 period_name = f"Q{quarter} {last_time_period.year}"
             elif aggregation_period == 'week':
-                period_name = f"Week {last_time_period.strftime('%U')} of {last_time_period.year}"
+                # For ISO week format, get the display value
+                if display_col == 'time_period' and aggregated_df['time_period'].dtype == 'object':
+                    # Get the last ISO week string
+                    last_iso_week = aggregated_df.loc[aggregated_df[time_period_col] == last_time_period, 'time_period'].iloc[0]
+                    period_name = f"ISO Week {last_iso_week}"
+                else:
+                    period_name = f"Week {last_time_period.strftime('%U')} of {last_time_period.year}"
             elif aggregation_period == 'day':  # Specific handling for daily data
                 period_name = last_time_period.strftime('%B %d, %Y')
             else:  # fallback for any other period
@@ -271,19 +338,21 @@ def generate_time_series_chart(
                     return f"{round(num):,}"
                 return f"{num:.2f}"
 
-            total_latest = format_number(aggregated_df[aggregated_df['time_period'] == last_time_period][numeric_fields[0]].sum())
+            # Get the last period data using the datetime column for filtering
+            last_period_mask = aggregated_df[time_period_col] == last_time_period
+            total_latest = format_number(aggregated_df[last_period_mask][numeric_fields[0]].sum())
             logging.debug(f"Total value for last period: {total_latest}")
 
             # Exclude the last period for calculating the average of the rest across all groups
-            rest_periods = aggregated_df[aggregated_df['time_period'] < last_time_period]
+            rest_periods = aggregated_df[aggregated_df[time_period_col] < last_time_period]
             total_periods = 0  # Initialize with default value
             if rest_periods.empty:
                 average_of_rest = 0
             else:
                 # Sum over groups to get total per time period
-                total_per_time_period = rest_periods.groupby('time_period')[numeric_fields[0]].sum()
+                total_per_time_period = rest_periods.groupby(time_period_col)[numeric_fields[0]].sum()
                 average_of_rest = total_per_time_period.mean()
-                total_periods = len(rest_periods['time_period'].unique())
+                total_periods = len(rest_periods[time_period_col].unique())
 
             formatted_average = format_number(average_of_rest)
             logging.debug(f"Average value of rest periods: {formatted_average}")
@@ -300,12 +369,12 @@ def generate_time_series_chart(
             caption_group = ""
             if group_field:
                 try:
-                    last_period_df = aggregated_df[aggregated_df['time_period'] == last_time_period]
+                    last_period_df = aggregated_df[last_period_mask]
                     numeric_values = last_period_df.groupby(group_field)[numeric_fields[0]].sum().to_dict()
                     logging.debug(f"Numeric values for last period by group: {numeric_values}")
 
                     # Calculate the average of the prior periods for each group
-                    prior_periods = aggregated_df[aggregated_df['time_period'] < last_time_period]
+                    prior_periods = aggregated_df[aggregated_df[time_period_col] < last_time_period]
                     average_of_prior = prior_periods.groupby(group_field)[numeric_fields[0]].mean().to_dict()
                     logging.debug(f"Average values of prior periods by group: {average_of_prior}")
 
@@ -459,6 +528,7 @@ def generate_time_series_chart(
                     "time_series_field": time_series_field,
                     "numeric_fields": numeric_fields,
                     "group_field": group_field,
+                    "field_name": group_field or numeric_fields[0] if numeric_fields else "unknown",
                     "executed_query_url": context_variables.get("executed_query_url"),
                     "caption": caption,
                     "period_type": aggregation_period  # Add the period_type to metadata
@@ -530,7 +600,7 @@ def generate_time_series_chart(
                 logging.debug(f"Original group field name from mapping: {group_field_original}")
                 fig = px.area(
                     aggregated_df,
-                    x='time_period',
+                    x='time_period',  # Use the display column (string for ISO weeks)
                     y=numeric_fields[0],
                     color=group_field,
                     labels={
@@ -547,7 +617,7 @@ def generate_time_series_chart(
             else:
                 fig = px.line(
                     aggregated_df,
-                    x='time_period',
+                    x='time_period',  # Use the display column (string for ISO weeks)
                     y=numeric_fields[0],
                     labels={
                         'time_period': time_series_field.capitalize(),
@@ -597,6 +667,7 @@ def generate_time_series_chart(
                     tickformat='%Y' if time_series_field == 'year' 
                               else '%m-%y' if aggregation_period == 'month'
                               else '%d-%m-%y' if aggregation_period == 'day'
+                              else '%b %d' if aggregation_period == 'week'
                               else '%m-%y',
                     dtick="M12" if aggregation_period in ['year', 'month'] else "D7",  # One tick per year for year/month, weekly for days
                     tickangle=45 if aggregation_period == 'day' else 0,  # Angled labels for daily data
@@ -604,7 +675,8 @@ def generate_time_series_chart(
                     ticktext=[d.strftime('%Y' if time_series_field == 'year' 
                                        else '%m-%y' if aggregation_period == 'month'
                                        else '%d-%m-%y' if aggregation_period == 'day'
-                                       else '%m-%y') 
+                                       else '%b %d' if aggregation_period == 'week'
+                                       else '%m-%y') if hasattr(d, 'strftime') else str(d)
                              for d in aggregated_df['time_period'].unique()],
                     tickvals=aggregated_df['time_period'].unique()
                 )
@@ -613,15 +685,17 @@ def generate_time_series_chart(
             # Add average line if show_average_line is True
             if show_average_line:
                 # Calculate average excluding the last month to match caption
-                last_period = aggregated_df['time_period'].max()
-                prior_periods_df = aggregated_df[aggregated_df['time_period'] < last_period]
+                time_period_col = 'time_period_dt' if 'time_period_dt' in aggregated_df.columns else 'time_period'
+                last_period = aggregated_df[time_period_col].max()
+                prior_periods_df = aggregated_df[aggregated_df[time_period_col] < last_period]
                 
                 # Calculate average the same way as in caption
-                total_per_time_period = prior_periods_df.groupby('time_period')[numeric_fields[0]].sum()
+                total_per_time_period = prior_periods_df.groupby(time_period_col)[numeric_fields[0]].sum()
                 average_value = total_per_time_period.mean()
                 
-                # Create a series for the average line
-                average_line = pd.Series(average_value, index=aggregated_df['time_period'])
+                # Create a series for the average line - use display column for x-axis
+                display_col = 'time_period'
+                average_line = pd.Series(average_value, index=aggregated_df[display_col])
                 
                 # Format the average value
                 formatted_avg = (
@@ -642,9 +716,10 @@ def generate_time_series_chart(
                 )
 
             # Calculate bottom margin based on whether we have a group field
-            bottom_margin = 120 if group_field else 30  # More space for legend when we have groups
+            bottom_margin = 30  # Reduced margin since we're hiding legend for multi-series
 
             fig.update_layout(
+                showlegend=not group_field,  # Hide legend for multi-series charts
                 legend=dict(
                     orientation="h",    # Horizontal orientation
                     yanchor="bottom",
@@ -690,11 +765,17 @@ def generate_time_series_chart(
             # Highlight the last data point (only if no group_field)
             if not group_field and not aggregated_df.empty:
                 last_point = aggregated_df.iloc[-1]
-                last_x = last_point['time_period']
+                last_x = last_point['time_period']  # Use display column
                 last_y = last_point[numeric_fields[0]]
                 
                 # Use the same format as x-axis labels
-                point_label = last_x.strftime('%Y' if time_series_field == 'year' else '%m-%y')
+                if hasattr(last_x, 'strftime'):
+                    point_label = last_x.strftime('%Y' if time_series_field == 'year' 
+                                                else '%m-%y' if aggregation_period == 'month'
+                                                else '%b %d' if aggregation_period == 'week'
+                                                else '%m-%y')
+                else:
+                    point_label = str(last_x)
 
                 fig.add_scatter(
                     x=[last_x],
@@ -761,14 +842,16 @@ def generate_time_series_chart(
                 crosstab_df.columns = [col.strftime('%Y' if aggregation_period == 'year'
                                                    else '%b %Y' if aggregation_period == 'month'
                                                    else '%d %b %Y' if aggregation_period == 'day'
-                                                   else '%Y') 
+                                                   else '%b %d' if aggregation_period == 'week'
+                                                   else '%Y') if hasattr(col, 'strftime') else str(col)
                                      for col in crosstab_df.columns]
             else:
                 crosstab_df = aggregated_df.set_index('time_period')[[numeric_fields[0]]].T
                 crosstab_df.columns = [col.strftime('%Y' if aggregation_period == 'year'
                                                    else '%b %Y' if aggregation_period == 'month'
                                                    else '%d %b %Y' if aggregation_period == 'day'
-                                                   else '%Y') 
+                                                   else '%b %d' if aggregation_period == 'week'
+                                                   else '%Y') if hasattr(col, 'strftime') else str(col)
                                      for col in crosstab_df.columns]
                 crosstab_df.index = [y_axis_label]
 
@@ -849,3 +932,227 @@ function toggleDataTable(tableId) {{
     except Exception as e:
         logging.error("Unexpected error in generate_time_series_chart: %s", e)
         return f"**Error**: An unexpected error occurred: {e}"
+
+def generate_ytd_trend_chart(
+    trend_data: dict,
+    metadata: dict,
+    district: str = None,
+    return_html: bool = False,
+    output_dir: str = None,
+    store_in_db: bool = False,
+    db_host: str = None,
+    db_port: int = None,
+    db_name: str = None,
+    db_user: str = None,
+    db_password: str = None
+) -> str:
+    """
+    Generate a specialized YTD trend chart for district-specific trend data.
+    Shows two lines: one for this year and one for last year for easy comparison.
+    
+    Args:
+        trend_data: Dictionary with date keys and numeric values (e.g., {"2024-01-01": 10.5})
+        metadata: Dictionary with chart metadata
+        district: District identifier (e.g., "1", "2", etc., or None for citywide)
+        return_html: Whether to return HTML or save to file
+        output_dir: Directory to save the chart file
+        store_in_db: Whether to store the chart data in the database
+        db_host: Database host
+        db_port: Database port
+        db_name: Database name
+        db_user: Database user
+        db_password: Database password
+        
+    Returns:
+        str: HTML content or file path
+    """
+    try:
+        logging.info(f"Generating YTD trend chart for district {district or 'citywide'}")
+        
+        # Convert trend_data dictionary to DataFrame
+        df = pd.DataFrame([
+            {'time_period': date, 'value': float(value)} 
+            for date, value in trend_data.items()
+        ])
+        
+        if df.empty:
+            logging.error("No trend data provided")
+            return "**Error**: No trend data provided"
+        
+        # Convert time_period to datetime
+        df['time_period'] = pd.to_datetime(df['time_period'])
+        df = df.sort_values('time_period')
+        
+        # Extract year and day-of-year for comparison
+        df['year'] = df['time_period'].dt.year
+        df['day_of_year'] = df['time_period'].dt.dayofyear
+        
+        # Determine this year and last year
+        this_year = df['year'].max()
+        last_year = this_year - 1
+        
+        logging.info(f"Data spans years: {df['year'].min()} to {df['year'].max()}")
+        logging.info(f"This year: {this_year}, Last year: {last_year}")
+        
+        # Create separate dataframes for each year
+        this_year_data = df[df['year'] == this_year].copy()
+        last_year_data = df[df['year'] == last_year].copy()
+        
+        logging.info(f"This year data points: {len(this_year_data)}")
+        logging.info(f"Last year data points: {len(last_year_data)}")
+        
+        if not this_year_data.empty:
+            logging.info(f"This year date range: {this_year_data['time_period'].min()} to {this_year_data['time_period'].max()}")
+        if not last_year_data.empty:
+            logging.info(f"Last year date range: {last_year_data['time_period'].min()} to {last_year_data['time_period'].max()}")
+        
+        # Extract metadata
+        chart_title = metadata.get('chart_title', 'YTD Trend Chart')
+        y_axis_label = metadata.get('y_axis_label', 'Value')
+        object_type = metadata.get('object_type', 'metric')
+        object_id = metadata.get('object_id', 'unknown')
+        object_name = metadata.get('object_name', chart_title)
+        field_name = metadata.get('field_name', 'trend_value')
+        
+        # Create district-specific title and description
+        district_name = f"District {district}" if district and district != '0' else "Citywide"
+        full_title = f"{chart_title} - {district_name}"
+        
+        # Create the chart using Plotly with two lines
+        fig = go.Figure()
+        
+        # Add this year line
+        if not this_year_data.empty:
+            fig.add_trace(go.Scatter(
+                x=this_year_data['day_of_year'],
+                y=this_year_data['value'],
+                mode='lines+markers',
+                name=f'{this_year}',
+                line=dict(color='#1f77b4', width=2),
+                marker=dict(size=4),
+                hovertemplate='<b>Day %{x}</b><br>' +
+                             f'{this_year}: %{{y:.2f}}<br>' +
+                             '<extra></extra>'
+            ))
+        
+        # Add last year line
+        if not last_year_data.empty:
+            fig.add_trace(go.Scatter(
+                x=last_year_data['day_of_year'],
+                y=last_year_data['value'],
+                mode='lines+markers',
+                name=f'{last_year}',
+                line=dict(color='#ff7f0e', width=2),
+                marker=dict(size=4),
+                hovertemplate='<b>Day %{x}</b><br>' +
+                             f'{last_year}: %{{y:.2f}}<br>' +
+                             '<extra></extra>'
+            ))
+        
+        # Update layout
+        fig.update_layout(
+            title=full_title,
+            title_x=0.5,  # Center the title
+            title_font_size=16,
+            xaxis_title="Day of Year",
+            yaxis_title=y_axis_label,
+            hovermode='x unified',
+            showlegend=True,
+            legend=dict(
+                orientation="h",
+                yanchor="bottom",
+                y=1.02,
+                xanchor="right",
+                x=1
+            ),
+            plot_bgcolor='white',
+            paper_bgcolor='white'
+        )
+        
+        # Customize axes
+        fig.update_xaxes(
+            gridcolor='lightgray',
+            gridwidth=0.5,
+            showgrid=True,
+            range=[1, 366]  # Full year range
+        )
+        fig.update_yaxes(
+            gridcolor='lightgray',
+            gridwidth=0.5,
+            showgrid=True,
+            zeroline=True,
+            zerolinecolor='lightgray'
+        )
+        
+        # Store in database if requested
+        if store_in_db:
+            try:
+                # Prepare metadata for database storage
+                db_metadata = {
+                    "chart_title": full_title,
+                    "y_axis_label": y_axis_label,
+                    "aggregation_period": "day",  # YTD trends are daily
+                    "filter_conditions": [{"field": "district", "operator": "=", "value": district}] if district else [],
+                    "object_type": object_type,
+                    "object_id": object_id,
+                    "object_name": object_name,
+                    "time_series_field": "time_period",
+                    "numeric_fields": ["value"],
+                    "field_name": field_name,
+                    "executed_query_url": metadata.get("executed_query_url"),
+                    "caption": metadata.get("caption", ""),
+                    "period_type": "day",
+                    "group_field": "year"  # Add group_field to indicate this is grouped by year
+                }
+                
+                # Prepare data points for database storage with proper year grouping
+                chart_data = []
+                
+                # Add this year data with group_value
+                for _, row in this_year_data.iterrows():
+                    data_point = {
+                        'time_period': row['time_period'].date(),
+                        'value': row['value'],
+                        'group_value': str(this_year)  # Use year as group_value
+                    }
+                    chart_data.append(data_point)
+                
+                # Add last year data with group_value
+                for _, row in last_year_data.iterrows():
+                    data_point = {
+                        'time_period': row['time_period'].date(),
+                        'value': row['value'],
+                        'group_value': str(last_year)  # Use year as group_value
+                    }
+                    chart_data.append(data_point)
+                
+                # Store in database
+                db_result = store_chart_data(
+                    chart_data=chart_data,
+                    metadata=db_metadata,
+                    db_host=db_host,
+                    db_port=db_port,
+                    db_name=db_name,
+                    db_user=db_user,
+                    db_password=db_password
+                )
+                logging.info(f"YTD trend chart database storage result: {db_result['message']}")
+            except Exception as db_error:
+                logging.error(f"Database operation failed for YTD trend chart: {db_error}")
+        
+        # Return HTML or save to file
+        if return_html:
+            return fig.to_html(include_plotlyjs=True, full_html=True)
+        elif output_dir:
+            os.makedirs(output_dir, exist_ok=True)
+            filename = f"ytd_trend_{object_id}_{district or 'citywide'}.html"
+            filepath = os.path.join(output_dir, filename)
+            fig.write_html(filepath)
+            logging.info(f"YTD trend chart saved to {filepath}")
+            return filepath
+        else:
+            return fig.to_html(include_plotlyjs=True, full_html=True)
+            
+    except Exception as e:
+        logging.error(f"Error generating YTD trend chart: {e}")
+        return f"**Error**: Failed to generate YTD trend chart: {str(e)}"

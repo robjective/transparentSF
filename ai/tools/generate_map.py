@@ -622,6 +622,7 @@ def _create_and_configure_locator_map(chart_title, markers_json_string, center_c
                 "publish": {
                     "embed-width": 600,
                     "embed-height": 400,
+                    "autoDarkMode": True,
                     "blocks": {
                         "logo": {"enabled": False},
                         "embed": False,
@@ -850,6 +851,16 @@ def process_location_data(location_data, map_type):
                     point_data = item["point"]
                     lat = point_data.get("latitude")
                     lon = point_data.get("longitude")
+                
+                # Handle intersection_point field with nested coordinates
+                if "intersection_point" in item and isinstance(item["intersection_point"], dict):
+                    point_data = item["intersection_point"]
+                    if point_data.get("type") == "Point" and isinstance(point_data.get("coordinates"), list) and len(point_data["coordinates"]) >= 2:
+                        lon = point_data["coordinates"][0]  # Longitude is first in GeoJSON
+                        lat = point_data["coordinates"][1]  # Latitude is second in GeoJSON
+                        # Add value field if present
+                        if "value" in item:
+                            processed_item["value"] = item["value"]
                 
                 if lat is not None and lon is not None:
                     processed_item = {
@@ -1401,6 +1412,9 @@ def _apply_custom_map_styling(chart_id, map_type, map_metadata=None):
                     "source-name": "DataSF",
                     "source-url": map_metadata.get("executed_url", "") if map_metadata else "",
                     "byline": "TransparentSF"
+                },
+                "publish": {
+                    "autoDarkMode": True
                 }
             }
         }
@@ -1621,8 +1635,37 @@ def generate_map(context_variables, map_title, map_type, location_data=None, map
                 # For locator maps, convert DataSF format to our format
                 location_data = []
                 for idx, row in dataset.iterrows():
+                    # Handle intersection field with GeoJSON point data
+                    if 'intersection' in row and row['intersection'] is not None:
+                        try:
+                            intersection_data = row['intersection']
+                            if isinstance(intersection_data, str):
+                                try:
+                                    intersection_data = json.loads(intersection_data)
+                                except json.JSONDecodeError:
+                                    try:
+                                        intersection_data = ast.literal_eval(intersection_data)
+                                    except (ValueError, SyntaxError):
+                                        logger.warning(f"Could not parse intersection data: {intersection_data}")
+                                        continue
+                            
+                            if isinstance(intersection_data, dict) and intersection_data.get('type') == 'Point':
+                                coords = intersection_data.get('coordinates')
+                                if coords and len(coords) >= 2:
+                                    processed_item = {
+                                        "lat": coords[1],  # Latitude is second in GeoJSON
+                                        "lon": coords[0],  # Longitude is first in GeoJSON
+                                        "value": row.get('value', 1),
+                                        "title": f"Intersection: {coords[0]:.6f}, {coords[1]:.6f}",
+                                        "tooltip": f"Value: {row.get('value', 1)}"
+                                    }
+                                    location_data.append(processed_item)
+                                    continue
+                        except Exception as e:
+                            logger.warning(f"Error processing intersection data: {str(e)}")
+                    
                     # Handle DataSF location object format
-                    if 'location' in row and row['location'] is not None:
+                    elif 'location' in row and row['location'] is not None:
                         location_obj = row['location']
                         if isinstance(location_obj, dict) and location_obj.get('type') == 'Point':
                             coords = location_obj.get('coordinates')
@@ -1637,32 +1680,40 @@ def generate_map(context_variables, map_title, map_type, location_data=None, map
                                     processed_item[series_field] = row[series_field]
                                 location_data.append(processed_item)
                     
-                    # Handle direct latitude/longitude columns
-                    elif ('latitude' in row and 'longitude' in row and 
-                          row['latitude'] is not None and row['longitude'] is not None):
-                        try:
-                            lat = float(row['latitude'])
-                            lon = float(row['longitude'])
+                    # Handle direct coordinates format (already processed data)
+                    elif "coordinates" in row or ("lat" in row and "lon" in row):
+                        # Validate coordinates if they exist
+                        coords_to_check = None
+                        if "coordinates" in row:
+                            coords_to_check = row["coordinates"]
+                        elif "lat" in row and "lon" in row:
+                            coords_to_check = [row["lon"], row["lat"]]
+                        
+                        if coords_to_check and len(coords_to_check) >= 2:
+                            # Determine coordinate format and parse accordingly
+                            coord1, coord2 = float(coords_to_check[0]), float(coords_to_check[1])
+                            
+                            # Check if coordinates are in [lat, lon] or [lon, lat] format
+                            # Latitude should be between -90 and 90, longitude between -180 and 180
+                            # For SF: lat ~37.7, lon ~-122.4
+                            if -90 <= coord1 <= 90 and -180 <= coord2 <= 180:
+                                # First coordinate looks like latitude, second like longitude
+                                lat, lon = coord1, coord2
+                            else:
+                                # Assume first is longitude, second is latitude
+                                lon, lat = coord1, coord2
                             
                             # Validate coordinates are in San Francisco area
                             if 37.6 <= lat <= 37.9 and -122.6 <= lon <= -122.2:
-                                processed_item = {
-                                    "lat": lat,
-                                    "lon": lon,
-                                    "title": row.get('title'),
-                                    "tooltip": row.get('tooltip', row.get('description', ''))
-                                }
-                                # Copy over any series field data
-                                if series_field and series_field in row:
-                                    processed_item[series_field] = row[series_field]
-                                location_data.append(processed_item)
+                                processed_data.append(row)
+                                logger.debug(f"Validated existing coordinates for '{row.get('title', 'Unknown')}': lat={lat}, lon={lon}")
                             else:
-                                logger.warning(f"Coordinates for row {idx} are outside SF area: lat={lat}, lon={lon}")
-                        except (ValueError, TypeError) as e:
-                            logger.warning(f"Invalid latitude/longitude values in row {idx}: {e}")
-                
-                logger.info(f"Converted dataset to {len(location_data)} location points")
-                
+                                logger.warning(f"Existing coordinates for '{row.get('title', 'Unknown')}' are outside SF area: lat={lat}, lon={lon}")
+                        else:
+                            processed_data.append(row)  # Let it through if we can't validate
+                    
+                    else:
+                        logger.warning(f"No valid location data found in item: {row}")
             elif map_type == "symbol":
                 # For symbol maps, convert DataFrame to address-based location data
                 logger.info(f"DEBUG: Starting symbol map conversion")
@@ -1670,7 +1721,83 @@ def generate_map(context_variables, map_title, map_type, location_data=None, map
                 logger.info(f"DEBUG: Dataset has {len(dataset)} rows")
                 for idx, row in dataset.iterrows():
                     logger.info(f"DEBUG: Processing row {idx}: {dict(row)}")
-                    if 'address' in row and row['address'] is not None:
+                    
+                    # Handle DataSF location format with latitude/longitude properties
+                    if 'location' in row and row['location'] is not None:
+                        try:
+                            location_obj = row['location']
+                            if isinstance(location_obj, dict):
+                                # Handle DataSF format with latitude/longitude properties
+                                if "latitude" in location_obj and "longitude" in location_obj:
+                                    try:
+                                        lat = float(location_obj["latitude"])
+                                        lon = float(location_obj["longitude"])
+                                        item = {
+                                            "lat": lat,
+                                            "lon": lon,
+                                            "value": row.get('value', 1),
+                                            "title": row.get('title', ''),
+                                            "tooltip": f"Value: {row.get('value', 1)}"
+                                        }
+                                        logger.info(f"DEBUG: Added DataSF location item: {item}")
+                                        location_data.append(item)
+                                        continue
+                                    except (ValueError, TypeError) as e:
+                                        logger.warning(f"Could not convert DataSF location coordinates to float: {e}")
+                                
+                                # Handle GeoJSON Point format with coordinates array
+                                elif location_obj.get("type") == "Point":
+                                    coords = location_obj.get("coordinates")
+                                    if coords and len(coords) >= 2:
+                                        try:
+                                            lon, lat = float(coords[0]), float(coords[1])
+                                            item = {
+                                                "lat": lat,
+                                                "lon": lon,
+                                                "value": row.get('value', 1),
+                                                "title": row.get('title', ''),
+                                                "tooltip": f"Value: {row.get('value', 1)}"
+                                            }
+                                            logger.info(f"DEBUG: Added GeoJSON Point item: {item}")
+                                            location_data.append(item)
+                                            continue
+                                        except (ValueError, TypeError) as e:
+                                            logger.warning(f"Could not convert GeoJSON coordinates to float: {e}")
+                        except Exception as e:
+                            logger.warning(f"Error processing location data: {str(e)}")
+                    
+                    # Handle intersection data with GeoJSON points
+                    elif 'intersection' in row and row['intersection'] is not None:
+                        try:
+                            intersection_data = row['intersection']
+                            if isinstance(intersection_data, str):
+                                try:
+                                    intersection_data = json.loads(intersection_data)
+                                except json.JSONDecodeError:
+                                    try:
+                                        intersection_data = ast.literal_eval(intersection_data)
+                                    except (ValueError, SyntaxError):
+                                        logger.warning(f"Could not parse intersection data: {intersection_data}")
+                                        continue
+                            
+                            if isinstance(intersection_data, dict) and intersection_data.get('type') == 'Point':
+                                coords = intersection_data.get('coordinates')
+                                if coords and len(coords) >= 2:
+                                    item = {
+                                        "lat": coords[1],  # Latitude is second in GeoJSON
+                                        "lon": coords[0],  # Longitude is first in GeoJSON
+                                        "value": row.get('value', 1),
+                                        "title": f"Intersection: {coords[0]:.6f}, {coords[1]:.6f}",
+                                        "tooltip": f"Value: {row.get('value', 1)}"
+                                    }
+                                    logger.info(f"DEBUG: Added intersection item: {item}")
+                                    location_data.append(item)
+                                    continue
+                        except Exception as e:
+                            logger.warning(f"Error processing intersection data: {str(e)}")
+                    
+                    # Handle address-based data
+                    elif 'address' in row and row['address'] is not None:
                         item = {
                             "title": row.get('title'),
                             "address": row['address'],
@@ -1678,10 +1805,10 @@ def generate_map(context_variables, map_title, map_type, location_data=None, map
                             "description": row.get('description', ''),
                             "series": row.get('series', '')
                         }
-                        logger.info(f"DEBUG: Added item: {item}")
+                        logger.info(f"DEBUG: Added address item: {item}")
                         location_data.append(item)
                     else:
-                        logger.warning(f"DEBUG: Row {idx} missing 'address' field or address is None")
+                        logger.warning(f"DEBUG: Row {idx} missing valid location data (location, intersection, or address field)")
                 
                 logger.info(f"Converted dataset to {len(location_data)} symbol map locations")
                 
@@ -2024,7 +2151,7 @@ def generate_map(context_variables, map_title, map_type, location_data=None, map
                 edit_url,
                 public_url,
                 json.dumps(location_data_json),
-                json.dumps(metadata_json),
+                json.dumps(metadata_json, default=str),
                 metric_id,
                 group_field
             ))
@@ -2508,13 +2635,28 @@ def process_symbol_map_data(location_data):
         lat = item.get("lat") or item.get("latitude")
         lon = item.get("lon") or item.get("longitude")
         
-        # 2. Check for DataSF location format
+        # 2. Check for DataSF location format with latitude/longitude properties
         if "location" in item and isinstance(item["location"], dict):
             location_obj = item["location"]
-            if location_obj.get("type") == "Point":
+            
+            # Handle DataSF format with latitude/longitude properties
+            if "latitude" in location_obj and "longitude" in location_obj:
+                try:
+                    lat = float(location_obj["latitude"])
+                    lon = float(location_obj["longitude"])
+                    logger.debug(f"Extracted coordinates from DataSF location format: lat={lat}, lon={lon}")
+                except (ValueError, TypeError) as e:
+                    logger.warning(f"Could not convert DataSF location coordinates to float: {e}")
+            
+            # Handle GeoJSON Point format with coordinates array
+            elif location_obj.get("type") == "Point":
                 coords = location_obj.get("coordinates")
                 if coords and len(coords) >= 2:
-                    lon, lat = float(coords[0]), float(coords[1])
+                    try:
+                        lon, lat = float(coords[0]), float(coords[1])
+                        logger.debug(f"Extracted coordinates from GeoJSON Point format: lat={lat}, lon={lon}")
+                    except (ValueError, TypeError) as e:
+                        logger.warning(f"Could not convert GeoJSON coordinates to float: {e}")
         
         # 3. Check for nested point data
         elif "point" in item and isinstance(item["point"], dict):

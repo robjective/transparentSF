@@ -9,7 +9,11 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <!-- Add Markdown-it for rendering markdown -->
     <script src="https://cdn.jsdelivr.net/npm/markdown-it@12.3.2/dist/markdown-it.min.js"></script>
+    <link rel="stylesheet" href="/static/darkmode.css">
+    <script src="/static/js/darkmode.js"></script>
+    <script src="/static/js/iframe-darkmode.js"></script>
     <style>
+        /* Override some variables for this specific template */
         :root {
             --civic-blue: #2C5282;
             --civic-blue-light: #4299E1;
@@ -19,13 +23,31 @@
             --neutral-gray: #4A5568;
             --neutral-gray-light: #E2E8F0;
             --neutral-gray-lighter: #F7FAFC;
-            --background: #FFFFFF;
+            --background: var(--bg-primary);
             --success: #48BB78;
             --error: #F56565;
-            --text-primary: #2D3748;
-            --text-secondary: #4A5568;
-            --shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
-            --glass-effect: rgba(255, 255, 255, 0.8);
+            --text-primary: #222222;
+            --text-secondary: #666666;
+            --shadow: 0 4px 6px var(--shadow-light);
+            --glass-effect: var(--bg-primary);
+        }
+        
+        [data-theme="dark"] {
+            --civic-blue: #4299E1;
+            --civic-blue-light: #63B3ED;
+            --civic-blue-lighter: #1A365D;
+            --warm-coral: #F56565;
+            --warm-coral-light: #FEB2B2;
+            --neutral-gray: #A0AEC0;
+            --neutral-gray-light: #2D3748;
+            --neutral-gray-lighter: #1A202C;
+            --background: var(--bg-primary);
+            --success: #48BB78;
+            --error: #F56565;
+            --text-primary: #ffffff;
+            --text-secondary: #cccccc;
+            --shadow: 0 4px 6px var(--shadow-light);
+            --glass-effect: var(--bg-primary);
         }
         
         * {
@@ -43,7 +65,7 @@
             display: flex;
             flex-direction: column;
             color: var(--text-primary);
-            background-color: var(--neutral-gray-lighter);
+            background-color: var(--bg-primary);
             overflow-y: auto;
         }
         
@@ -74,6 +96,13 @@
             -webkit-text-fill-color: transparent;
         }
         
+        [data-theme="dark"] .header-title span {
+            background: linear-gradient(90deg, rgba(255, 255, 255, 0.8) 0%, rgba(255, 255, 255, 0.6) 100%);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        
         .header .logo-box {
             background-color: white;
             color: var(--civic-blue);
@@ -83,43 +112,7 @@
             margin-right: 12px;
         }
         
-        .periods-display {
-            background-color: var(--glass-effect);
-            border-radius: 8px;
-            padding: 12px 20px;
-            margin: 20px 0;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            backdrop-filter: blur(10px);
-            box-shadow: var(--shadow);
-            border: 1px solid rgba(255, 255, 255, 0.18);
-        }
-        
-        .period-box {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-        }
-        
-        .period-label {
-            font-size: 12px;
-            color: var(--text-secondary);
-            margin-bottom: 4px;
-            font-weight: 500;
-        }
-        
-        .period-value {
-            font-size: 16px;
-            font-weight: 600;
-            color: var(--civic-blue);
-        }
-        
-        .period-arrow {
-            font-size: 24px;
-            color: var(--neutral-gray);
-            margin: 0 20px;
-        }
+
         
         .main-container {
             display: flex;
@@ -137,10 +130,15 @@
             align-items: center;
             gap: 16px;
             flex-wrap: wrap;
-            background-color: white;
+            background-color: var(--bg-primary);
             padding: 20px;
             border-radius: 8px;
-            box-shadow: var(--shadow);
+            border: 1px solid var(--border-primary);
+        }
+        
+        [data-theme="dark"] .controls {
+            background-color: var(--bg-secondary);
+            border-color: var(--border-primary);
         }
         
         .control-group {
@@ -155,13 +153,18 @@
             color: var(--text-secondary);
         }
         
+        [data-theme="dark"] label {
+            color: var(--text-primary);
+        }
+        
         select, button, input {
             padding: 8px 16px;
             border-radius: 6px;
-            border: 1px solid var(--neutral-gray-light);
+            border: 1px solid var(--border-primary);
             font-size: 14px;
             font-family: 'IBM Plex Sans', sans-serif;
-            background-color: white;
+            background-color: var(--bg-secondary);
+            color: var(--text-primary);
             transition: all 0.2s ease;
         }
         
@@ -188,14 +191,36 @@
             transform: translateY(-1px);
         }
         
+        [data-theme="dark"] button {
+            background-color: #c44dff;
+            color: white;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        [data-theme="dark"] button:hover {
+            background-color: #d966ff;
+            border-color: rgba(255, 255, 255, 0.2);
+        }
+        
         button.secondary {
-            background-color: white;
+            background-color: var(--bg-secondary);
             color: #ad35fa;
             border: 1px solid #ad35fa;
         }
         
         button.secondary:hover {
-            background-color: #f0f8ff;
+            background-color: var(--bg-tertiary);
+        }
+        
+        [data-theme="dark"] button.secondary {
+            background-color: var(--bg-secondary);
+            color: #c44dff;
+            border: 1px solid #c44dff;
+        }
+        
+        [data-theme="dark"] button.secondary:hover {
+            background-color: var(--bg-tertiary);
+            border-color: #d966ff;
         }
         
         .button-group {
@@ -207,9 +232,13 @@
         .metrics-panel {
             background-color: white;
             border-radius: 8px;
-            box-shadow: var(--shadow);
             margin-bottom: 24px;
             width: 100%;
+        }
+        
+        [data-theme="dark"] .metrics-panel {
+            background-color: var(--bg-secondary);
+            border: 1px solid var(--border-primary);
         }
         
         .metrics-header {
@@ -231,9 +260,16 @@
             margin-top: 4px;
         }
         
+        [data-theme="dark"] .metrics-header h2 {
+            color: var(--civic-blue);
+        }
+        
+        [data-theme="dark"] .metrics-header p {
+            color: var(--text-primary);
+        }
+        
         .metrics-table-container {
             flex: 1;
-            overflow: auto;
             padding: 0;
         }
         
@@ -246,6 +282,21 @@
             padding: 12px 15px;
             text-align: left;
             border-bottom: 1px solid var(--neutral-gray-light);
+            color: var(--text-primary);
+        }
+        
+        [data-theme="dark"] th, 
+        [data-theme="dark"] td {
+            color: var(--text-primary);
+            border-bottom-color: var(--border-primary);
+        }
+        
+        /* Make the metric name column wider */
+        th:first-child, td:first-child {
+            min-width: 250px;
+            max-width: 400px;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
         }
         
         th {
@@ -259,8 +310,26 @@
             z-index: 1;
         }
         
+        [data-theme="dark"] th {
+            background-color: var(--bg-tertiary);
+            color: var(--text-secondary);
+        }
+        
+        [data-theme="dark"] th, 
+        [data-theme="dark"] td {
+            color: var(--text-primary);
+        }
+        
+        [data-theme="dark"] th {
+            color: var(--text-secondary);
+        }
+        
         tr:hover {
-            background-color: var(--civic-blue-lighter);
+            background-color: rgba(196, 77, 255, 0.1);
+        }
+        
+        [data-theme="dark"] tr:hover {
+            background-color: rgba(196, 77, 255, 0.2);
         }
         
         .positive-change {
@@ -283,10 +352,15 @@
             border-left: 4px solid var(--civic-blue);
         }
         
+        [data-theme="dark"] .selected-row {
+            background-color: rgba(196, 77, 255, 0.2) !important;
+            border-left: 4px solid #c44dff;
+        }
+        
         .action-button {
-            background-color: #ad35fa;
-            color: white;
-            border: none;
+            background-color: var(--bg-secondary);
+            color: #ad35fa;
+            border: 1px solid #ad35fa;
             border-radius: 4px;
             padding: 6px 10px;
             font-size: 12px;
@@ -295,8 +369,18 @@
         }
         
         .action-button:hover {
-            background-color: #0069d9;
-            transform: translateY(-1px);
+            background-color: var(--bg-tertiary);
+        }
+        
+        [data-theme="dark"] .action-button {
+            background-color: var(--bg-secondary);
+            color: #c44dff;
+            border: 1px solid #c44dff;
+        }
+        
+        [data-theme="dark"] .action-button:hover {
+            background-color: var(--bg-tertiary);
+            border-color: #d966ff;
         }
         
         #analysis-modal {
@@ -476,12 +560,46 @@
         }
         
         .section-header {
-            background-color: var(--civic-blue-lighter);
+            background-color: #f5f5f5;
             color: var(--civic-blue);
             font-weight: 600;
             text-align: center;
             padding: 10px;
             font-family: 'Inter', sans-serif;
+            border-bottom: 2px solid #f5f5f5;
+        }
+        
+        .subsection-header {
+            background-color: #f5f5f5;
+            color: var(--neutral-gray);
+            font-weight: 600;
+            padding: 8px 15px;
+            font-family: 'Inter', sans-serif;
+            font-size: 13px;
+            border-bottom: 1px solid #f5f5f5;
+        }
+        
+        [data-theme="dark"] .section-header {
+            background-color: var(--bg-tertiary);
+            color: var(--civic-blue);
+            border-bottom: 2px solid var(--bg-tertiary);
+        }
+        
+        [data-theme="dark"] .subsection-header {
+            background-color: var(--bg-tertiary);
+            color: var(--text-secondary);
+            border-bottom: 1px solid var(--bg-tertiary);
+        }
+        
+
+        
+        /* Improve spacing between sections */
+        .section-header + tr {
+            border-top: none;
+        }
+        
+        .subsection-header + tr {
+            border-top: none;
         }
         
         .no-data {
@@ -492,6 +610,11 @@
             background-color: var(--neutral-gray-lighter);
             border-radius: 8px;
             margin: 20px 0;
+        }
+        
+        [data-theme="dark"] .no-data {
+            color: var(--text-primary);
+            background-color: var(--bg-tertiary);
         }
         
         .error-message {
@@ -513,10 +636,18 @@
             color: var(--civic-blue);
         }
         
+        [data-theme="dark"] .metric-name {
+            color: var(--civic-blue);
+        }
+        
         .period-indicator {
             font-size: 12px;
             color: var(--text-secondary);
             margin-top: 2px;
+        }
+        
+        [data-theme="dark"] .period-indicator {
+            color: var(--text-primary);
         }
         
         @media (max-width: 768px) {
@@ -535,290 +666,13 @@
             }
         }
         
-        /* Styles for the details card */
-        .details-card {
-            background-color: white;
-            border-radius: 8px;
-            box-shadow: var(--shadow);
-            margin-top: 24px;
-            width: 100%;
-            display: flex;
-            flex-direction: column;
-        }
+
         
-        .card-header {
-            padding: 16px 20px;
-            border-bottom: 1px solid var(--neutral-gray-light);
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            flex-shrink: 0; /* Prevent the header from shrinking */
-        }
+
         
-        .card-header h2 {
-            font-family: 'Inter', sans-serif;
-            font-size: 18px;
-            font-weight: 600;
-            color: var(--civic-blue);
-            margin: 0;
-        }
+
         
-        .close-button {
-            background: none;
-            border: none;
-            font-size: 24px;
-            color: var(--neutral-gray);
-            cursor: pointer;
-            padding: 0 8px;
-        }
-        
-        .close-button:hover {
-            color: var(--warm-coral);
-        }
-        
-        .card-content {
-            padding: 20px;
-            overflow-y: visible; /* Changed from auto to visible */
-            flex-grow: 1;
-        }
-        
-        .details-grid {
-            display: flex;
-            flex-direction: column;
-            gap: 24px;
-            margin-bottom: 24px;
-        }
-        
-        .detail-section {
-            margin-bottom: 24px;
-            width: 100%;
-        }
-        
-        .detail-section h3 {
-            font-size: 16px;
-            font-weight: 600;
-            color: var(--neutral-gray);
-            margin-bottom: 12px;
-            padding-bottom: 8px;
-            border-bottom: 1px solid var(--neutral-gray-light);
-            position: sticky;
-            top: 0;
-            background-color: white;
-            z-index: 2;
-        }
-        
-        /* Make the anomaly analysis section have a fixed max height with scrolling */
-        .detail-analysis {
-            max-height: 300px;
-            overflow-y: auto;
-            border: 1px solid var(--neutral-gray-light);
-            border-radius: 6px;
-            background-color: var(--neutral-gray-lighter);
-            padding: 5px;
-        }
-        
-        .details-list {
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-        }
-        
-        .detail-item {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        
-        .detail-label {
-            font-weight: 500;
-            color: var(--text-secondary);
-        }
-        
-        .detail-value {
-            font-weight: 600;
-            color: var(--text-primary);
-        }
-        
-        .detail-chart-container {
-            height: 200px;
-            background-color: var(--neutral-gray-lighter);
-            border-radius: 4px;
-            position: relative;
-        }
-        
-        .detail-actions {
-            display: flex;
-            gap: 12px;
-            margin-top: 20px;
-            position: sticky;
-            bottom: 0;
-            background-color: white;
-            padding-top: 10px;
-            z-index: 2;
-        }
-        
-        .action-button {
-            padding: 10px 16px;
-            border-radius: 6px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.2s ease;
-        }
-        
-        .action-button:hover {
-            transform: translateY(-1px);
-        }
-        
-        .mini-loader {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            color: var(--text-secondary);
-            font-style: italic;
-            padding: 20px;
-            justify-content: center;
-        }
-        
-        .mini-loader::before {
-            content: "";
-            display: inline-block;
-            width: 18px;
-            height: 18px;
-            border: 2px solid var(--neutral-gray-light);
-            border-top: 2px solid var(--civic-blue);
-            border-radius: 50%;
-            animation: spin 1.5s linear infinite;
-        }
-        
-        /* Make rows in the table clickable */
-        #metrics-tbody tr {
-            cursor: pointer;
-            transition: background-color 0.2s ease;
-        }
-        
-        #metrics-tbody tr:hover {
-            background-color: var(--civic-blue-lighter);
-        }
-        
-        /* Selected row highlight */
-        #metrics-tbody tr.selected {
-            background-color: rgba(44, 82, 130, 0.1);
-            border-left: 3px solid var(--civic-blue);
-        }
-        
-        .selected-row {
-            background-color: rgba(0, 123, 255, 0.1);
-            font-weight: bold;
-        }
-        .metric-row {
-            cursor: pointer;
-            transition: background-color 0.2s;
-        }
-        .metric-row:hover {
-            background-color: rgba(0, 123, 255, 0.05);
-        }
-        
-        .metric-details-card {
-            border: 1px solid #ddd;
-            border-radius: 5px;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-            margin-top: 20px;
-            background-color: #fff;
-        }
-        
-        .metric-details-header {
-            padding: 10px 15px;
-            border-bottom: 1px solid #ddd;
-            background-color: #f8f9fa;
-            border-top-left-radius: 5px;
-            border-top-right-radius: 5px;
-        }
-        
-        .metric-details-body {
-            padding: 15px;
-        }
-        
-        tr.selected {
-            background-color: #e7f3ff !important;
-        }
-        
-        #metrics-table tbody tr {
-            cursor: pointer;
-        }
-        
-        #metrics-table tbody tr:hover {
-            background-color: #f8f9fa;
-        }
-        
-        /* Anomalies list styling */
-        .anomalies-list {
-            display: flex;
-            flex-direction: column;
-            gap: 12px;
-            margin-top: 10px;
-            padding: 5px;
-            min-height: 100px; /* Ensures there's always some visible space */
-        }
-        
-        .anomaly-item {
-            border: 1px solid var(--neutral-gray-light);
-            border-radius: 6px;
-            overflow: hidden;
-            background-color: white;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
-        }
-        
-        .anomaly-header {
-            display: flex;
-            justify-content: space-between;
-            padding: 8px 12px;
-            background-color: var(--neutral-gray-lighter);
-            border-bottom: 1px solid var(--neutral-gray-light);
-        }
-        
-        .anomaly-period {
-            font-weight: 600;
-            color: var(--text-secondary);
-        }
-        
-        .anomaly-change {
-            font-weight: 600;
-        }
-        
-        .anomaly-details {
-            padding: 12px;
-            background-color: white;
-        }
-        
-        .anomaly-details p {
-            margin: 0;
-            margin-bottom: 5px;
-            color: var(--text-secondary);
-            line-height: 1.4;
-        }
-        
-        .mini-loader {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            color: var(--text-secondary);
-            font-style: italic;
-            padding: 20px;
-            justify-content: center;
-        }
-        
-        .mini-loader::before {
-            content: "";
-            display: inline-block;
-            width: 18px;
-            height: 18px;
-            border: 2px solid var(--neutral-gray-light);
-            border-top: 2px solid var(--civic-blue);
-            border-radius: 50%;
-            animation: spin 1.5s linear infinite;
-        }
-        
-        /* Improve main layout to better accommodate details panel */
+        /* Main layout */
         .main-container {
             display: flex;
             flex: 1;
@@ -831,119 +685,27 @@
             position: relative;
         }
         
-        /* Reset any page scrolling that might interfere with our container scrolling */
-        body {
-            overflow: hidden;
-            height: 100vh;
+        .metrics-panel,
+        .metrics-table-container,
+        .table,
+        .table-responsive,
+        .anomaly-chart-container,
+        .chart-container {
+            box-shadow: none !important;
+            background-color: #fff !important;
+            border: none !important;
         }
         
-        /* No results message styling */
-        .no-anomalies {
-            padding: 20px;
-            text-align: center;
-            color: var(--text-secondary);
-            background-color: var(--neutral-gray-lighter);
-            border-radius: 6px;
-            margin: 10px 0;
+        [data-theme="dark"] .metrics-panel,
+        [data-theme="dark"] .metrics-table-container,
+        [data-theme="dark"] .table,
+        [data-theme="dark"] .table-responsive,
+        [data-theme="dark"] .anomaly-chart-container,
+        [data-theme="dark"] .chart-container {
+            background-color: var(--bg-secondary) !important;
         }
         
-        .anomalies-table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-top: 15px;
-            font-size: 14px;
-        }
-        
-        .anomalies-table th, 
-        .anomalies-table td {
-            border: 1px solid #ddd;
-            padding: 8px;
-            text-align: left;
-        }
-        
-        .anomalies-table th {
-            background-color: #f2f2f2;
-            font-weight: 600;
-        }
-        
-        .anomalies-table tr:nth-child(even) {
-            background-color: #f9f9f9;
-        }
-        
-        .anomalies-table tr:hover {
-            background-color: #f1f1f1;
-        }
-        
-        .positive-change {
-            color: #28a745;
-        }
-        
-        .negative-change {
-            color: #dc3545;
-        }
-        
-        .no-anomalies-message {
-            padding: 20px;
-            text-align: center;
-            color: #6c757d;
-            font-style: italic;
-        }
-        
-        /* Anomaly row styles */
-        .anomaly-row {
-            cursor: pointer;
-            transition: background-color 0.2s ease;
-        }
-        
-        .anomaly-row:hover {
-            background-color: rgba(255, 255, 0, 0.1);
-        }
-        
-        .selected-row {
-            background-color: rgba(255, 255, 0, 0.2) !important;
-            font-weight: bold;
-        }
-        
-        /* Chart container styles */
-        .anomaly-chart-container {
-            margin-top: 20px;
-            padding: 20px;
-            background-color: white;
-            border-radius: 8px;
-            box-shadow: var(--shadow);
-            width: 100%;
-            position: relative;
-            padding-bottom: 100%; /* Forces square aspect ratio */
-        }
-        
-        #anomaly-chart {
-            position: absolute;
-            top: 20px;
-            left: 20px;
-            right: 20px;
-            bottom: 20px;
-            width: calc(100% - 40px);
-            height: calc(100% - 40px);
-            overflow: hidden;
-        }
-        
-        .chart-caption {
-            margin-top: 15px;
-            padding: 10px;
-            background-color: var(--neutral-gray-lighter);
-            border-radius: 4px;
-            font-size: 14px;
-            color: var(--text-secondary);
-        }
-        
-        .loading-indicator {
-            display: flex;  
-            justify-content: center;
-            align-items: center;
-            height: 300px;
-            font-size: 16px;
-            color: #666;
-        }
+
     </style>
 </head>
 <body>
@@ -952,17 +714,10 @@
             <div class="control-group">
                 <label for="period-select">Time Period</label>
                 <select id="period-select">
-                    <option value="month">Monthly</option>
-                    <option value="quarter">Quarterly</option>
+                    <option value="day">Daily</option>
+                    <option value="week">Weekly</option>
+                    <option value="month" selected>Monthly</option>
                     <option value="year">Yearly</option>
-                </select>
-            </div>
-            
-            <div class="control-group">
-                <label for="display-mode">Display Mode</label>
-                <select id="display-mode">
-                    <option value="metrics" selected>Metric Changes</option>
-                    <option value="anomalies">Anomalies</option>
                 </select>
             </div>
             
@@ -1011,38 +766,24 @@
             </div>
         </div>
         
-        <div id="periods-display" class="periods-display" style="display: none;">
-            <div class="period-box">
-                <div class="period-label">Previous Period</div>
-                <div id="previous-period-value" class="period-value">-</div>
-            </div>
-            <div class="period-arrow">→</div>
-            <div class="period-box">
-                <div class="period-label">Current Period</div>
-                <div id="current-period-value" class="period-value">-</div>
-            </div>
-            <div style="flex: 1;"></div>
-            <div class="period-info">
-                <div style="font-size: 13px; color: var(--text-secondary);">Showing metrics without group fields</div>
-            </div>
-        </div>
+
             
         <div class="loader" id="loader"></div>
         
         <div class="metrics-panel">
             <div class="metrics-header">
-                <h2 id="panel-title">Citywide Metric Changes</h2>
-                <p id="panel-description">Showing significant changes in key metrics across time periods</p>
+                <h2 id="panel-title">Metric Analysis Dashboard</h2>
+                <p id="panel-description">Showing significant metric changes and statistical anomalies</p>
             </div>
             <div class="metrics-table-container">
-                <div class="table-responsive" style="max-height: 500px; overflow-y: auto;">
+                <div class="table-responsive">
                     <table class="table table-striped table-hover" id="metrics-table">
                     <thead>
                         <tr id="table-headers">
                             <th>Metric Name</th>
                             <th>District</th>
-                            <th>Previous</th>
-                            <th>Recent</th>
+                            <th id="previous-header">Previous</th>
+                            <th id="recent-header">Recent</th>
                             <th>Change</th>
                             <th>% Change</th>
                             <th>Analysis</th>
@@ -1061,70 +802,7 @@
             </div>
         </div>
         
-        <!-- Details card will now flow naturally in the column -->
-        <div class="details-card" id="details-card" style="display: none;">
-            <div class="card-header">
-                <h2 id="detail-title">Metric Detail</h2>
-                <button id="close-details" class="close-button">&times;</button>
-            </div>
-            <div class="card-content">
-                <div class="details-grid">
-                    <div class="detail-section">
-                        <h3>Overview</h3>
-                        <div class="details-list">
-                            <div class="detail-item">
-                                <span class="detail-label">Metric:</span>
-                                <span id="detail-metric-name" class="detail-value">-</span>
-                            </div>
-                            <div class="detail-item">
-                                <span class="detail-label">ID:</span>
-                                <span id="detail-metric-id" class="detail-value">-</span>
-                            </div>
-                            <div class="detail-item">
-                                <span class="detail-label">District:</span>
-                                <span id="detail-district" class="detail-value">-</span>
-                            </div>
-                            <div class="detail-item">
-                                <span class="detail-label">Period:</span>
-                                <span id="detail-period-type" class="detail-value">-</span>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="detail-section">
-                        <h3>Change Details</h3>
-                        <div class="details-list">
-                            <div class="detail-item">
-                                <span class="detail-label">Previous Value:</span>
-                                <span id="detail-previous-value" class="detail-value">-</span>
-                            </div>
-                            <div class="detail-item">
-                                <span class="detail-label">Current Value:</span>
-                                <span id="detail-current-value" class="detail-value">-</span>
-                            </div>
-                            <div class="detail-item">
-                                <span class="detail-label">Absolute Change:</span>
-                                <span id="detail-abs-change" class="detail-value">-</span>
-                            </div>
-                            <div class="detail-item">
-                                <span class="detail-label">Percent Change:</span>
-                                <span id="detail-percent-change" class="detail-value">-</span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                
-                <div class="detail-section">
-                    <h3>Anomaly Analysis</h3>
-                    <div id="detail-analysis" class="detail-analysis">
-                        <p id="detail-analysis-text" class="detail-analysis-text">Select a metric row above to see detailed analysis.</p>
-                    </div>
-                    <!-- Add chart container for anomaly visualization -->
-                    <div id="anomaly-chart-container" class="anomaly-chart-container" style="display: none;">
-                        <div id="anomaly-chart"></div>
-                    </div>
-                </div>
-            </div>
-        </div>
+
         
         <!-- Remove the container-fluid structure -->
         <div id="results-container">
@@ -1146,22 +824,11 @@
         </div>
     </div>
     
-    <!-- Metric Details Card -->
-    <div id="metric-details-card" class="metric-details-card" style="display: none;">
-        <div class="metric-details-header">
-            <h5 class="mb-0">Metric Details</h5>
-        </div>
-        <div class="metric-details-body" id="metric-details-content">
-            <!-- Details will be populated by JavaScript -->
-        </div>
-    </div>
-    
     <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
     
     <script>
         // DOM elements
         const periodSelect = document.getElementById('period-select');
-        const displayModeSelect = document.getElementById('display-mode');
         const limitSelect = document.getElementById('limit-select');
         const objectIdInput = document.getElementById('object-id');
         const districtSelect = document.getElementById('district');
@@ -1174,9 +841,7 @@
         const errorContainer = document.getElementById('error-container');
         const errorText = document.getElementById('error-text');
         const retryButton = document.getElementById('retry-button');
-        const periodsDisplay = document.getElementById('periods-display');
-        const previousPeriodValue = document.getElementById('previous-period-value');
-        const currentPeriodValue = document.getElementById('current-period-value');
+
         
         // Modal elements
         const analysisModal = document.getElementById('analysis-modal');
@@ -1185,30 +850,24 @@
         const modalContent = document.getElementById('modal-content');
         const modalClose = document.querySelector('.modal-close');
         
-        // Add references to new detail card elements
-        const detailsCard = document.getElementById('details-card');
-        const detailTitle = document.getElementById('detail-title');
-        const closeDetails = document.getElementById('close-details');
-        const detailMetricName = document.getElementById('detail-metric-name');
-        const detailMetricId = document.getElementById('detail-metric-id');
-        const detailDistrict = document.getElementById('detail-district');
-        const detailPeriodType = document.getElementById('detail-period-type');
-        const detailPreviousValue = document.getElementById('detail-previous-value');
-        const detailCurrentValue = document.getElementById('detail-current-value');
-        const detailAbsChange = document.getElementById('detail-abs-change');
-        const detailPercentChange = document.getElementById('detail-percent-change');
-        const detailChartContainer = document.getElementById('detail-chart-container');
-        const detailChart = document.getElementById('detail-chart');
-        const detailAnalysisText = document.getElementById('detail-analysis-text');
+
         
         // Event listeners
-        refreshButton.addEventListener('click', fetchMetricChanges);
-        periodSelect.addEventListener('change', fetchMetricChanges);
-        displayModeSelect.addEventListener('change', fetchMetricChanges);
-        limitSelect.addEventListener('change', fetchMetricChanges);
-        districtSelect.addEventListener('change', fetchMetricChanges);
+        refreshButton.addEventListener('click', fetchAllData);
+        periodSelect.addEventListener('change', function() {
+            fetchAllData();
+            // Also update headers if we have stored data
+            if (lastMetricData) {
+                updateTableHeaders();
+            }
+        });
+        limitSelect.addEventListener('change', fetchAllData);
+        
+        // Store the last metric data to update headers when period changes
+        let lastMetricData = null;
+        districtSelect.addEventListener('change', fetchAllData);
         clearFiltersButton.addEventListener('click', clearFilters);
-        retryButton.addEventListener('click', fetchMetricChanges);
+        retryButton.addEventListener('click', fetchAllData);
         
         // Close modal when clicking the X
         modalClose.addEventListener('click', function() {
@@ -1222,95 +881,64 @@
             }
         });
         
-        // Close details card when clicking the close button
-        closeDetails.addEventListener('click', function() {
-            detailsCard.style.display = 'none';
-            // Remove selected class from any selected row
-            const selectedRow = document.querySelector('#metrics-results tr.selected');
-            if (selectedRow) selectedRow.classList.remove('selected');
-        });
+
         
         // Clear filters function
         function clearFilters() {
             objectIdInput.value = '';
             districtSelect.value = '0'; // Reset to Citywide
-            fetchMetricChanges();
+            fetchAllData();
         }
         
         // Fetch data on page load
-        document.addEventListener('DOMContentLoaded', fetchMetricChanges);
+        document.addEventListener('DOMContentLoaded', fetchAllData);
         
-        // Function to fetch metric changes
-        function fetchMetricChanges() {
+        // Function to fetch all data (metric changes and anomalies)
+        function fetchAllData() {
             // Show loader
             loader.style.display = 'block';
             metricsTbody.innerHTML = '';
             metricsTable.style.display = 'none';
             noDataDiv.style.display = 'none';
             errorContainer.style.display = 'none';
-            periodsDisplay.style.display = 'none';
             
             // Get selected values
             const periodType = periodSelect.value;
-            const displayMode = displayModeSelect.value;
             const limit = limitSelect.value;
             const objectId = objectIdInput.value.trim();
             const district = districtSelect.value;
             
-            // Update header based on display mode and district
+            // Update header based on district
             const panelTitle = document.getElementById('panel-title');
             const panelDescription = document.getElementById('panel-description');
-            const tableHeaders = document.getElementById('table-headers');
             
-            if (displayMode === 'metrics') {
-                if (district === '0') {
-                    panelTitle.textContent = 'Citywide Metric Changes';
-                } else if (district === 'all') {
-                    panelTitle.textContent = 'All Districts Metric Changes';
-                } else {
-                    panelTitle.textContent = `District ${district} Metric Changes`;
-                }
-                
-                panelDescription.textContent = 'Showing significant changes in key metrics across time periods';
-                
-                // Set up headers for metrics display
-                tableHeaders.innerHTML = `
-                    <th>Metric Name</th>
-                    <th>District</th>
-                    <th>Previous</th>
-                    <th>Recent</th>
-                    <th>Change</th>
-                    <th>% Change</th>
-                    <th>Analysis</th>
-                `;
-                
-                // Fetch metrics data
-                fetchTopMetricChanges(periodType, limit, objectId, district);
-            } else if (displayMode === 'anomalies') {
-                if (district === '0') {
-                    panelTitle.textContent = 'Citywide Anomalies';
-                } else if (district === 'all') {
-                    panelTitle.textContent = 'All Districts Anomalies';
-                } else {
-                    panelTitle.textContent = `District ${district} Anomalies`;
-                }
-                
-                panelDescription.textContent = 'Showing significant statistical anomalies detected in metrics';
-                
-                // Set up headers for anomalies display
-                tableHeaders.innerHTML = `
-                    <th>Metric Name</th>
-                    <th>District</th>
-                    <th>Group</th>
-                    <th>Recent Value</th>
-                    <th>Previous Avg</th>
-                    <th>Std Dev</th>
-                    <th>Details</th>
-                `;
-                
-                // Fetch anomalies data
-                fetchAnomalies(periodType, limit, objectId, district);
+            if (district === '0') {
+                panelTitle.textContent = 'Citywide Metric Analysis Dashboard';
+            } else if (district === 'all') {
+                panelTitle.textContent = 'All Districts Metric Analysis Dashboard';
+            } else {
+                panelTitle.textContent = `District ${district} Metric Analysis Dashboard`;
             }
+            
+            panelDescription.textContent = 'Showing significant metric changes and statistical anomalies';
+            
+            // Fetch both metric changes and anomalies
+            Promise.all([
+                fetchTopMetricChanges(periodType, limit, objectId, district),
+                fetchAnomalies(periodType, limit, objectId, district)
+            ]).then(([metricData, anomalyData]) => {
+                // Hide loader
+                loader.style.display = 'none';
+                
+                // Display combined results
+                displayCombinedResults(metricData, anomalyData);
+            }).catch(error => {
+                // Handle errors
+                loader.style.display = 'none';
+                errorContainer.style.display = 'block';
+                errorText.textContent = `Error: ${error.message}`;
+                console.error('Error fetching data:', error);
+            });
         }
         
         // Function to fetch top metric changes
@@ -1326,8 +954,8 @@
                 params.append('object_id', objectId.trim());
             }
             
-            // Make API call
-            fetch(`/anomaly-analyzer/api/top-metric-changes?${params.toString()}`)
+            // Make API call and return promise
+            return fetch(`/anomaly-analyzer/api/top-metric-changes?${params.toString()}`)
                 .then(response => {
                     if (!response.ok) {
                         throw new Error(`Failed to fetch metric changes. Status: ${response.status}`);
@@ -1335,82 +963,82 @@
                     return response.json();
                 })
                 .then(data => {
-                    // Hide loader
-                    loader.style.display = 'none';
-                    
                     if (data.status === 'success') {
-                        // Display the periods
-                        periodsDisplay.style.display = 'flex';
-                        
-                        if ((data.positive_changes && data.positive_changes.length > 0) || 
-                            (data.negative_changes && data.negative_changes.length > 0)) {
-                            // Display metric data
-                            displayMetricResults(data.positive_changes || [], data.negative_changes || []);
-                            
-                            // Update period display if we have data
-                            // If positive_changes is empty but negative_changes has values, use the first negative result
-                            const firstResult = (data.positive_changes && data.positive_changes.length > 0) ? 
+                        return {
+                            positive_changes: data.positive_changes || [],
+                            negative_changes: data.negative_changes || [],
+                            periods: data.positive_changes && data.positive_changes.length > 0 ? 
                                 data.positive_changes[0] : 
-                                ((data.negative_changes && data.negative_changes.length > 0) ? data.negative_changes[0] : null);
-                            
-                            if (firstResult) {
-                                previousPeriodValue.textContent = firstResult.previous_period || '-';
-                                currentPeriodValue.textContent = firstResult.recent_period || '-';
-                            }
-                        } else {
-                            // No data returned
-                            noDataDiv.style.display = 'block';
-                            noDataDiv.textContent = 'No metrics found matching your criteria. Try different filters.';
-                        }
+                                (data.negative_changes && data.negative_changes.length > 0 ? data.negative_changes[0] : null)
+                        };
                     } else {
-                        // API returned an error
-                        errorContainer.style.display = 'block';
-                        errorText.textContent = data.message || 'Error fetching metric changes';
+                        throw new Error(data.message || 'Error fetching metric changes');
                     }
-                })
-                .catch(error => {
-                    // Handle errors
-                    loader.style.display = 'none';
-                    errorContainer.style.display = 'block';
-                    errorText.textContent = `Error: ${error.message}`;
-                    console.error('Error fetching metric changes:', error);
                 });
         }
         
-        // Function to display metric results
-        function displayMetricResults(positiveChanges, negativeChanges) {
+        // Function to display combined results (metric changes and anomalies)
+        function displayCombinedResults(metricData, anomalyData) {
             // Show the table
             metricsTable.style.display = 'table';
             metricsTbody.innerHTML = '';
             
-            // Add section header for positive changes
-            const positiveHeader = document.createElement('tr');
-            positiveHeader.className = 'section-header';
-            positiveHeader.innerHTML = `<td colspan="7">Positive Changes</td>`;
-            metricsTbody.appendChild(positiveHeader);
+            // Store metric data for header updates
+            lastMetricData = metricData;
             
-            // Add positive results
-            if (positiveChanges.length > 0) {
-                positiveChanges.forEach(metric => appendMetricRow(metric));
-            } else {
-                const noPositiveRow = document.createElement('tr');
-                noPositiveRow.innerHTML = `<td colspan="7" class="no-data">No positive changes found</td>`;
-                metricsTbody.appendChild(noPositiveRow);
+            // Update table headers with actual period values
+            updateTableHeaders(metricData);
+            
+            // Check if we have any data at all
+            const hasMetricData = (metricData.positive_changes && metricData.positive_changes.length > 0) || 
+                                 (metricData.negative_changes && metricData.negative_changes.length > 0);
+            const hasAnomalyData = anomalyData.anomalies && anomalyData.anomalies.length > 0;
+            
+            if (!hasMetricData && !hasAnomalyData) {
+                noDataDiv.style.display = 'block';
+                noDataDiv.textContent = 'No data found matching your criteria. Try different filters.';
+                return;
             }
             
-            // Add section header for negative changes
-            const negativeHeader = document.createElement('tr');
-            negativeHeader.className = 'section-header';
-            negativeHeader.innerHTML = `<td colspan="7">Negative Changes</td>`;
-            metricsTbody.appendChild(negativeHeader);
+            // Display Metric Changes section
+            if (hasMetricData) {
+                // Add section header for metric changes
+                const metricHeader = document.createElement('tr');
+                metricHeader.className = 'section-header';
+                metricHeader.innerHTML = `<td colspan="7">📊 Metric Changes</td>`;
+                metricsTbody.appendChild(metricHeader);
+                
+                // Add positive changes subsection
+                if (metricData.positive_changes && metricData.positive_changes.length > 0) {
+                    const positiveHeader = document.createElement('tr');
+                    positiveHeader.className = 'subsection-header';
+                    positiveHeader.innerHTML = `<td colspan="7">↗️ Positive Changes</td>`;
+                    metricsTbody.appendChild(positiveHeader);
+                    
+                    metricData.positive_changes.forEach(metric => appendMetricRow(metric));
+                }
+                
+                // Add negative changes subsection
+                if (metricData.negative_changes && metricData.negative_changes.length > 0) {
+                    const negativeHeader = document.createElement('tr');
+                    negativeHeader.className = 'subsection-header';
+                    negativeHeader.innerHTML = `<td colspan="7">↘️ Negative Changes</td>`;
+                    metricsTbody.appendChild(negativeHeader);
+                    
+                    metricData.negative_changes.forEach(metric => appendMetricRow(metric));
+                }
+            }
             
-            // Add negative results
-            if (negativeChanges.length > 0) {
-                negativeChanges.forEach(metric => appendMetricRow(metric));
-            } else {
-                const noNegativeRow = document.createElement('tr');
-                noNegativeRow.innerHTML = `<td colspan="7" class="no-data">No negative changes found</td>`;
-                metricsTbody.appendChild(noNegativeRow);
+            // Display Anomalies section
+            if (hasAnomalyData) {
+                // Add section header for anomalies
+                const anomalyHeader = document.createElement('tr');
+                anomalyHeader.className = 'section-header';
+                anomalyHeader.innerHTML = `<td colspan="7">🚨 Statistical Anomalies</td>`;
+                metricsTbody.appendChild(anomalyHeader);
+                
+                // Add all anomalies
+                anomalyData.anomalies.forEach(anomaly => appendAnomalyRow(anomaly));
             }
         }
         
@@ -1427,8 +1055,8 @@
                 apiUrl += `&district=${encodeURIComponent(district)}`;
             }
             
-            // Fetch data
-            fetch(apiUrl)
+            // Fetch data and return promise
+            return fetch(apiUrl)
                 .then(response => {
                     if (!response.ok) {
                         throw new Error(`HTTP error ${response.status}`);
@@ -1436,47 +1064,134 @@
                     return response.json();
                 })
                 .then(data => {
-                    // Hide loader
-                    loader.style.display = 'none';
-                    
                     if (data.status === 'success') {
-                        if (data.anomalies && data.anomalies.length > 0) {
-                            // Display anomaly data
-                            displayAnomalyResults(data.anomalies);
-                        } else {
-                            // No data returned
-                            noDataDiv.style.display = 'block';
-                            noDataDiv.textContent = 'No anomalies found matching your criteria. Try different filters.';
-                        }
+                        return {
+                            anomalies: data.anomalies || []
+                        };
                     } else {
-                        // API returned an error
-                        errorContainer.style.display = 'block';
-                        errorText.textContent = data.message || 'Error fetching anomalies';
+                        throw new Error(data.message || 'Error fetching anomalies');
                     }
-                })
-                .catch(error => {
-                    // Handle errors
-                    loader.style.display = 'none';
-                    errorContainer.style.display = 'block';
-                    errorText.textContent = `Error: ${error.message}`;
-                    console.error('Error fetching anomalies:', error);
                 });
         }
         
-        // Function to display anomaly results
-        function displayAnomalyResults(anomalies) {
-            // Show the table
-            metricsTable.style.display = 'table';
-            metricsTbody.innerHTML = '';
+        // Function to update table headers with actual period values
+        function updateTableHeaders(metricData) {
+            const previousHeader = document.getElementById('previous-header');
+            const recentHeader = document.getElementById('recent-header');
+            const periodType = periodSelect.value;
             
-            // Add all anomalies
-            if (anomalies.length > 0) {
-                anomalies.forEach(anomaly => appendAnomalyRow(anomaly));
-            } else {
-                const noDataRow = document.createElement('tr');
-                noDataRow.innerHTML = `<td colspan="7" class="no-data">No anomalies found</td>`;
-                metricsTbody.appendChild(noDataRow);
+            // Default values
+            let previousText = 'Previous';
+            let recentText = 'Recent';
+            
+            // Use provided metricData or fall back to stored data
+            const dataToUse = metricData || lastMetricData;
+            
+            // If we have period data from metrics, use it
+            if (dataToUse && dataToUse.periods) {
+                if (dataToUse.periods.previous_period) {
+                    previousText = formatPeriodLabel(dataToUse.periods.previous_period, periodType);
+                }
+                if (dataToUse.periods.recent_period) {
+                    recentText = formatPeriodLabel(dataToUse.periods.recent_period, periodType);
+                }
             }
+            
+            previousHeader.textContent = previousText;
+            recentHeader.textContent = recentText;
+        }
+        
+        // Function to format period labels
+        function formatPeriodLabel(periodValue, periodType) {
+            if (!periodValue) return 'Previous';
+            
+            // Try to parse the period value
+            let label = periodValue;
+            
+            // For different period types, format appropriately
+            switch (periodType) {
+                case 'day':
+                    // Try to extract day info
+                    if (periodValue.includes('D') || periodValue.includes('day')) {
+                        label = periodValue;
+                    } else {
+                        // Try to format as date
+                        try {
+                            const date = new Date(periodValue);
+                            if (!isNaN(date.getTime())) {
+                                label = date.toLocaleDateString('en-US', { 
+                                    weekday: 'short',
+                                    month: 'short', 
+                                    day: 'numeric', 
+                                    year: 'numeric' 
+                                });
+                            }
+                        } catch (e) {
+                            label = periodValue;
+                        }
+                    }
+                    break;
+                    
+                case 'week':
+                    // Try to extract week number or date
+                    if (periodValue.includes('W') || periodValue.includes('week')) {
+                        label = periodValue;
+                    } else {
+                        // Try to format as date
+                        try {
+                            const date = new Date(periodValue);
+                            if (!isNaN(date.getTime())) {
+                                // Get the week number
+                                const startOfYear = new Date(date.getFullYear(), 0, 1);
+                                const days = Math.floor((date - startOfYear) / (24 * 60 * 60 * 1000));
+                                const weekNumber = Math.ceil((days + startOfYear.getDay() + 1) / 7);
+                                label = `Week ${weekNumber}, ${date.getFullYear()}`;
+                            }
+                        } catch (e) {
+                            label = periodValue;
+                        }
+                    }
+                    break;
+                    
+                case 'month':
+                    // Try to extract month name or number
+                    if (periodValue.includes('M') || periodValue.includes('month')) {
+                        label = periodValue;
+                    } else {
+                        // Try to format as date
+                        try {
+                            const date = new Date(periodValue);
+                            if (!isNaN(date.getTime())) {
+                                label = date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+                            }
+                        } catch (e) {
+                            label = periodValue;
+                        }
+                    }
+                    break;
+                    
+                case 'year':
+                    // Try to extract year
+                    if (periodValue.includes('Y') || periodValue.includes('year')) {
+                        label = periodValue;
+                    } else {
+                        // Try to format as date
+                        try {
+                            const date = new Date(periodValue);
+                            if (!isNaN(date.getTime())) {
+                                label = date.getFullYear().toString();
+                            }
+                        } catch (e) {
+                            label = periodValue;
+                        }
+                    }
+                    break;
+                    
+                default:
+                    label = periodValue;
+            }
+            
+            return label;
         }
         
         // Function to append a metric row
@@ -1528,22 +1243,7 @@
                 </td>
             `;
             
-            // Add click event to show details
-            row.addEventListener('click', function(e) {
-                // Don't trigger if they clicked the analyze button
-                if (e.target.tagName === 'BUTTON') return;
-                
-                // Remove selected class from all rows
-                document.querySelectorAll('#metrics-results tr').forEach(r => {
-                    r.classList.remove('selected');
-                });
-                
-                // Add selected class to this row
-                this.classList.add('selected');
-                
-                // Show metric details
-                showMetricDetails(metric);
-            });
+
             
             metricsTbody.appendChild(row);
         }
@@ -1595,13 +1295,21 @@
             // Format the district display
             const districtDisplay = anomaly.district === '0' ? 'Citywide' : `District ${anomaly.district}`;
             
+            // Create combined metric name with group information
+            let metricName = anomaly.metric_name;
+            if (anomaly.group_field_name && anomaly.group_value && anomaly.group_value !== 'N/A') {
+                metricName = `${anomaly.metric_name} (${anomaly.group_field_name}: ${anomaly.group_value})`;
+            } else if (anomaly.group_value && anomaly.group_value !== 'N/A') {
+                metricName = `${anomaly.metric_name} (${anomaly.group_value})`;
+            }
+            
             // Create row HTML
             row.innerHTML = `
-                <td>${anomaly.metric_name}</td>
+                <td>${metricName}</td>
                 <td>${districtDisplay}</td>
-                <td>${anomaly.group_value || 'N/A'}</td>
-                <td>${formatValue(anomaly.recent_mean)}</td>
                 <td>${formatValue(anomaly.comparison_mean)}</td>
+                <td>${formatValue(anomaly.recent_mean)}</td>
+                <td class="${changeClass}">${formatValue(anomaly.difference || (anomaly.recent_mean - anomaly.comparison_mean))}</td>
                 <td class="${changeClass}">${formatPercentChange(anomaly.percent_change)}</td>
                 <td>
                     <button class="action-button" onclick="analyzeMetricChange(${JSON.stringify({
@@ -1887,229 +1595,7 @@ Can you help me understand:
             }, 10000); // 10 second timeout
         }
         
-        // Function to show metric details in the side panel
-        function showMetricDetails(metricData) {
-            // Extract metric information
-            const metricName = metricData.object_name || metricData.objectName;
-            const metricId = metricData.object_id || metricData.objectId;
-            const district = metricData.district || '0';
-            const periodType = periodSelect.value || 'month';
-            
-            // Show loading state in the details card
-            const detailsCard = document.getElementById('details-card');
-            const detailTitle = document.getElementById('detail-title');
-            const detailAnalysisText = document.getElementById('detail-analysis-text');
-            
-            // Update the detail card with basic information first
-            detailTitle.textContent = metricName || 'Metric Analysis';
-            detailMetricName.textContent = metricName || '-';
-            detailMetricId.textContent = metricId || '-';
-            detailDistrict.textContent = district === '0' ? 'Citywide' : `District ${district}`;
-            detailPeriodType.textContent = periodType.charAt(0).toUpperCase() + periodType.slice(1);
-            
-            detailPreviousValue.textContent = formatValue(metricData.previous_value || metricData.previousValue);
-            detailCurrentValue.textContent = formatValue(metricData.recent_value || metricData.recentValue);
-            detailAbsChange.textContent = formatValue(metricData.delta || metricData.absoluteChange);
-            
-            const percentChange = metricData.percent_change || metricData.percentChange;
-            detailPercentChange.textContent = percentChange ? `${parseFloat(percentChange).toFixed(2)}%` : '-';
-            
-            // Show the details card
-            detailsCard.style.display = 'block';
-            
-            // Set loading state for anomaly data
-            detailAnalysisText.innerHTML = '<div class="mini-loader">Loading anomaly data...</div>';
-            
-            // Fetch anomaly data for this metric
-            const params = new URLSearchParams({
-                query_type: 'by_metric',
-                period_type: periodType,
-                limit: 30,  // Increased limit to get more anomalies
-                district: district
-            });
-            
-            if (metricId) {
-                params.append('object_id', metricId);
-            } else if (metricName) {
-                params.append('metric_name', metricName);
-            }
-            
-            // Log the query parameters for debugging
-            console.log('Querying anomalies with params:', params.toString());
-            
-            // Make API call to get anomalies for this metric
-            fetch(`/anomaly-analyzer/api/query-anomalies?${params.toString()}`)
-                .then(response => {
-                    if (!response.ok) {
-                        throw new Error(`Failed to fetch anomaly data. Status: ${response.status}`);
-                    }
-                    return response.json();
-                })
-                .then(data => {
-                    console.log('Anomaly data response:', data);
-                    
-                    if (data.status === 'success' && data.anomalies && data.anomalies.length > 0) {
-                        // Format and display the anomalies
-                        const anomaliesHtml = formatAnomaliesData(data.anomalies);
-                        detailAnalysisText.innerHTML = anomaliesHtml;
-                    } else {
-                        // No anomalies found
-                        const message = data.message || 'No significant anomalies detected for this metric.';
-                        detailAnalysisText.innerHTML = `
-                            <div class="no-anomalies">
-                                <p>${message}</p>
-                                <p>This means the changes observed are within normal statistical variance or expected patterns.</p>
-                            </div>
-                        `;
-                    }
-                })
-                .catch(error => {
-                    console.error('Error fetching anomaly data:', error);
-                    detailAnalysisText.innerHTML = `
-                        <div class="error-message">
-                            <p>Error loading anomaly data: ${error.message}</p>
-                            <button class="action-button secondary" onclick="showMetricDetails(${JSON.stringify(metricData)})">Retry</button>
-                        </div>
-                    `;
-                });
-        }
-        
-        // Function to format anomalies data
-        function formatAnomaliesData(anomaliesData) {
-            if (!anomaliesData || anomaliesData.length === 0) {
-                return '<div class="no-anomalies-message">No anomalies found. Try adjusting your filters or increasing the date range.</div>';
-            }
 
-            // Sort by date, newest first
-            anomaliesData.sort((a, b) => new Date(b.period_date || b.dt) - new Date(a.period_date || a.dt));
-
-            let tableHtml = `
-                <table class="anomalies-table">
-                    <thead>
-                        <tr>
-                            <th>Metric Name</th>
-                            <th>District</th>
-                            <th>Group Field</th>
-                            <th>Group Value</th>
-                            <th>Recent Mean</th>
-                            <th>Comparison Mean</th>
-                            <th>Difference</th>
-                            <th>StDev</th>
-                            <th>Deviation</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-            `;
-
-            anomaliesData.forEach((anomaly, index) => {
-                // Extract values from the anomaly object
-                const metricName = anomaly.metric_name || 'N/A';
-                const district = anomaly.district || 'N/A';
-                const groupField = anomaly.group_field_name || 'N/A';
-                const groupValue = anomaly.group_value || 'N/A';
-                const recentMean = anomaly.recent_mean || 0;
-                const comparisonMean = anomaly.comparison_mean || 0;
-                const stdDev = anomaly.std_dev || 0;
-                const difference = anomaly.difference || (recentMean - comparisonMean);
-                const greendirection = anomaly.greendirection;
-                
-                // Calculate deviation if stdDev is not zero
-                let deviation = 'N/A';
-                if (stdDev > 0) {
-                    deviation = ((recentMean - comparisonMean) / stdDev).toFixed(2);
-                }
-                
-                // Determine change class based on greendirection
-                let changeClass = 'neutral-change';
-                let diffClass = 'neutral-change';
-                
-                if (greendirection && difference !== 0) {
-                    if (greendirection.toLowerCase() === 'up') {
-                        // For metrics where up is good
-                        changeClass = parseFloat(deviation) > 0 ? 'positive-change' : 'negative-change';
-                        diffClass = difference > 0 ? 'positive-change' : 'negative-change';
-                    } else if (greendirection.toLowerCase() === 'down') {
-                        // For metrics where down is good
-                        changeClass = parseFloat(deviation) > 0 ? 'negative-change' : 'positive-change';
-                        diffClass = difference > 0 ? 'negative-change' : 'positive-change';
-                    } else {
-                        // Fallback to traditional logic
-                        changeClass = parseFloat(deviation) > 0 ? 'positive-change' : 'negative-change';
-                        diffClass = difference > 0 ? 'positive-change' : 'negative-change';
-                    }
-                } else {
-                    // Fallback to traditional logic if no greendirection
-                    changeClass = parseFloat(deviation) > 0 ? 'positive-change' : 'negative-change';
-                    diffClass = difference > 0 ? 'positive-change' : 'negative-change';
-                }
-                
-                // Store the full anomaly data as a data attribute
-                const anomalyData = JSON.stringify(anomaly);
-                
-                tableHtml += `
-                    <tr class="anomaly-row" data-anomaly='${anomalyData}' onclick="showAnomalyChart(this.getAttribute('data-anomaly'))">
-                        <td>${metricName}</td>
-                        <td>${district === '0' ? 'Citywide' : district}</td>
-                        <td>${groupField}</td>
-                        <td>${groupValue}</td>
-                        <td>${parseFloat(recentMean).toFixed(2)}</td>
-                        <td>${parseFloat(comparisonMean).toFixed(2)}</td>
-                        <td class="${diffClass}">${parseFloat(difference).toFixed(2)}</td>
-                        <td>${parseFloat(stdDev).toFixed(2)}</td>
-                        <td class="${changeClass}">${deviation}</td>
-                    </tr>
-                `;
-            });
-
-            tableHtml += `
-                    </tbody>
-                </table>
-            `;
-
-            return tableHtml;
-        }
-        
-        // Function to display anomaly chart
-        function showAnomalyChart(anomalyData) {
-            // Remove selected-row class from all rows
-            document.querySelectorAll('.anomaly-row').forEach(row => {
-                row.classList.remove('selected-row');
-            });
-            
-            // Add selected-row class to the clicked row
-            const clickedRow = event.currentTarget;
-            clickedRow.classList.add('selected-row');
-            
-            // Show the chart container
-            const chartContainer = document.getElementById('anomaly-chart-container');
-            chartContainer.style.display = 'block';
-            
-            // Show loading indicator
-            const chartElement = document.getElementById('anomaly-chart');
-            chartElement.innerHTML = '<div class="loading-indicator">Loading detailed anomaly data...</div>';
-            
-            // Process the anomaly data
-            const anomaly = JSON.parse(anomalyData);
-            
-            // Prepare caption data
-            const percentChange = anomaly.percent_change || 0;
-            const direction = anomaly.difference > 0 ? 'increase' : anomaly.difference < 0 ? 'drop' : 'no change';
-            const captionText = `Recent average (${formatValue(anomaly.recent_mean)}) is ${Math.abs(percentChange).toFixed(2)}% ${direction} from historical average (${formatValue(anomaly.comparison_mean)}).`;
-            
-            // Create the iframe with fixed dimensions and include caption data
-            const iframe = document.createElement('iframe');
-            const captionParam = encodeURIComponent(captionText);
-            iframe.src = `/anomaly-analyzer/anomaly-chart?id=${anomaly.id}&caption=${captionParam}#chart-section`;
-            iframe.style.width = '100%';
-            iframe.style.height = '100%';
-            iframe.style.border = 'none';
-            iframe.setAttribute('frameborder', '0');
-            iframe.setAttribute('scrolling', 'no');
-            
-            // Clear the chart container and add the iframe
-            chartElement.innerHTML = '';
-            chartElement.appendChild(iframe);
-        }
     </script>
 </body>
 </html> 

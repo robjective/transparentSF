@@ -3,7 +3,8 @@ import json
 import logging
 import traceback
 from datetime import datetime, date, timedelta
-from tools.data_fetcher import set_dataset  # Fixed import path
+from typing import Dict, Any, List, Optional
+import sys
 import pandas as pd
 import re
 import uuid
@@ -15,16 +16,39 @@ from qdrant_client import QdrantClient
 from qdrant_client.http.models import Filter, FieldCondition, MatchValue
 import time
 import argparse
-import sys
+
+# Add the ai directory to the path for imports
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
+from tools.data_fetcher import set_dataset, fetch_data_from_api
+from tools.db_utils import get_postgres_connection
+from tools.genChart import generate_ytd_trend_chart
+from tools.store_time_series import store_time_series_in_db
 
 # Create logs directory if it doesn't exist
 script_dir = os.path.dirname(os.path.abspath(__file__))
 logs_dir = os.path.join(script_dir, 'logs')
 os.makedirs(logs_dir, exist_ok=True)
 
+# Load environment variables to get LOG_LEVEL
+from dotenv import load_dotenv
+dotenv_path = os.path.join(script_dir, '.env')
+load_dotenv(dotenv_path=dotenv_path)
+
+# Get log level from environment variable
+log_level_str = os.getenv("LOG_LEVEL", "INFO").upper()
+log_level_map = {
+    "DEBUG": logging.DEBUG,
+    "INFO": logging.INFO,
+    "WARNING": logging.WARNING,
+    "ERROR": logging.ERROR,
+    "CRITICAL": logging.CRITICAL,
+}
+log_level = log_level_map.get(log_level_str, logging.INFO)
+
 # Configure logging with a single handler for both file and console
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
+logger.setLevel(log_level)  # Use environment variable instead of hardcoded INFO
 formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
 
 # Remove any existing handlers
@@ -33,18 +57,21 @@ for handler in logger.handlers[:]:
 
 # Add file handler
 file_handler = logging.FileHandler(os.path.join(logs_dir, 'dashboard_metrics.log'))
+file_handler.setLevel(log_level)  # Use environment variable instead of hardcoded INFO
 file_handler.setFormatter(formatter)
 logger.addHandler(file_handler)
 
 # Add console handler
 console_handler = logging.StreamHandler()
+console_handler.setLevel(log_level)  # Use environment variable instead of hardcoded INFO
 console_handler.setFormatter(formatter)
 logger.addHandler(console_handler)
+
+logger.info(f"Dashboard metrics logging initialized with level: {log_level_str}")
 
 def load_metrics_from_db():
     """Load metrics from the database instead of JSON files."""
     try:
-        from tools.db_utils import get_postgres_connection
         import psycopg2.extras
         
         connection = get_postgres_connection()
@@ -54,7 +81,7 @@ def load_metrics_from_db():
         
         cursor = connection.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         
-        # Query all active metrics from the database that are configured to show on dashboard
+        # Query all active metrics from the database (both show_on_dash=true and false)
         cursor.execute("""
             SELECT 
                 m.id,
@@ -72,11 +99,12 @@ def load_metrics_from_db():
                 m.city_id,
                 m.display_order,
                 m.is_active,
+                m.show_on_dash,
                 d.title as dataset_title,
                 d.category as dataset_category
             FROM metrics m
             LEFT JOIN datasets d ON m.endpoint = d.endpoint
-            WHERE m.is_active = true AND m.show_on_dash = true
+            WHERE m.is_active = true
             ORDER BY m.display_order, m.metric_name
         """)
         
@@ -85,7 +113,7 @@ def load_metrics_from_db():
         connection.close()
         
         if not metrics:
-            logger.warning("No active dashboard metrics found in database")
+            logger.warning("No active metrics found in database")
             return {}
         
         # Convert to the expected dashboard queries format
@@ -123,12 +151,13 @@ def load_metrics_from_db():
                 'category_fields': metric['category_fields'] or [],
                 'city_id': metric['city_id'],
                 'display_order': metric['display_order'],
-                'is_active': metric['is_active']
+                'is_active': metric['is_active'],
+                'show_on_dash': metric['show_on_dash']
             }
             
             dashboard_queries[category][subcategory]['queries'][query_name] = query_data
         
-        logger.info(f"Loaded {len(metrics)} dashboard metrics from database across {len(dashboard_queries)} categories")
+        logger.info(f"Loaded {len(metrics)} metrics from database across {len(dashboard_queries)} categories")
         return dashboard_queries
         
     except Exception as e:
@@ -139,7 +168,6 @@ def load_metrics_from_db():
 def load_single_metric_from_db(metric_id):
     """Load a single metric from the database by ID."""
     try:
-        from tools.db_utils import get_postgres_connection
         import psycopg2.extras
         
         connection = get_postgres_connection()
@@ -170,11 +198,12 @@ def load_single_metric_from_db(metric_id):
                     m.city_id,
                     m.display_order,
                     m.is_active,
+                    m.show_on_dash,
                     d.title as dataset_title,
                     d.category as dataset_category
                 FROM metrics m
                 LEFT JOIN datasets d ON m.endpoint = d.endpoint
-                WHERE m.id = %s AND m.is_active = true AND m.show_on_dash = true
+                WHERE m.id = %s AND m.is_active = true
             """, (int(metric_id),))
         else:
             # String ID - search by metric_key
@@ -195,11 +224,12 @@ def load_single_metric_from_db(metric_id):
                     m.city_id,
                     m.display_order,
                     m.is_active,
+                    m.show_on_dash,
                     d.title as dataset_title,
                     d.category as dataset_category
                 FROM metrics m
                 LEFT JOIN datasets d ON m.endpoint = d.endpoint
-                WHERE m.metric_key = %s AND m.is_active = true AND m.show_on_dash = true
+                WHERE m.metric_key = %s AND m.is_active = true
             """, (str(metric_id),))
         
         metric = cursor.fetchone()
@@ -207,7 +237,7 @@ def load_single_metric_from_db(metric_id):
         connection.close()
         
         if not metric:
-            logger.error(f"Dashboard metric with ID {metric_id} not found in database")
+            logger.error(f"Metric with ID {metric_id} not found in database")
             return None
         
         # Convert to the expected dashboard queries format
@@ -229,7 +259,8 @@ def load_single_metric_from_db(metric_id):
             'category_fields': metric['category_fields'] or [],
             'city_id': metric['city_id'],
             'display_order': metric['display_order'],
-            'is_active': metric['is_active']
+            'is_active': metric['is_active'],
+            'show_on_dash': metric['show_on_dash']
         }
         
         # Return in the expected format
@@ -244,7 +275,7 @@ def load_single_metric_from_db(metric_id):
             }
         }
         
-        logger.info(f"Loaded dashboard metric {metric_id} ({query_name}) from database")
+        logger.info(f"Loaded metric {metric_id} ({query_name}) from database")
         return dashboard_queries, category, subcategory, query_name, query_data
         
     except Exception as e:
@@ -460,6 +491,79 @@ def debug_query(query, endpoint, date_ranges, query_name=None):
     logger.info("=" * 80)
     return
 
+def get_monthly_date_ranges(last_data_date):
+    """Calculate monthly date ranges for comparison based on lastDataDate.
+    
+    Args:
+        last_data_date (str): The last data date in YYYY-MM-DD format
+        
+    Returns:
+        dict: Dictionary with monthly date ranges
+    """
+    try:
+        # Parse the last data date
+        last_date = datetime.strptime(last_data_date, '%Y-%m-%d').date()
+        
+        # Get the current month and year from last_data_date
+        current_month = last_date.month
+        current_year = last_date.year
+        current_day = last_date.day
+        
+        # Calculate the start of current month
+        current_month_start = date(current_year, current_month, 1)
+        
+        # Calculate the end of current month (up to last_data_date)
+        current_month_end = last_date
+        
+        # Calculate the previous month
+        if current_month == 1:
+            # If we're in January, go to December of previous year
+            previous_month = 12
+            previous_year = current_year - 1
+        else:
+            previous_month = current_month - 1
+            previous_year = current_year
+        
+        # Calculate the start of previous month
+        previous_month_start = date(previous_year, previous_month, 1)
+        
+        # Calculate the end of previous month (same day as current month, but capped to month end)
+        # First, try to use the same day
+        try:
+            previous_month_end = date(previous_year, previous_month, current_day)
+        except ValueError:
+            # If the day doesn't exist in the previous month (e.g., March 31 -> February 28/29),
+            # use the last day of the previous month
+            if previous_month == 12:
+                next_month_start = date(previous_year + 1, 1, 1)
+            else:
+                next_month_start = date(previous_year, previous_month + 1, 1)
+            previous_month_end = next_month_start - timedelta(days=1)
+        
+        # Cap the previous month end to the actual last day of that month
+        if previous_month == 12:
+            next_month_start = date(previous_year + 1, 1, 1)
+        else:
+            next_month_start = date(previous_year, previous_month + 1, 1)
+        actual_previous_month_end = next_month_start - timedelta(days=1)
+        
+        if previous_month_end > actual_previous_month_end:
+            previous_month_end = actual_previous_month_end
+        
+        monthly_ranges = {
+            'this_month_start': current_month_start.strftime('%Y-%m-%d'),
+            'this_month_end': current_month_end.strftime('%Y-%m-%d'),
+            'last_month_start': previous_month_start.strftime('%Y-%m-%d'),
+            'last_month_end': previous_month_end.strftime('%Y-%m-%d')
+        }
+        
+        logger.info(f"Monthly date ranges for {last_data_date}: {monthly_ranges}")
+        return monthly_ranges
+        
+    except Exception as e:
+        logger.error(f"Error calculating monthly date ranges for {last_data_date}: {str(e)}")
+        return None
+
 def process_query_for_district(query, endpoint, date_ranges, query_name=None):
     """Process a single query and handle district-level aggregation from the same dataset."""
     try:
@@ -573,6 +677,11 @@ def process_query_for_district(query, endpoint, date_ranges, query_name=None):
                 logger.info(f"Capping max date from query results to yesterday: {max_date} -> {yesterday}")
                 max_date = yesterday
             
+            # Calculate monthly date ranges for monthly comparison
+            monthly_ranges = None
+            if max_date:
+                monthly_ranges = get_monthly_date_ranges(max_date)
+            
             if has_district:
                 is_response_time = query_name and ('response time' in query_name.lower() or 'response (minutes)' in query_name.lower())
                 logger.info(f"Processing as response time metric: {is_response_time}")
@@ -591,6 +700,12 @@ def process_query_for_district(query, endpoint, date_ranges, query_name=None):
                         'lastDataDate': max_date
                     }
                     
+                    # Add monthly data if available
+                    if monthly_ranges:
+                        monthly_data = process_monthly_query(query, endpoint, monthly_ranges, query_name, district='0')
+                        if monthly_data:
+                            results['0'].update(monthly_data)
+                    
                     for district in range(1, 12):
                         district_df = df[df['supervisor_district'] == str(district)]
                         if not district_df.empty:
@@ -599,6 +714,12 @@ def process_query_for_district(query, endpoint, date_ranges, query_name=None):
                                 'thisYear': int(district_df['this_year'].mean()) if pd.notnull(district_df['this_year'].mean()) else 0,
                                 'lastDataDate': max_date
                             }
+                            
+                            # Add monthly data for this district if available
+                            if monthly_ranges:
+                                monthly_data = process_monthly_query(query, endpoint, monthly_ranges, query_name, district=str(district))
+                                if monthly_data:
+                                    results[str(district)].update(monthly_data)
                 else:
                     # For non-response time metrics
                     if not df.empty and 'last_year' in df.columns and 'this_year' in df.columns:
@@ -610,6 +731,12 @@ def process_query_for_district(query, endpoint, date_ranges, query_name=None):
                             'lastDataDate': max_date
                         }
                         
+                        # Add monthly data if available
+                        if monthly_ranges:
+                            monthly_data = process_monthly_query(query, endpoint, monthly_ranges, query_name, district='0')
+                            if monthly_data:
+                                results['0'].update(monthly_data)
+                        
                         for district in range(1, 12):
                             district_df = df[df['supervisor_district'] == str(district)]
                             if not district_df.empty:
@@ -618,6 +745,12 @@ def process_query_for_district(query, endpoint, date_ranges, query_name=None):
                                     'thisYear': int(district_df['this_year'].sum()),
                                     'lastDataDate': max_date
                                 }
+                                
+                                # Add monthly data for this district if available
+                                if monthly_ranges:
+                                    monthly_data = process_monthly_query(query, endpoint, monthly_ranges, query_name, district=str(district))
+                                    if monthly_data:
+                                        results[str(district)].update(monthly_data)
             else:
                 # For non-district queries, just return the total from first row
                 if not df.empty:
@@ -627,6 +760,12 @@ def process_query_for_district(query, endpoint, date_ranges, query_name=None):
                         'thisYear': int(float(row.get('this_year', 0))),
                         'lastDataDate': max_date
                     }
+                    
+                    # Add monthly data if available
+                    if monthly_ranges:
+                        monthly_data = process_monthly_query(query, endpoint, monthly_ranges, query_name, district='0')
+                        if monthly_data:
+                            results['0'].update(monthly_data)
             
             logger.info(f"Query processing completed successfully for {query_name}")
             
@@ -637,6 +776,8 @@ def process_query_for_district(query, endpoint, date_ranges, query_name=None):
                 logger.info("-" * 80)
                 for district, district_results in results.items():
                     logger.info(f"District {district}: thisYear={district_results['thisYear']}, lastYear={district_results['lastYear']}, lastDataDate={district_results['lastDataDate']}")
+                    if 'thisMonth' in district_results:
+                        logger.info(f"  Monthly: thisMonth={district_results.get('thisMonth', 'N/A')}, lastMonth={district_results.get('lastMonth', 'N/A')}")
                 logger.info("=" * 80)
             
             return {
@@ -656,10 +797,107 @@ def process_query_for_district(query, endpoint, date_ranges, query_name=None):
     
     return None
 
-def process_ytd_trend_query(query, endpoint, date_ranges=None, target_date=None, query_name=None):
+def process_monthly_query(query, endpoint, monthly_ranges, query_name=None, district=None):
+    """Process a query to get monthly comparison data."""
+    try:
+        logger.info(f"Processing monthly query for {query_name}" + (f" (District {district})" if district else ""))
+        
+        # Create a modified query for monthly comparison
+        # Replace the year placeholders with monthly placeholders
+        monthly_query = query.replace('this_year_start', 'this_month_start')
+        monthly_query = monthly_query.replace('this_year_end', 'this_month_end')
+        monthly_query = monthly_query.replace('last_year_start', 'last_month_start')
+        monthly_query = monthly_query.replace('last_year_end', 'last_month_end')
+        
+        # Replace the column names in the SELECT clause
+        monthly_query = monthly_query.replace('this_year', 'this_month')
+        monthly_query = monthly_query.replace('last_year', 'last_month')
+        
+        # Replace date placeholders with actual monthly ranges
+        for key, value in monthly_ranges.items():
+            monthly_query = monthly_query.replace(key, f"'{value}'")
+        
+        # Handle hardcoded date patterns for monthly comparison
+        this_month_start = datetime.strptime(monthly_ranges['this_month_start'], '%Y-%m-%d')
+        last_month_start = datetime.strptime(monthly_ranges['last_month_start'], '%Y-%m-%d')
+        
+        # Replace hardcoded date patterns
+        this_month_pattern = re.compile(f"'{this_month_start.year}-\\d{{2}}-\\d{{2}}'")
+        last_month_pattern = re.compile(f"'{last_month_start.year}-\\d{{2}}-\\d{{2}}'")
+        
+        # Find and replace hardcoded dates
+        this_month_dates = this_month_pattern.findall(monthly_query)
+        last_month_dates = last_month_pattern.findall(monthly_query)
+        
+        if this_month_dates:
+            latest_this_month_date = max(this_month_dates)
+            monthly_query = monthly_query.replace(latest_this_month_date, f"'{monthly_ranges['this_month_end']}'")
+            logger.info(f"Replaced hardcoded this month date {latest_this_month_date} with {monthly_ranges['this_month_end']}")
+        
+        if last_month_dates:
+            jan_first = f"'{last_month_start.year}-01-01'"
+            non_jan_first_dates = [date for date in last_month_dates if date != jan_first]
+            
+            if non_jan_first_dates:
+                latest_last_month_date = max(non_jan_first_dates)
+                monthly_query = monthly_query.replace(latest_last_month_date, f"'{monthly_ranges['last_month_end']}'")
+                logger.info(f"Replaced hardcoded last month date {latest_last_month_date} with {monthly_ranges['last_month_end']}")
+        
+        # Modify query to filter by district if provided
+        if district and district != '0':
+            if 'WHERE' in monthly_query:
+                monthly_query = monthly_query.replace('WHERE', f'WHERE supervisor_district = \'{district}\' AND')
+            else:
+                monthly_query = monthly_query.replace('GROUP BY', f'WHERE supervisor_district = \'{district}\' GROUP BY')
+            logger.info(f"Added district filter for monthly query: district {district}")
+        
+        logger.info(f"Monthly query: {monthly_query}")
+        
+        # Execute the monthly query
+        context_variables = {}
+        result = set_dataset(context_variables, endpoint=endpoint, query=monthly_query)
+        
+        if result.get('status') == 'success' and 'dataset' in context_variables:
+            df = context_variables['dataset']
+            
+            if not df.empty and 'this_month' in df.columns and 'last_month' in df.columns:
+                df[['this_month', 'last_month']] = df[['this_month', 'last_month']].apply(pd.to_numeric, errors='coerce')
+                
+                # Check if this is a response time metric
+                is_response_time = query_name and ('response time' in query_name.lower() or 'response (minutes)' in query_name.lower())
+                
+                if is_response_time:
+                    # Use mean for response time metrics
+                    this_month_value = int(df['this_month'].mean()) if pd.notnull(df['this_month'].mean()) else 0
+                    last_month_value = int(df['last_month'].mean()) if pd.notnull(df['last_month'].mean()) else 0
+                else:
+                    # Use sum for count metrics
+                    this_month_value = int(df['this_month'].sum())
+                    last_month_value = int(df['last_month'].sum())
+                
+                logger.info(f"Monthly data for {query_name}: thisMonth={this_month_value}, lastMonth={last_month_value}")
+                
+                return {
+                    'thisMonth': this_month_value,
+                    'lastMonth': last_month_value
+                }
+            else:
+                logger.warning(f"No monthly data columns found in dataset for {query_name}. Available columns: {df.columns.tolist()}")
+        else:
+            logger.error(f"Monthly query failed for {query_name}")
+            if 'error' in result:
+                logger.error(f"Error: {result['error']}")
+    
+    except Exception as e:
+        logger.error(f"Error processing monthly query for {query_name}: {str(e)}")
+        logger.error(traceback.format_exc())
+    
+    return None
+
+def process_ytd_trend_query(query, endpoint, date_ranges=None, target_date=None, query_name=None, district=None):
     """Process a YTD trend query to get historical daily counts."""
     try:
-        logger.info(f"Processing YTD trend query for {query_name}")
+        logger.info(f"Processing YTD trend query for {query_name}" + (f" (District {district})" if district else ""))
         
         # Get date ranges if not provided
         if not date_ranges:
@@ -700,6 +938,15 @@ def process_ytd_trend_query(query, endpoint, date_ranges=None, target_date=None,
                 logger.info(f"Replaced hardcoded last year date {latest_last_year_date} with {date_ranges['last_year_end']}")
             else:
                 logger.info(f"No non-January 1st last year dates to replace. Keeping {jan_first} as the start date.")
+        
+        # Modify query to filter by district if provided
+        if district and district != '0':
+            # Add district filter to the query
+            if 'WHERE' in modified_query:
+                modified_query = modified_query.replace('WHERE', f'WHERE supervisor_district = \'{district}\' AND')
+            else:
+                modified_query = modified_query.replace('GROUP BY', f'WHERE supervisor_district = \'{district}\' GROUP BY')
+            logger.info(f"Added district filter for district {district}")
         
         logger.info(f"Modified trend query: {modified_query}")
         
@@ -776,7 +1023,7 @@ def process_ytd_trend_query(query, endpoint, date_ranges=None, target_date=None,
                 for date, value in df.sort_values('date').set_index('date')['value'].items()
             }
             
-            logger.info(f"Processed {len(trend_data)} trend data points")
+            logger.info(f"Processed {len(trend_data)} trend data points" + (f" for district {district}" if district else ""))
             
             return {
                 'trend_data': trend_data,
@@ -888,6 +1135,11 @@ def generate_ytd_metrics(queries_data, output_dir, target_date=None):
                         if max_date:
                             logger.info(f"Found max date from metric query: {max_date}")
                             
+                            # Update the most_recent_data_date in the database if we have a metric ID
+                            if isinstance(query_data, dict) and "id" in query_data and isinstance(query_data["id"], int):
+                                metric_id = query_data["id"]
+                                update_metric_most_recent_data_date(metric_id, max_date)
+                            
                             # Convert max_date to datetime for manipulation
                             max_date_dt = datetime.strptime(max_date, '%Y-%m-%d')
                             today = datetime.now()
@@ -899,6 +1151,11 @@ def generate_ytd_metrics(queries_data, output_dir, target_date=None):
                                 logger.info(f"Capping max date to yesterday: {max_date} -> {yesterday_str}")
                                 max_date = yesterday_str
                                 max_date_dt = yesterday
+                                
+                                # Update the database with the capped date as well
+                                if isinstance(query_data, dict) and "id" in query_data and isinstance(query_data["id"], int):
+                                    metric_id = query_data["id"]
+                                    update_metric_most_recent_data_date(metric_id, max_date)
                             
                             # If max_date is in the future, set it to last day of previous month
                             if max_date_dt > today:
@@ -927,6 +1184,11 @@ def generate_ytd_metrics(queries_data, output_dir, target_date=None):
                                     
                                 max_date = f"{end_year}-{end_month:02d}-{last_day}"
                                 logger.info(f"Adjusted max date to last day of previous month: {max_date}")
+                                
+                                # Update the database with the adjusted date
+                                if isinstance(query_data, dict) and "id" in query_data and isinstance(query_data["id"], int):
+                                    metric_id = query_data["id"]
+                                    update_metric_most_recent_data_date(metric_id, max_date)
                             
                             # Update date ranges with the max date
                             date_ranges['this_year_end'] = max_date
@@ -951,6 +1213,16 @@ def generate_ytd_metrics(queries_data, output_dir, target_date=None):
                         results = query_results['results']
                         queries = query_results['queries']
                         
+                        # Extract just the endpoint identifier (remove URL and .json extension)
+                        endpoint_identifier = query_endpoint
+                        if endpoint_identifier:
+                            # Remove the base URL if present
+                            if endpoint_identifier.startswith('https://data.sfgov.org/resource/'):
+                                endpoint_identifier = endpoint_identifier.replace('https://data.sfgov.org/resource/', '')
+                            # Remove .json extension if present
+                            if endpoint_identifier.endswith('.json'):
+                                endpoint_identifier = endpoint_identifier[:-5]
+                        
                         # Create metric object with metadata
                         metric_base = {
                             "name": query_name.replace(" YTD", ""),
@@ -959,7 +1231,8 @@ def generate_ytd_metrics(queries_data, output_dir, target_date=None):
                             "queries": {
                                 "metric_query": queries['original_query'],
                                 "executed_query": queries['executed_query']
-                            }
+                            },
+                            "endpoint": endpoint_identifier
                         }
                         
                         # Add location and category fields if available in the enhanced query data
@@ -971,13 +1244,18 @@ def generate_ytd_metrics(queries_data, output_dir, target_date=None):
                             # Also add the numeric ID if available
                             if "id" in query_data and isinstance(query_data["id"], int):
                                 metric_base["numeric_id"] = query_data["id"]
+                            # Add show flag based on show_on_dash setting
+                            if "show_on_dash" in query_data:
+                                metric_base["show"] = query_data["show_on_dash"]
+                            else:
+                                metric_base["show"] = True  # Default to showing if not specified
                         
                         # Get the last data date from metric results if available
                         metric_last_data_date = None
                         if '0' in results and results['0'].get('lastDataDate'):
                             metric_last_data_date = results['0']['lastDataDate']
                         
-                        # Add trend data if it was processed
+                        # Add trend data if it was processed (citywide)
                         if trend_data:
                             metric_base["trend_data"] = trend_data["trend_data"]
                             # Use metric's last data date if available (for monthly/truncated data),
@@ -1005,6 +1283,39 @@ def generate_ytd_metrics(queries_data, output_dir, target_date=None):
                                 "lastDataDate": metric_last_data_date or results['0'].get('lastDataDate')
                             })
                             top_category_metrics['metrics'].append(citywide_metric)
+
+                            # Generate and store YTD trend chart for citywide (district 0)
+                            if trend_data:
+                                try:
+                                    logger.info(f"Creating YTD trend chart for {query_name} - Citywide")
+
+                                    chart_metadata = {
+                                        "chart_title": f"{query_name} - YTD Trend",
+                                        "y_axis_label": "Count" if "COUNT" in trend_data["original_query"].upper() else "Value",
+                                        "description": f"Year-to-date trend for {query_name} in Citywide",
+                                        "period_type": "ytd",
+                                        "district": "0",
+                                        "object_id": str(query_data.get("id", "unknown")),
+                                        "object_type": "metric",
+                                        "object_name": f"{query_name} - YTD Trend",
+                                        "category": top_category_name.title()
+                                    }
+
+                                    chart_html = generate_ytd_trend_chart(
+                                        trend_data=trend_data["trend_data"],
+                                        metadata=chart_metadata,
+                                        district="0",
+                                        return_html=True,
+                                        store_in_db=True
+                                    )
+
+                                    if chart_html:
+                                        logger.info(f"Successfully created YTD trend chart for {query_name} - Citywide")
+                                    else:
+                                        logger.warning(f"Failed to create YTD trend chart for {query_name} - Citywide")
+                                except Exception as e:
+                                    logger.error(f"Error creating YTD trend chart for {query_name} - Citywide: {str(e)}")
+                                    logger.error(traceback.format_exc())
                         
                         # Add district metrics
                         for district_num in range(1, 12):
@@ -1024,6 +1335,59 @@ def generate_ytd_metrics(queries_data, output_dir, target_date=None):
                                     "thisYear": results[district_str]['thisYear'],
                                     "lastDataDate": metric_last_data_date or results[district_str].get('lastDataDate')
                                 })
+                                
+                                # Process district-specific trend data
+                                district_trend_data = None
+                                if ytd_query:
+                                    logger.info(f"Processing district-specific trend data for district {district_str}")
+                                    district_trend_data = process_ytd_trend_query(
+                                        ytd_query, query_endpoint, 
+                                        date_ranges=date_ranges, 
+                                        district=district_str,
+                                        query_name=query_name
+                                    )
+                                
+                                # Add district-specific trend data
+                                if district_trend_data:
+                                    district_metric["trend_data"] = district_trend_data["trend_data"]
+                                    district_metric["trend_last_updated"] = metric_last_data_date or district_trend_data["last_updated"]
+                                    district_metric["queries"]["ytd_query"] = district_trend_data["original_query"]
+                                    district_metric["queries"]["executed_ytd_query"] = district_trend_data["executed_query"]
+                                    
+                                    # Create and store YTD trend chart for this district
+                                    try:
+                                        logger.info(f"Creating YTD trend chart for {query_name} - District {district_str}")
+                                        
+                                        # Prepare chart metadata
+                                        chart_metadata = {
+                                            "chart_title": f"{query_name} - YTD Trend",
+                                            "y_axis_label": "Count" if "COUNT" in district_trend_data["original_query"].upper() else "Value",
+                                            "description": f"Year-to-date trend for {query_name} in {'Citywide' if district_str == '0' else f'District {district_str}'}",
+                                            "period_type": "ytd",
+                                            "district": district_str,
+                                            "object_id": str(query_data.get("id", "unknown")),  # Use object_id instead of metric_id
+                                            "object_type": "metric",
+                                            "object_name": f"{query_name} - YTD Trend",
+                                            "category": top_category_name.title()
+                                        }
+                                        
+                                        # Create the chart using Plotly
+                                        chart_html = generate_ytd_trend_chart(
+                                            trend_data=district_trend_data["trend_data"],
+                                            metadata=chart_metadata,
+                                            district=district_str,
+                                            return_html=True,
+                                            store_in_db=True
+                                        )
+                                        
+                                        if chart_html:
+                                            logger.info(f"Successfully created YTD trend chart for {query_name} - District {district_str}")
+                                        else:
+                                            logger.warning(f"Failed to create YTD trend chart for {query_name} - District {district_str}")
+                                            
+                                    except Exception as e:
+                                        logger.error(f"Error creating YTD trend chart for {query_name} - District {district_str}: {str(e)}")
+                                        logger.error(traceback.format_exc())
                                 
                                 # Find or create category for this district
                                 district_category = next(
@@ -1096,9 +1460,16 @@ def generate_ytd_metrics(queries_data, output_dir, target_date=None):
                         "lastYear": metric['lastYear'],
                         "thisYear": metric['thisYear'],
                         "lastDataDate": metric['lastDataDate'],
+                        "endpoint": metric.get('endpoint', ''),
                         "queries": metric['queries'],
                         "metadata": metric.get('metadata', {})
                     }
+                    
+                    # Add monthly data if available
+                    if 'thisMonth' in metric:
+                        metric_copy['thisMonth'] = metric['thisMonth']
+                    if 'lastMonth' in metric:
+                        metric_copy['lastMonth'] = metric['lastMonth']
                     
                     # Add numeric_id if it exists
                     if 'numeric_id' in metric:
@@ -1109,6 +1480,10 @@ def generate_ytd_metrics(queries_data, output_dir, target_date=None):
                         metric_copy['location_fields'] = metric['location_fields']
                     if 'category_fields' in metric:
                         metric_copy['category_fields'] = metric['category_fields']
+                    
+                    # Add show flag if it exists
+                    if 'show' in metric:
+                        metric_copy['show'] = metric['show']
                     
                     category_copy['metrics'].append(metric_copy)
                     
@@ -1122,9 +1497,16 @@ def generate_ytd_metrics(queries_data, output_dir, target_date=None):
                         "lastYear": metric['lastYear'],
                         "thisYear": metric['thisYear'],
                         "lastDataDate": metric['lastDataDate'],
+                        "endpoint": metric.get('endpoint', ''),
                         "queries": metric['queries'],
                         "metadata": metric.get('metadata', {})
                     }
+                    
+                    # Add monthly data if available
+                    if 'thisMonth' in metric:
+                        metric_data['thisMonth'] = metric['thisMonth']
+                    if 'lastMonth' in metric:
+                        metric_data['lastMonth'] = metric['lastMonth']
                     
                     # Add numeric_id if it exists
                     if 'numeric_id' in metric:
@@ -1135,6 +1517,10 @@ def generate_ytd_metrics(queries_data, output_dir, target_date=None):
                         metric_data['location_fields'] = metric['location_fields']
                     if 'category_fields' in metric:
                         metric_data['category_fields'] = metric['category_fields']
+                    
+                    # Add show flag if it exists
+                    if 'show' in metric:
+                        metric_data['show'] = metric['show']
                     
                     # Add trend data if it exists
                     if 'trend_data' in metric:
@@ -1155,8 +1541,15 @@ def generate_ytd_metrics(queries_data, output_dir, target_date=None):
                                                 district_breakdown[d_str] = {
                                                     "thisYear": d_metric['thisYear'],
                                                     "lastYear": d_metric['lastYear'],
-                                                    "lastDataDate": d_metric['lastDataDate']
+                                                    "lastDataDate": d_metric['lastDataDate'],
+                                                    "endpoint": d_metric.get('endpoint', '')
                                                 }
+                                                
+                                                # Add monthly data to district breakdown if available
+                                                if 'thisMonth' in d_metric:
+                                                    district_breakdown[d_str]['thisMonth'] = d_metric['thisMonth']
+                                                if 'lastMonth' in d_metric:
+                                                    district_breakdown[d_str]['lastMonth'] = d_metric['lastMonth']
                                                 break
                         if district_breakdown:
                             metric_data["district_breakdown"] = district_breakdown
@@ -1353,20 +1746,29 @@ def create_metric_text(category_name, metric, district_name):
     definition = metadata.get('definition', 'No detailed definition available')
     data_sf_url = metadata.get('data_sf_url', 'No data source URL available')
     
-    return (
-        f"Category: {category_name}\n"
-        f"Metric Name: {metric['name']}\n"
-        f"Description: {summary}\n"
-        f"Detailed Definition: {definition}\n"
-        f"This metric shows {metric['thisYear']} incidents in the current year"
-        f" compared to {metric['lastYear']} incidents last year for {district_name}.\n"
-        f"The data is current as of {metric['lastDataDate']}.\n"
-        f"This is a {category_name.lower()} metric related to {category_descriptions.get(category_name, '')} in San Francisco.\n"
-        f"{category_help_text.get(category_name, '')}\n"
-        f"Data Source: {data_sf_url}\n"
-        f"Query Context: {metric['queries'].get('metric_query', '')}\n"
+    # Build the text representation
+    text_parts = [
+        f"Category: {category_name}",
+        f"Metric Name: {metric['name']}",
+        f"Description: {summary}",
+        f"Detailed Definition: {definition}",
+        f"This metric shows {metric['thisYear']} incidents in the current year compared to {metric['lastYear']} incidents last year for {district_name}."
+    ]
+    
+    # Add monthly data if available
+    if 'thisMonth' in metric and 'lastMonth' in metric:
+        text_parts.append(f"For the current month, there were {metric['thisMonth']} incidents compared to {metric['lastMonth']} incidents in the previous month.")
+    
+    text_parts.extend([
+        f"The data is current as of {metric['lastDataDate']}.",
+        f"This is a {category_name.lower()} metric related to {category_descriptions.get(category_name, '')} in San Francisco.",
+        f"{category_help_text.get(category_name, '')}",
+        f"Data Source: {data_sf_url}",
+        f"Query Context: {metric['queries'].get('metric_query', '')}",
         f"This data is specific to {district_name} in San Francisco."
-    ).strip()
+    ])
+    
+    return "\n".join(text_parts).strip()
 
 def create_metadata_dict(category_name, metric, district, district_name):
     """Create metadata dictionary for vector storage."""
@@ -1384,6 +1786,7 @@ def create_metadata_dict(category_name, metric, district, district_name):
         'this_year': metric['thisYear'],
         'last_year': metric['lastYear'],
         'last_data_date': metric['lastDataDate'],
+        'endpoint': metric.get('endpoint', ''),
         'summary': summary,
         'definition': definition,
         'data_url': data_url,
@@ -1393,6 +1796,12 @@ def create_metadata_dict(category_name, metric, district, district_name):
         'queries': metric['queries']
     }
     
+    # Add monthly data if available
+    if 'thisMonth' in metric:
+        metadata_dict['this_month'] = metric['thisMonth']
+    if 'lastMonth' in metric:
+        metadata_dict['last_month'] = metric['lastMonth']
+    
     # Add location and category fields if available
     if 'location_fields' in metric:
         metadata_dict['location_fields'] = metric['location_fields']
@@ -1400,6 +1809,8 @@ def create_metadata_dict(category_name, metric, district, district_name):
         metadata_dict['category_fields'] = metric['category_fields']
     if 'numeric_id' in metric:
         metadata_dict['numeric_id'] = metric['numeric_id']
+    if 'show' in metric:
+        metadata_dict['show'] = metric['show']
     
     return metadata_dict
 
@@ -1530,8 +1941,15 @@ def process_single_metric(metric_id, period_type='ytd'):
                     "lastYear": metric_data['lastYear'],
                     "thisYear": metric_data['thisYear'],
                     "lastDataDate": metric_data['lastDataDate'],
+                    "endpoint": metric_data.get('endpoint', ''),
                     "metadata": metric_data['metadata']
                 }
+                
+                # Add monthly data if available
+                if 'thisMonth' in metric_data:
+                    metric_entry['thisMonth'] = metric_data['thisMonth']
+                if 'lastMonth' in metric_data:
+                    metric_entry['lastMonth'] = metric_data['lastMonth']
                 
                 # Add numeric_id if it exists
                 if 'numeric_id' in metric_data:
@@ -1542,6 +1960,10 @@ def process_single_metric(metric_id, period_type='ytd'):
                     metric_entry['location_fields'] = metric_data['location_fields']
                 if 'category_fields' in metric_data:
                     metric_entry['category_fields'] = metric_data['category_fields']
+                
+                # Add show flag if it exists
+                if 'show' in metric_data:
+                    metric_entry['show'] = metric_data['show']
                 
                 category['metrics'].append(metric_entry)
                 
@@ -1564,6 +1986,42 @@ def process_single_metric(metric_id, period_type='ytd'):
         logging.info(f"District {district_str} metrics history saved to {history_file}")
     
     return metrics_result
+
+def update_metric_most_recent_data_date(metric_id, most_recent_date):
+    """Update the most_recent_data_date column for a specific metric.
+    
+    Args:
+        metric_id (int): The ID of the metric to update
+        most_recent_date (str): The most recent data date in YYYY-MM-DD format
+    """
+    try:
+        import psycopg2
+        
+        connection = get_postgres_connection()
+        if not connection:
+            logger.error("Failed to connect to database for updating most_recent_data_date")
+            return False
+        
+        cursor = connection.cursor()
+        
+        # Update the most_recent_data_date column
+        cursor.execute("""
+            UPDATE metrics 
+            SET most_recent_data_date = %s, updated_at = CURRENT_TIMESTAMP
+            WHERE id = %s
+        """, (most_recent_date, metric_id))
+        
+        connection.commit()
+        cursor.close()
+        connection.close()
+        
+        logger.info(f"Updated most_recent_data_date for metric {metric_id} to {most_recent_date}")
+        return True
+        
+    except Exception as e:
+        logger.error(f"Error updating most_recent_data_date for metric {metric_id}: {str(e)}")
+        logger.error(traceback.format_exc())
+        return False
 
 def main():
     """Main function to generate dashboard metrics."""

@@ -3,13 +3,16 @@
 <head>
     <meta charset="UTF-8">
     <title>Dashboard - TransparentSF</title>
+    <link rel="stylesheet" href="/static/darkmode.css">
+    <script src="/static/js/darkmode.js"></script>
+    <script src="/static/js/iframe-darkmode.js"></script>
     <style>
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
             margin: 0;
             padding: 30px;
-            background-color: #ffffff;
-            color: #333;
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
         }
         
         .dashboard-header {
@@ -20,12 +23,12 @@
             margin: 0 0 5px 0;
             font-size: 28px;
             font-weight: 500;
-            color: #222;
+            color: var(--text-primary);
         }
         
         .subtitle {
             font-size: 15px;
-            color: #666;
+            color: var(--text-secondary);
             margin-bottom: 25px;
         }
         
@@ -38,12 +41,11 @@
         
         .metric-box {
             position: relative;
-            background-color: #fff;
+            background-color: var(--bg-primary);
             border-radius: 8px;
             box-shadow: none;
             padding: 20px;
             transition: transform 0.2s ease;
-            border: 0;
             overflow: hidden;
         }
         
@@ -53,8 +55,8 @@
             right: 0;
             width: 61.8%;
             height: 61.8%;
-            border-top: 2px solid rgba(0, 0, 0, 0.1);
-            border-right: 2px solid rgba(0, 0, 0, 0.1);
+            border-top: 2px solid var(--shadow-light);
+            border-right: 2px solid var(--shadow-light);
             border-top-right-radius: 8px;
         }
         
@@ -64,8 +66,8 @@
             left: 0;
             width: 61.8%;
             height: 61.8%;
-            border-bottom: 2px solid rgba(0, 0, 0, 0.1);
-            border-left: 2px solid rgba(0, 0, 0, 0.1);
+            border-bottom: 2px solid var(--shadow-light);
+            border-left: 2px solid var(--shadow-light);
             border-bottom-left-radius: 8px;
         }
         
@@ -78,7 +80,7 @@
             font-size: 14px;
             text-transform: uppercase;
             letter-spacing: 0.5px;
-            color: #666;
+            color: var(--text-secondary);
             margin: 0 0 10px 0;
             font-weight: 600;
         }
@@ -86,7 +88,7 @@
         .metric-value {
             font-size: 32px;
             font-weight: 500;
-            color: #222;
+            color: var(--text-primary);
             margin: 0;
         }
         
@@ -100,12 +102,12 @@
         
         .metric-subvalue {
             font-size: 14px;
-            color: #666;
+            color: var(--text-secondary);
         }
         
         .metric-icon {
             float: right;
-            background-color: #f0f0f0;
+            background-color: var(--bg-secondary);
             width: 40px;
             height: 40px;
             border-radius: 50%;
@@ -117,12 +119,11 @@
         
         .status-section {
             position: relative;
-            background-color: #fff;
+            background-color: var(--bg-primary);
             border-radius: 8px;
             box-shadow: none;
             padding: 20px;
             margin-bottom: 25px;
-            border: 0;
             overflow: hidden;
         }
         
@@ -132,8 +133,8 @@
             right: 0;
             width: 61.8%;
             height: 61.8%;
-            border-top: 2px solid rgba(0, 0, 0, 0.1);
-            border-right: 2px solid rgba(0, 0, 0, 0.1);
+            border-top: 2px solid var(--shadow-light);
+            border-right: 2px solid var(--shadow-light);
             border-top-right-radius: 8px;
         }
         
@@ -143,8 +144,8 @@
             left: 0;
             width: 61.8%;
             height: 61.8%;
-            border-bottom: 2px solid rgba(0, 0, 0, 0.1);
-            border-left: 2px solid rgba(0, 0, 0, 0.1);
+            border-bottom: 2px solid var(--shadow-light);
+            border-left: 2px solid var(--shadow-light);
             border-bottom-left-radius: 8px;
         }
         
@@ -152,7 +153,7 @@
             font-size: 16px;
             font-weight: 500;
             margin: 0 0 15px 0;
-            color: #222;
+            color: var(--text-primary);
         }
         
         .status-item {
@@ -160,17 +161,19 @@
             align-items: center;
             margin-bottom: 10px;
             padding: 8px 0;
-            border-bottom: 1px solid #f0f0f0;
+            border-bottom: 1px solid var(--border-secondary);
         }
         
         .status-label {
             flex: 1;
             font-size: 14px;
+            color: var(--text-primary);
         }
         
         .status-value {
             font-size: 14px;
             font-weight: 500;
+            color: var(--text-primary);
         }
         
         .status-indicator {
@@ -193,8 +196,8 @@
         }
         
         .refresh-button {
-            background-color: #f0f0f0;
-            border: none;
+            background-color: var(--bg-secondary);
+            border: 1px solid var(--border-primary);
             border-radius: 4px;
             padding: 8px 15px;
             font-size: 13px;
@@ -206,7 +209,7 @@
         }
         
         .refresh-button:hover {
-            background-color: #e0e0e0;
+            background-color: var(--bg-secondary-hover);
         }
         
         .refresh-icon {
@@ -224,8 +227,8 @@
         }
         
         .spinner {
-            border: 2px solid rgba(0, 0, 0, 0.1);
-            border-top: 2px solid #333;
+            border: 2px solid var(--shadow-light);
+            border-top: 2px solid var(--text-primary);
             border-radius: 50%;
             width: 16px;
             height: 16px;
@@ -234,7 +237,7 @@
         }
         
         .status-loading {
-            background-color: #f0f0f0;
+            background-color: var(--bg-secondary);
         }
         
         .pending-value {
@@ -248,14 +251,14 @@
         /* System Resources Styles */
         .disk-space-details {
             font-size: 14px;
-            color: #666;
+            color: var(--text-secondary);
             margin-top: 10px;
         }
         
         .progress-bar {
             width: 100%;
             height: 4px;
-            background: rgba(0, 0, 0, 0.1);
+            background: var(--shadow-light);
             border-radius: 2px;
             margin-top: 10px;
             overflow: hidden;
@@ -263,7 +266,7 @@
         
         .progress {
             height: 100%;
-            background-color: #000000;
+            background-color: var(--text-primary);
             transition: width 0.3s ease;
         }
     </style>

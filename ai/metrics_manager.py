@@ -51,6 +51,7 @@ async def get_enhanced_queries_db():
                 m.metadata,
                 m.is_active,
                 m.display_order,
+                m.most_recent_data_date,
                 d.title as dataset_title_from_datasets,
                 d.category as dataset_category_from_datasets,
                 d.columns as dataset_columns
@@ -104,6 +105,7 @@ async def get_enhanced_queries_db():
                 "category_fields": row['category_fields'] or [],
                 "is_active": row['is_active'] if row['is_active'] is not None else True,
                 "display_order": row['display_order'],
+                "most_recent_data_date": row['most_recent_data_date'].isoformat() if row['most_recent_data_date'] else None,
                 "metadata": row['metadata']
             }
             
@@ -163,6 +165,7 @@ async def get_selected_columns_db(endpoint: str, metric_id: str = None):
     """Get currently selected columns for an endpoint and optionally a specific metric ID from database."""
     try:
         from tools.db_utils import get_postgres_connection
+        import json
         
         connection = get_postgres_connection()
         if not connection:
@@ -191,8 +194,20 @@ async def get_selected_columns_db(endpoint: str, metric_id: str = None):
         connection.close()
         
         if row and row['category_fields']:
+            # Parse the JSON string if it's a string, otherwise use as-is
+            category_fields = row['category_fields']
+            if isinstance(category_fields, str):
+                try:
+                    category_fields = json.loads(category_fields)
+                except json.JSONDecodeError as e:
+                    logger.error(f"Error parsing category_fields JSON for endpoint '{endpoint}': {e}")
+                    return JSONResponse({
+                        "status": "success",
+                        "columns": []
+                    })
+            
             # Extract field names from category_fields
-            selected_columns = [field["fieldName"] for field in row['category_fields'] if field.get("fieldName")]
+            selected_columns = [field["fieldName"] for field in category_fields if field.get("fieldName")]
             
             logger.info(f"Found selected columns for endpoint {endpoint}" + 
                        (f" and metric_id {metric_id}" if metric_id else "") + 
@@ -394,14 +409,16 @@ async def run_specific_metric_db(metric_id: int, district_id: int = 0, period_ty
             logger.info(f"Running weekly analysis for metric ID {metric_id}")
             
             try:
-                from generate_weekly_analysis import run_weekly_analysis, generate_weekly_newsletter
+                from tools.analysis.weekly import run_weekly_analysis
+                # from tools.analysis.weekly import generate_weekly_newsletter
                 
                 results = run_weekly_analysis(
                     metrics_list=[str(metric_id)],
                     process_districts=(district_id == 0)
                 )
                 
-                newsletter_path = generate_weekly_newsletter(results)
+                # Newsletter generation temporarily disabled
+                # newsletter_path = generate_weekly_newsletter(results)
                 logger.info(f"Weekly analysis completed for metric ID {metric_id}")
                 
             except ImportError as e:
@@ -728,21 +745,40 @@ async def edit_metric(metric_identifier: str, request: Request):
         update_fields = []
         params = []
         
+        logger.info(f"Processing update fields: {list(data.keys())}")
+        logger.info(f"Raw data: {data}")
+        
         for field, value in data.items():
+            logger.info(f"Processing field: {field} = {value} (type: {type(value)})")
             if field in ['name', 'category', 'subcategory', 'endpoint', 'summary', 'definition',
                         'data_sf_url', 'ytd_query', 'metric_query', 'dataset_title', 'dataset_category',
                         'show_on_dash', 'item_noun', 'location_fields', 'category_fields', 'metadata',
                         'greendirection', 'is_active']:
                 if field == 'name':
                     update_fields.append("metric_name = %s")
+                    params.append(value)
+                    logger.info(f"Added metric_name = %s with value: {value}")
+                elif field == 'id':
+                    logger.info(f"Skipping field 'id' as it's not allowed to be updated")
+                    continue  # Don't allow updating the ID
                 elif field == 'key':
+                    logger.info(f"Skipping field 'key' as it's not allowed to be updated")
                     continue  # Don't allow updating the key
                 elif field in ['location_fields', 'category_fields', 'metadata']:
                     update_fields.append(f"{field} = %s")
-                    params.append(json.dumps(value))
+                    json_value = json.dumps(value)
+                    params.append(json_value)
+                    logger.info(f"Added {field} = %s with JSON value: {json_value}")
                 else:
                     update_fields.append(f"{field} = %s")
                     params.append(value)
+                    logger.info(f"Added {field} = %s with value: {value}")
+            else:
+                logger.warning(f"Ignoring unknown field: {field}")
+        
+        logger.info(f"Update fields: {update_fields}")
+        logger.info(f"Parameters before adding metric ID: {params}")
+        logger.info(f"Number of parameters before adding metric ID: {len(params)}")
         
         if not update_fields:
             cursor.close()
@@ -750,7 +786,7 @@ async def edit_metric(metric_identifier: str, request: Request):
             raise HTTPException(status_code=400, detail="No valid fields to update")
         
         update_fields.append("updated_at = CURRENT_TIMESTAMP")
-        params.append(metric['id'])
+        logger.info(f"Added updated_at = CURRENT_TIMESTAMP (no parameter needed)")
         
         query = f"""
             UPDATE metrics 
@@ -759,7 +795,31 @@ async def edit_metric(metric_identifier: str, request: Request):
             RETURNING id, metric_name
         """
         
-        cursor.execute(query, params)
+        # Add the metric ID as the last parameter for the WHERE clause
+        params.append(metric['id'])
+        
+        logger.info(f"Final query: {query}")
+        logger.info(f"Final parameters: {params}")
+        logger.info(f"Number of %s placeholders in query: {query.count('%s')}")
+        logger.info(f"Number of parameters: {len(params)}")
+        
+        # Verify parameter count matches placeholder count
+        placeholder_count = query.count('%s')
+        if len(params) != placeholder_count:
+            raise HTTPException(
+                status_code=500, 
+                detail=f"Parameter count mismatch: {len(params)} parameters for {placeholder_count} placeholders"
+            )
+        
+        try:
+            cursor.execute(query, params)
+            logger.info("Query executed successfully")
+        except Exception as e:
+            logger.error(f"Database error during execute: {str(e)}")
+            logger.error(f"Query: {query}")
+            logger.error(f"Parameters: {params}")
+            raise
+        
         updated_metric = cursor.fetchone()
         
         if not updated_metric:

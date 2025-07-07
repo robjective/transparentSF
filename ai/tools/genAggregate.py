@@ -88,48 +88,87 @@ def aggregate_data(
     df = df.dropna(subset=[time_series_field])
     logging.debug("Converted '%s' to datetime and dropped NaT values.", time_series_field)
 
-    # Set the time_series_field as the index for resampling
-    df.set_index(time_series_field, inplace=True)
-    logging.debug("Set '%s' as the DataFrame index for resampling.", time_series_field)
+    # Special handling for weekly aggregation
+    if aggregation_period.lower() == 'week':
+        logging.debug("Using custom weekly aggregation logic (ISO week)")
+        # Create ISO week-based columns for proper weekly aggregation
+        df['iso_year'] = df[time_series_field].dt.isocalendar().year
+        df['iso_week'] = df[time_series_field].dt.isocalendar().week
+        # Create ISO week label (e.g., '2025-W25')
+        df['time_period'] = df['iso_year'].astype(str) + '-W' + df['iso_week'].astype(str).str.zfill(2)
+        
+        # Prepare aggregation dictionary
+        if agg_functions:
+            agg_dict = agg_functions
+        else:
+            agg_dict = {
+                field: 'mean' if any(field.endswith(suffix) for suffix in ['_avg', '_pct']) else 'sum' 
+                for field in numeric_fields
+            }
+            logging.debug("Using 'mean' for fields ending in '_avg' or '_pct', 'sum' for others.")
+        
+        # Group by ISO year, ISO week, and additional fields
+        # FIXED: Remove redundant grouping columns to prevent duplicates
+        group_cols = ['iso_year', 'iso_week', 'time_period']
+        if group_field:
+            group_cols.append(group_field)
+        logging.debug(f"Weekly aggregation grouping by: {group_cols}")
+        
+        # Perform weekly aggregation
+        aggregated = df.groupby(group_cols).agg(agg_dict).reset_index()
+        
+        # Drop helper columns that aren't needed for charting
+        aggregated = aggregated.drop(['iso_year', 'iso_week'], axis=1)
+        
+        logging.debug("Weekly aggregation (ISO week) completed successfully.")
+        return aggregated
 
-    # Define the resampling rule using the newer aliases
-    resample_rule = {
-        'day': 'D',
-        'week': 'W',
-        'month': 'ME',  # Changed from 'M' to 'ME'
-        'quarter': 'Q',
-        'year': 'YE'  # Changed from 'A' to 'YE'
-    }.get(aggregation_period.lower(), 'D')
-
-    logging.debug("Resampling with rule: %s", resample_rule)
-
-    # Prepare aggregation dictionary
-    if agg_functions:
-        agg_dict = agg_functions
     else:
-        agg_dict = {
-            field: 'mean' if any(field.endswith(suffix) for suffix in ['_avg', '_pct']) else 'sum' 
-            for field in numeric_fields
-        }
-        logging.debug("Using 'mean' for fields ending in '_avg' or '_pct', 'sum' for others.")
+        # Use standard pandas resampling for other periods
+        # Set the time_series_field as the index for resampling
+        df.set_index(time_series_field, inplace=True)
+        logging.debug("Set '%s' as the DataFrame index for resampling.", time_series_field)
 
-    # Perform resampling and aggregation
-    if group_field:
-        logging.debug("Grouping by additional field: %s", group_field)
-        aggregated = df.groupby(group_field).resample(resample_rule).agg(agg_dict).reset_index()
-    else:
-        # Automatically group by 'agent' if it exists
-        if 'agent' in df.columns:
-            group_field = 'agent'
-            logging.debug("'agent' field detected. Grouping by 'agent'.")
+        # Define the resampling rule using the newer aliases
+        resample_rule = {
+            'day': 'D',
+            'week': 'W',
+            'month': 'ME',  # Changed from 'M' to 'ME'
+            'quarter': 'Q',
+            'year': 'YE'  # Changed from 'A' to 'YE'
+        }.get(aggregation_period.lower(), 'D')
+
+        logging.debug("Resampling with rule: %s", resample_rule)
+
+        # Prepare aggregation dictionary
+        if agg_functions:
+            agg_dict = agg_functions
+        else:
+            agg_dict = {
+                field: 'mean' if any(field.endswith(suffix) for suffix in ['_avg', '_pct']) else 'sum' 
+                for field in numeric_fields
+            }
+            logging.debug("Using 'mean' for fields ending in '_avg' or '_pct', 'sum' for others.")
+
+        # Perform resampling and aggregation
+        if group_field:
+            logging.debug("Grouping by additional field: %s", group_field)
             aggregated = df.groupby(group_field).resample(resample_rule).agg(agg_dict).reset_index()
         else:
-            aggregated = df.resample(resample_rule).agg(agg_dict).reset_index()
-            logging.debug("No 'agent' field found. Aggregating without additional grouping.")
+            # Automatically group by 'agent' if it exists
+            if 'agent' in df.columns:
+                group_field = 'agent'
+                logging.debug("'agent' field detected. Grouping by 'agent'.")
+                aggregated = df.groupby(group_field).resample(resample_rule).agg(agg_dict).reset_index()
+            else:
+                aggregated = df.resample(resample_rule).agg(agg_dict).reset_index()
+                logging.debug("No 'agent' field found. Aggregating without additional grouping.")
 
-    # Rename the time column for clarity
-    aggregated = aggregated.rename(columns={time_series_field: 'time_period'})
-    logging.debug("Renamed time series field to 'time_period'.")
+        # Rename the time column for clarity
+        aggregated = aggregated.rename(columns={time_series_field: 'time_period'})
+        logging.debug("Renamed time series field to 'time_period'.")
+
+        logging.debug("Standard aggregation completed successfully.")
 
     logging.debug("Aggregation completed successfully.")
     

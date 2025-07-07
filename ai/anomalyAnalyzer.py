@@ -9,7 +9,7 @@ import traceback
 import time
 import asyncio
 import requests
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from dateutil.relativedelta import relativedelta
 from dotenv import load_dotenv
 from openai import OpenAI
@@ -23,6 +23,8 @@ from pydantic import BaseModel
 import math
 import uuid
 from typing import Dict, Any, List
+import csv
+import io
 
 # Import tools
 from tools.data_fetcher import set_dataset
@@ -30,7 +32,13 @@ from tools.vector_query import query_docs
 from tools.anomaly_detection import anomaly_detection
 from tools.generateAnomalyCharts import generate_anomalies_summary_with_charts
 from tools.genChart import generate_time_series_chart
-from webChat import get_dashboard_metric
+from webChat import (
+    swarm_client, context_variables, client, AGENT_MODEL, load_and_combine_notes,
+    query_docs, set_dataset, get_dataset, set_columns, get_data_summary, 
+    anomaly_detection, generate_time_series_chart, transfer_to_researcher_agent, 
+    generate_chart_message, get_anomaly_details, query_anomalies_db, generate_map
+)
+from tools.dashboard_metric_tool import get_dashboard_metric
 from tools.store_anomalies import get_anomalies, get_anomaly_details as get_anomaly_details_from_db  # Import the new functions
 
 # Configure logging
@@ -662,6 +670,7 @@ TOOLS YOU SHOULD USE:
 
 - get_anomaly_details: Get detailed information about a specific anomaly by ID
   USAGE: get_anomaly_details(context_variables, anomaly_id=123)
+  IMPORTANT: Always pass the anomaly ID using the **anomaly_id=123** keyword. Do NOT pass it positionally or inside an "args" object.
   Use this to get complete information about a specific anomaly, including its time series data and metadata.
 
 - get_dataset: Get information about any dataset that's been loaded
@@ -1091,7 +1100,12 @@ async def get_top_metric_changes(
         
         # Calculate report date based on period_type
         today = date.today()
-        if period_type == 'month':
+        if period_type == 'week':
+            # For weekly, we need to find the most recent week that has data available
+            # First, let's get the latest available week from the database
+            # We'll calculate this after connecting to the database
+            report_date = None  # Will be calculated after DB connection
+        elif period_type == 'month':
             # For monthly, report date is previous month
             if today.month == 1:
                 report_date = date(today.year - 1, 12, 1)
@@ -1108,8 +1122,6 @@ async def get_top_metric_changes(
             # For annual, report date is previous year
             report_date = date(today.year - 1, 1, 1)
             
-        logger.info(f"Report date calculated as: {report_date}")
-        
         # Connect to PostgreSQL
         conn = psycopg2.connect(
             host=os.getenv("POSTGRES_HOST", "localhost"),
@@ -1118,6 +1130,35 @@ async def get_top_metric_changes(
             user=os.getenv("POSTGRES_USER", "postgres"),
             password=os.getenv("POSTGRES_PASSWORD", "postgres")
         )
+        
+        # Create cursor with dictionary-like results
+        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        
+        # For weekly data, calculate the report date based on available data
+        if period_type == 'week' and report_date is None:
+            # Get the latest available week from the database
+            cursor.execute("""
+                SELECT MAX(tsd.time_period) as latest_week
+                FROM time_series_data tsd
+                JOIN time_series_metadata tsm ON tsd.chart_id = tsm.chart_id
+                WHERE tsm.period_type = 'week'
+                AND tsm.is_active = TRUE
+            """)
+            latest_week_result = cursor.fetchone()
+            if latest_week_result and latest_week_result['latest_week']:
+                # Use the latest available week as the report date
+                report_date = latest_week_result['latest_week']
+                logger.info(f"Using latest available week as report date: {report_date}")
+            else:
+                # Fallback to calculating previous week
+                days_since_monday = today.weekday()
+                if days_since_monday == 0:  # Today is Monday
+                    report_date = today - timedelta(days=7)
+                else:
+                    report_date = today - timedelta(days=days_since_monday + 7)
+                logger.info(f"Fallback report date calculated as: {report_date}")
+        else:
+            logger.info(f"Report date calculated as: {report_date}")
         
         # Create cursor with dictionary-like results
         cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -1312,6 +1353,9 @@ async def get_top_metric_changes(
                 result['group_field'] = chart['group_field']
                 result['report_date'] = report_date.isoformat()
                 
+                # Log the raw data for debugging
+                logger.info(f"Raw data for {chart['object_name']}: recent={result['recent_value']} ({result['recent_period']}), previous={result['previous_value']} ({result['previous_period']}), delta={result['delta']}")
+                
                 # Use the district from the data if available, otherwise use the selected district
                 if 'district' in result and result['district'] is not None:
                     # District is already set in the result
@@ -1335,24 +1379,59 @@ async def get_top_metric_changes(
                     result['percent_change'] = None
                 
                 # Get greendirection from metrics table based on object_id
-                greendirection_query = """
-                SELECT greendirection 
-                FROM metrics 
-                WHERE id = %s
-                LIMIT 1
-                """
-                cursor.execute(greendirection_query, [chart['object_id']])
-                greendirection_result = cursor.fetchone()
-                
-                if greendirection_result:
-                    result['greendirection'] = greendirection_result['greendirection']
+                result['greendirection'] = None
+                if chart['object_id'] and chart['object_id'] != 'unknown':
+                    try:
+                        # Try to convert to integer to validate
+                        object_id_int = int(chart['object_id'])
+                        greendirection_query = """
+                        SELECT greendirection 
+                        FROM metrics 
+                        WHERE id = %s
+                        LIMIT 1
+                        """
+                        cursor.execute(greendirection_query, [object_id_int])
+                        greendirection_result = cursor.fetchone()
+                        
+                        if greendirection_result:
+                            result['greendirection'] = greendirection_result['greendirection']
+                        else:
+                            logger.warning(f"No greendirection found for object_id {chart['object_id']}")
+                    except (ValueError, TypeError):
+                        logger.warning(f"Invalid object_id format: {chart['object_id']}, skipping greendirection query")
                 else:
-                    result['greendirection'] = None
-                    logger.warning(f"No greendirection found for object_id {chart['object_id']}")
+                    logger.warning(f"Skipping greendirection query for object_id: {chart['object_id']}")
                 
-                # Log the values for debugging
-                logger.info(f"Result for chart {chart_id}: {result['object_name']} - Previous: {result['previous_value']} ({result['previous_period']}), Recent: {result['recent_value']} ({result['recent_period']}), Delta: {result['delta']}, greendirection: {result['greendirection']}")
+                # Get citywide changes data if available
+                citywide_changes = ""
+                if chart['object_id'] and chart['object_id'] != 'unknown':
+                    try:
+                        # Convert to integer for validation, but pass as string to match column type
+                        object_id_int = int(chart['object_id'])
+                        cursor.execute(
+                            "SELECT location_data FROM maps WHERE active = true AND metric_id = %s AND metadata->>'has_change_data' = 'true'",
+                            [chart['object_id']]  # Pass as string, not integer
+                        )
+                        map_data = cursor.fetchone()
+                        if map_data and map_data["location_data"]:
+                            location_data = map_data["location_data"]
+                            if location_data.get("type") == "csv" and location_data.get("csv_data"):
+                                # Parse CSV data into a more readable format
+                                csv_data = location_data["csv_data"]
+                                csv_reader = csv.DictReader(io.StringIO(csv_data))
+                                district_changes = []
+                                for row in csv_reader:
+                                    district_changes.append(
+                                        f"District {row['district']}: {row['current_value']} (change: {row['delta']}, {float(row['percent_change'])*100:.1f}%)"
+                                    )
+                                citywide_changes = "\n".join(district_changes)
+                                logger.info(f"Found district data for metric_id {chart['object_id']}:\n{citywide_changes}")
+                    except (ValueError, TypeError) as e:
+                        logger.error(f"Error processing citywide changes data: {e}")
+                result['citywide_changes'] = citywide_changes
                     
+                # Log the values for debugging
+                logger.info(f"Result for chart {chart_id}: {result['object_name']} - Previous: {result['previous_value']} ({result['previous_period']}), Recent: {result['recent_value']} ({result['recent_period']}), Delta: {result['delta']}, greendirection: {result['greendirection']}, citywide_changes: {citywide_changes}")
                 all_results.append(result)
         
         # Sort all results by delta (descending and ascending)
@@ -1440,6 +1519,10 @@ async def get_top_metric_changes(
                 for key, value in item.items():
                     if hasattr(value, 'isoformat'):  # This catches date, datetime, etc.
                         item[key] = value.isoformat()
+                
+                # Ensure citywide_changes is included
+                if 'citywide_changes' not in item:
+                    item['citywide_changes'] = ""
                 
                 formatted.append(item)
             return formatted

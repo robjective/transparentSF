@@ -1,0 +1,361 @@
+/* Dark Mode CSS Variables and Styles */
+
+:root {
+    /* Light Theme Colors (Default) */
+    --ink-black: #222222;
+    --cloud-gray: #E8E9EB;
+    --warm-coral: #FF6B5A;
+    --bright-purple: #ad35fa;
+    --soft-sand: #F6F1EA;
+    --sky-tint: #B8D8E3;
+    
+    /* Light Theme Backgrounds (Default) */
+    --bg-primary: #ffffff;
+    --bg-secondary: #f8f9fa;
+    --bg-tertiary: #ffffff;
+    
+    /* Light Theme Text (Default) */
+    --text-primary: #222222;
+    --text-secondary: #666666;
+    --text-muted: #999999;
+    
+    /* Light Theme Borders (Default) */
+    --border-primary: #E8E9EB;
+    --border-secondary: #f0f0f0;
+    
+    /* Light Theme Shadows (Default) */
+    --shadow-light: rgba(0, 0, 0, 0.1);
+    --shadow-medium: rgba(0, 0, 0, 0.15);
+    
+    /* Layout Variables */
+    --explainer-width: 460px;
+}
+
+/* Dark Theme Colors - Only applied when data-theme="dark" */
+[data-theme="dark"] {
+    --ink-black: #ffffff;
+    --cloud-gray: #2a2a2a;
+    --warm-coral: #FF6B5A;
+    --bright-purple: #c44dff;
+    --soft-sand: #1a1a1a;
+    --sky-tint: #1e3a47;
+    
+    /* Dark Theme Backgrounds */
+    --bg-primary: #121212;
+    --bg-secondary: #1e1e1e;
+    --bg-tertiary: #2a2a2a;
+    
+    /* Dark Theme Text */
+    --text-primary: #ffffff;
+    --text-secondary: #cccccc;
+    --text-muted: #888888;
+    
+    /* Dark Theme Borders */
+    --border-primary: #2a2a2a;
+    --border-secondary: #404040;
+    
+    /* Dark Theme Shadows */
+    --shadow-light: rgba(0, 0, 0, 0.3);
+    --shadow-medium: rgba(0, 0, 0, 0.5);
+}
+
+/* Dark Mode Toggle Button */
+.dark-mode-toggle {
+    background: var(--cloud-gray);
+    color: var(--text-primary);
+    border: 1px solid var(--border-primary);
+    border-radius: 50%;
+    width: 40px;
+    height: 40px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    transition: all 0.2s ease;
+    margin-left: 10px;
+    position: relative;
+    user-select: none;
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
+    outline: none;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.dark-mode-toggle:hover {
+    background: var(--border-secondary);
+    transform: scale(1.05);
+}
+
+.dark-mode-toggle:active {
+    transform: scale(0.95);
+    transition: transform 0.1s ease;
+}
+
+.dark-mode-toggle:focus {
+    outline: 2px solid var(--bright-purple);
+    outline-offset: 2px;
+}
+
+.dark-mode-toggle .icon {
+    transition: transform 0.3s ease;
+    display: inline-block;
+    line-height: 1;
+    pointer-events: none;
+}
+
+[data-theme="dark"] .dark-mode-toggle .icon {
+    transform: rotate(180deg);
+}
+
+/* Disable button during toggle to prevent rapid clicking */
+.dark-mode-toggle:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    transform: none;
+}
+
+/* Apply theme colors to common elements */
+body {
+    background-color: var(--bg-primary);
+    color: var(--text-primary);
+    transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+/* Sidebar styles */
+.sidebar {
+    background: var(--bg-primary);
+    border-right: 1px solid var(--border-primary);
+    color: var(--text-primary);
+}
+
+.sidebar button {
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    border: 1px solid transparent;
+}
+
+.sidebar button:hover {
+    background: var(--bg-secondary);
+    border-color: var(--border-primary);
+}
+
+.sidebar button.selected,
+.sidebar button.active {
+    background: var(--bg-secondary) !important;
+    border-left: 3px solid var(--bright-purple) !important;
+}
+
+/* Main content area */
+.main-content {
+    background-color: var(--bg-primary);
+}
+
+/* Explainer panel */
+.explainer-panel {
+    background: var(--bg-primary);
+    border-left: 1px solid var(--border-primary);
+}
+
+.explainer-header {
+    background: var(--bg-primary);
+    border-bottom: 1px solid var(--border-primary);
+}
+
+/* Top header */
+.top-header {
+    background: var(--bg-primary);
+    border-bottom: 1px solid var(--border-primary);
+}
+
+/* Disk space container */
+.disk-space {
+    background: var(--bg-primary);
+    border: 1px solid var(--border-primary);
+}
+
+/* Metric boxes and status sections */
+.metric-box,
+.status-section {
+    background-color: var(--bg-primary);
+}
+
+/* Dark mode corner styling */
+[data-theme="dark"] .metric-box-top-right,
+[data-theme="dark"] .metric-box-bottom-left,
+[data-theme="dark"] .status-section-top-right,
+[data-theme="dark"] .status-section-bottom-left {
+    border-color: #404040;
+}
+
+/* Form elements */
+input, textarea, select {
+    background-color: var(--bg-secondary);
+    color: var(--text-primary);
+    border: 1px solid var(--border-primary);
+}
+
+input:focus, textarea:focus, select:focus {
+    border-color: var(--bright-purple);
+    outline: none;
+}
+
+/* Tables */
+table {
+    background-color: var(--bg-primary);
+    color: var(--text-primary);
+}
+
+th, td {
+    border-color: var(--border-primary);
+}
+
+/* Code blocks */
+pre, code {
+    background-color: var(--bg-secondary);
+    color: var(--text-primary);
+    border: 1px solid var(--border-primary);
+}
+
+/* Links */
+a {
+    color: var(--bright-purple);
+}
+
+a:hover {
+    color: var(--warm-coral);
+}
+
+/* Buttons */
+button {
+    background-color: var(--bg-secondary);
+    color: var(--text-primary);
+    border: 1px solid var(--border-primary);
+}
+
+button:hover {
+    background-color: var(--bg-tertiary);
+}
+
+/* Scrollbars */
+::-webkit-scrollbar {
+    width: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: var(--bg-secondary);
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--border-secondary);
+    border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: var(--text-muted);
+}
+
+/* Metric Control Specific Dark Mode Styles */
+[data-theme="dark"] .metric-management-row {
+    background-color: var(--bg-secondary);
+    border-color: var(--border-primary);
+}
+
+/* Make header text over selection boxes lighter grey in dark mode */
+[data-theme="dark"] label {
+    color: var(--text-secondary);
+}
+
+/* Make accordion backgrounds darker grey in dark mode */
+[data-theme="dark"] .accordion-module {
+    background-color: var(--bg-secondary);
+    border-color: var(--border-primary);
+    box-shadow: none;
+}
+
+[data-theme="dark"] .accordion-header {
+    background-color: var(--bg-tertiary);
+    border-bottom-color: var(--border-primary);
+}
+
+[data-theme="dark"] .accordion-header:hover {
+    background-color: var(--bg-secondary);
+}
+
+[data-theme="dark"] .accordion-header h3 {
+    color: var(--text-primary);
+}
+
+[data-theme="dark"] .accordion-content {
+    background-color: var(--bg-secondary);
+}
+
+[data-theme="dark"] .module-section h4 {
+    color: var(--text-primary);
+}
+
+/* Remove shadows from accordions in both modes */
+.accordion-module {
+    box-shadow: none !important;
+}
+
+/* Dark mode specific styles for metric control elements */
+[data-theme="dark"] .column-selection {
+    background-color: var(--bg-secondary);
+    border-color: var(--border-primary);
+}
+
+[data-theme="dark"] .column-selection h3 {
+    color: var(--text-primary);
+    border-bottom-color: var(--border-primary);
+}
+
+[data-theme="dark"] .column-item {
+    background-color: var(--bg-tertiary);
+    border-color: var(--border-primary);
+}
+
+[data-theme="dark"] .column-item label {
+    color: var(--text-primary);
+}
+
+[data-theme="dark"] .output-window {
+    background-color: var(--bg-secondary);
+}
+
+[data-theme="dark"] .output-window h3 {
+    color: var(--text-primary);
+    border-bottom-color: var(--border-primary);
+}
+
+[data-theme="dark"] .tool-call {
+    background-color: var(--bg-tertiary);
+    border-color: var(--border-primary);
+}
+
+[data-theme="dark"] .tool-response {
+    background-color: var(--bg-secondary);
+    border-color: var(--border-primary);
+}
+
+[data-theme="dark"] .output-content.markdown code {
+    background-color: var(--bg-tertiary);
+}
+
+[data-theme="dark"] .output-content.markdown pre {
+    background-color: var(--bg-tertiary);
+}
+
+[data-theme="dark"] .output-content.markdown th {
+    background-color: var(--bg-tertiary);
+}
+
+[data-theme="dark"] .output-content.markdown tr:nth-child(even) {
+    background-color: var(--bg-tertiary);
+}
+
+[data-theme="dark"] .output-content.markdown blockquote {
+    border-left-color: var(--border-primary);
+    color: var(--text-secondary);
+} 

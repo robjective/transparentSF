@@ -3,6 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <title>Database Admin - SF Public Data Dashboard</title>
+    <!-- Dark Mode CSS -->
+    <link rel="stylesheet" href="/static/css/darkmode.css">
     <style>
         /* Import brand fonts */
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap');
@@ -316,6 +318,48 @@
         <div class="status-message" id="restore-status"></div>
     </div>
 
+    <div class="admin-section">
+        <h2>📊 Metrics Management</h2>
+        <p>Backup and restore metrics configuration. This includes all metric definitions, queries, and settings.</p>
+        
+        <div class="action-buttons">
+            <button class="admin-btn backup-btn" onclick="backupMetrics()">
+                <div class="loading-spinner" id="metrics-backup-spinner"></div>
+                <span>📤</span>
+                <span id="metrics-backup-btn-text">Backup Metrics</span>
+            </button>
+        </div>
+        
+        <div class="status-message" id="metrics-backup-status"></div>
+    </div>
+
+    <div class="admin-section">
+        <h2>📥 Restore Metrics from Backup</h2>
+        <p>Upload and restore metrics from a backup file. This will replace all existing metric configurations.</p>
+        
+        <div class="restore-section">
+            <div class="warning-text">⚠️ Warning: Restoring metrics will completely replace all existing metric configurations. This action cannot be undone.</div>
+            
+            <div class="file-input-wrapper">
+                <input type="file" id="metrics-restore-file" class="file-input" accept=".sql,.gz,.tar,.zip" onchange="handleMetricsFileSelect(this)">
+                <label for="metrics-restore-file" class="file-input-label" id="metrics-file-input-label">
+                    <span>📁</span>
+                    <span>Choose Metrics Backup File</span>
+                </label>
+            </div>
+            
+            <div class="action-buttons">
+                <button class="admin-btn danger-btn" onclick="restoreMetrics()" id="metrics-restore-btn" disabled>
+                    <div class="loading-spinner" id="metrics-restore-spinner"></div>
+                    <span>⚠️</span>
+                    <span id="metrics-restore-btn-text">Restore Metrics</span>
+                </button>
+            </div>
+        </div>
+        
+        <div class="status-message" id="metrics-restore-status"></div>
+    </div>
+
     <script>
         let selectedFile = null;
         
@@ -507,6 +551,169 @@
                 btnText.textContent = 'Restore Database';
             }
         }
+        
+        // Metrics backup and restore functionality
+        let selectedMetricsFile = null;
+        
+        async function backupMetrics() {
+            const btn = document.querySelector('.backup-btn');
+            const spinner = document.getElementById('metrics-backup-spinner');
+            const btnText = document.getElementById('metrics-backup-btn-text');
+            const statusDiv = document.getElementById('metrics-backup-status');
+            
+            // Show loading state
+            btn.classList.add('btn-loading');
+            spinner.style.display = 'inline-block';
+            btnText.textContent = 'Creating Metrics Backup...';
+            
+            // Hide any previous status messages
+            statusDiv.style.display = 'none';
+            statusDiv.className = 'status-message';
+            
+            try {
+                const response = await fetch('/api/backup-metrics-table', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    }
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    // Show success message
+                    statusDiv.className = 'status-message status-success';
+                    statusDiv.textContent = '✅ Metrics backup created successfully! Download will start automatically.';
+                    statusDiv.style.display = 'block';
+                    
+                    // Trigger download
+                    if (data.download_url) {
+                        const link = document.createElement('a');
+                        link.href = data.download_url;
+                        link.download = data.filename || 'metrics_backup.sql';
+                        document.body.appendChild(link);
+                        link.click();
+                        document.body.removeChild(link);
+                    }
+                    
+                } else {
+                    throw new Error(data.message || 'Metrics backup creation failed');
+                }
+                
+            } catch (error) {
+                console.error('Error creating metrics backup:', error);
+                statusDiv.className = 'status-message status-error';
+                statusDiv.textContent = `❌ Error creating metrics backup: ${error.message}`;
+                statusDiv.style.display = 'block';
+            } finally {
+                // Reset button state
+                btn.classList.remove('btn-loading');
+                spinner.style.display = 'none';
+                btnText.textContent = 'Backup Metrics';
+            }
+        }
+        
+        function handleMetricsFileSelect(input) {
+            const label = document.getElementById('metrics-file-input-label');
+            const restoreBtn = document.getElementById('metrics-restore-btn');
+            
+            if (input.files && input.files[0]) {
+                selectedMetricsFile = input.files[0];
+                label.classList.add('file-selected');
+                label.innerHTML = `
+                    <span>✅</span>
+                    <span>Selected: ${selectedMetricsFile.name}</span>
+                `;
+                restoreBtn.disabled = false;
+            } else {
+                selectedMetricsFile = null;
+                label.classList.remove('file-selected');
+                label.innerHTML = `
+                    <span>📁</span>
+                    <span>Choose Metrics Backup File</span>
+                `;
+                restoreBtn.disabled = true;
+            }
+        }
+        
+        async function restoreMetrics() {
+            if (!selectedMetricsFile) {
+                alert('Please select a metrics backup file first.');
+                return;
+            }
+            
+            // Double confirmation for this dangerous operation
+            if (!confirm(`⚠️ WARNING: This will completely replace all metrics configuration with the contents of "${selectedMetricsFile.name}".\n\nThis action CANNOT be undone.\n\nAre you absolutely sure you want to continue?`)) {
+                return;
+            }
+            
+            if (!confirm('Final confirmation: Click OK to proceed with metrics restore, or Cancel to abort.')) {
+                return;
+            }
+            
+            const btn = document.getElementById('metrics-restore-btn');
+            const spinner = document.getElementById('metrics-restore-spinner');
+            const btnText = document.getElementById('metrics-restore-btn-text');
+            const statusDiv = document.getElementById('metrics-restore-status');
+            
+            // Show loading state
+            btn.classList.add('btn-loading');
+            spinner.style.display = 'inline-block';
+            btnText.textContent = 'Restoring Metrics...';
+            
+            // Hide any previous status messages
+            statusDiv.style.display = 'none';
+            statusDiv.className = 'status-message';
+            
+            try {
+                // Create FormData with the file
+                const formData = new FormData();
+                formData.append('backup_file', selectedMetricsFile);
+                
+                const response = await fetch('/api/restore-metrics-from-backup', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    statusDiv.className = 'status-message status-success';
+                    statusDiv.textContent = '✅ Metrics restored successfully! The application may need to be restarted.';
+                    statusDiv.style.display = 'block';
+                    
+                    // Reset file selection
+                    document.getElementById('metrics-restore-file').value = '';
+                    handleMetricsFileSelect(document.getElementById('metrics-restore-file'));
+                    
+                } else {
+                    throw new Error(data.message || 'Metrics restore failed');
+                }
+                
+            } catch (error) {
+                console.error('Error restoring metrics:', error);
+                statusDiv.className = 'status-message status-error';
+                statusDiv.textContent = `❌ Error restoring metrics: ${error.message}`;
+                statusDiv.style.display = 'block';
+            } finally {
+                // Reset button state
+                btn.classList.remove('btn-loading');
+                spinner.style.display = 'none';
+                btnText.textContent = 'Restore Metrics';
+            }
+        }
     </script>
+
+    <!-- Dark Mode JavaScript -->
+    <script src="/static/js/darkmode.js"></script>
+    <script src="/static/js/iframe-darkmode.js"></script>
 </body>
 </html> 

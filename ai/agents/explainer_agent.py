@@ -48,7 +48,6 @@ try:
     # Import other utility functions from webChat (only those not in notes_manager)
     from webChat import (
         get_dataset,
-        get_dashboard_metric,
         query_anomalies_db,
         get_dataset_columns,
         generate_chart_message,
@@ -59,6 +58,7 @@ try:
         transfer_to_analyst_agent,
         transfer_to_researcher_agent
     )
+    from tools.dashboard_metric_tool import get_dashboard_metric
     
 except ImportError as e:
     print(f"Warning: Import error in explainer_agent: {e}")

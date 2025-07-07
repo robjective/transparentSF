@@ -4,22 +4,13 @@
     <meta charset="UTF-8">
     <title>SF Public Data Dashboard</title>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <link rel="stylesheet" href="/static/darkmode.css">
+    <script src="/static/js/darkmode.js"></script>
     <style>
         /* Import brand fonts */
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap');
         
-        :root {
-            /* Brand Colors */
-            --ink-black: #222222;
-            --cloud-gray: #E8E9EB;
-            --warm-coral: #FF6B5A;
-            --bright-purple: #ad35fa;
-            --soft-sand: #F6F1EA;
-            --sky-tint: #B8D8E3;
-            
-            /* Layout Variables */
-            --explainer-width: 460px;
-        }
+        /* Remove duplicate CSS variables since they're now in darkmode.css */
         
         body { 
             font-family: 'IBM Plex Sans', Arial, Helvetica, sans-serif; 
@@ -28,7 +19,7 @@
             overflow: hidden;
             font-size: 14px;
             color: var(--ink-black);
-            background-color: #ffffff;
+            background-color: var(--bg-primary);
         }
         
         /* Main container for three-column layout */
@@ -39,20 +30,41 @@
             position: relative;
         }
         
-        /* Top header bar with wordmark and explainer button */
+        /* Top header bar with wordmark and buttons */
         .top-header {
             position: fixed;
             top: 0;
             left: 0;
             right: 0;
             height: 60px;
-            background: #ffffff;
-            border-bottom: 1px solid var(--cloud-gray);
+            background: var(--bg-primary);
+            border-bottom: 1px solid var(--border-primary);
             z-index: 100;
             display: flex;
             align-items: center;
             justify-content: space-between;
             padding: 0 20px 0 0;
+        }
+        
+        /* Header buttons container */
+        .header-buttons {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        /* Ensure header buttons don't interfere with each other */
+        .header-buttons button {
+            position: relative;
+            z-index: 1;
+        }
+        
+        .header-buttons .dark-mode-toggle {
+            z-index: 2;
+        }
+        
+        .header-buttons .explainer-toggle {
+            z-index: 1;
         }
         
         /* Wordmark in top left */
@@ -117,12 +129,12 @@
         /* Sidebar with brand design - adjust for top header */
         .sidebar {
             flex: 0 0 220px;
-            background: #ffffff;
+            background: var(--bg-primary);
             overflow-y: auto;
             padding: 0;
-            color: var(--ink-black);
+            color: var(--text-primary);
             z-index: 10;
-            border-right: 1px solid var(--cloud-gray);
+            border-right: 1px solid var(--border-primary);
             display: flex;
             flex-direction: column;
             margin-top: 60px; /* Account for top header */
@@ -130,12 +142,12 @@
 
         /* Sidebar header - simplified without wordmark and toggle */
         .sidebar-header {
-            background-color: #ffffff;
+            background-color: var(--bg-primary);
             padding: 20px;
             display: flex;
             flex-direction: column;
             align-items: center;
-            border-bottom: 1px solid var(--cloud-gray);
+            border-bottom: 1px solid var(--border-primary);
         }
 
         /* Navigation section headers */
@@ -150,7 +162,7 @@
             font-size: 12px;
             text-transform: uppercase;
             letter-spacing: 1px;
-            color: var(--ink-black);
+            color: var(--text-primary);
             margin: 0 0 8px 0;
         }
         
@@ -205,20 +217,20 @@
         /* Selected/Active button state - purple left tab only */
         .sidebar button.selected,
         .sidebar button.active {
-            background: var(--cloud-gray) !important;
-            color: var(--ink-black) !important;
+            background: var(--bg-secondary) !important;
+            color: var(--text-primary) !important;
             border-left: 3px solid var(--bright-purple) !important;
         }
         
         .sidebar button.selected:hover,
         .sidebar button.active:hover {
-            background: var(--cloud-gray) !important;
-            color: var(--ink-black) !important;
+            background: var(--bg-secondary) !important;
+            color: var(--text-primary) !important;
         }
         
         /* Danger button */
         .danger-btn {
-            background: var(--cloud-gray) !important;
+            background: var(--bg-secondary) !important;
             border-left: 3px solid var(--warm-coral) !important;
             color: var(--warm-coral) !important;
         }
@@ -226,18 +238,18 @@
         /* Divider */
         .sidebar-divider {
             height: 1px;
-            background: var(--cloud-gray);
+            background: var(--border-primary);
             margin: 15px auto;
             width: 80%;
         }
         
         /* Disk space container */
         .disk-space {
-            background: #ffffff;
+            background: var(--bg-primary);
             margin: 20px 15px;
             padding: 15px;
             border-radius: 6px;
-            border: 1px solid var(--cloud-gray);
+            border: 1px solid var(--border-primary);
         }
         
         .disk-space h3 {
@@ -245,20 +257,20 @@
             font-weight: 600;
             margin: 0 0 8px 0;
             font-size: 12px;
-            color: var(--ink-black);
+            color: var(--text-primary);
             text-transform: uppercase;
             letter-spacing: 0.5px;
         }
         
         .disk-space-details {
             font-size: 12px;
-            color: var(--ink-black);
+            color: var(--text-primary);
         }
         
         .progress-bar {
             width: 100%;
             height: 4px;
-            background: var(--cloud-gray);
+            background: var(--border-primary);
             border-radius: 2px;
             margin-top: 10px;
             overflow: hidden;
@@ -266,7 +278,7 @@
         
         .progress {
             height: 100%;
-            background-color: var(--ink-black);
+            background-color: var(--text-primary);
             transition: width 0.3s ease;
         }
 
@@ -275,7 +287,7 @@
             flex: 1;
             overflow-y: auto;
             padding: 0;
-            background-color: #ffffff;
+            background-color: var(--bg-primary);
             position: relative;
             transition: margin-right 0.3s ease;
             margin-top: 60px; /* Account for top header */
@@ -302,8 +314,8 @@
             min-width: 300px;
             max-width: 800px;
             height: calc(100vh - 60px);
-            background: #ffffff;
-            border-left: 1px solid var(--cloud-gray);
+            background: var(--bg-primary);
+            border-left: 1px solid var(--border-primary);
             z-index: 15;
             display: flex;
             flex-direction: column;
@@ -317,9 +329,9 @@
         /* Resize handle for explainer panel */
         .explainer-resize-handle {
             position: absolute;
-            left: -6px; /* Center the wider handle */
+            left: -6px;
             top: 0;
-            width: 12px; /* Easier to grab */
+            width: 12px;
             height: 100%;
             cursor: ew-resize;
             background: transparent;
@@ -363,9 +375,9 @@
         }
         
         .explainer-header {
-            background: #ffffff;
+            background: var(--bg-primary);
             padding: 15px 20px;
-            border-bottom: 1px solid var(--cloud-gray);
+            border-bottom: 1px solid var(--border-primary);
             display: flex;
             align-items: center;
             justify-content: space-between;
@@ -379,7 +391,7 @@
         
         .explainer-new-chat {
             background: var(--bright-purple);
-            color: white;
+            color: var(--text-primary);
             border: none;
             border-radius: 50%;
             width: 24px;
@@ -394,7 +406,7 @@
         }
         
         .explainer-new-chat:hover {
-            background: #8e2bbf;
+            background: var(--bright-purple);
             transform: scale(1.05);
         }
         
@@ -403,7 +415,7 @@
             font-weight: 600;
             margin: 0;
             font-size: 16px;
-            color: var(--ink-black);
+            color: var(--text-primary);
         }
         
         .explainer-header-right {
@@ -417,7 +429,7 @@
             border: none;
             cursor: pointer;
             padding: 4px;
-            color: #666;
+            color: var(--text-secondary);
             transition: color 0.2s;
             display: flex;
             align-items: center;
@@ -425,7 +437,7 @@
         }
 
         .explainer-settings:hover {
-            color: #333;
+            color: var(--text-primary);
         }
 
         .explainer-settings svg {
@@ -438,7 +450,7 @@
             border: none;
             font-size: 24px;
             cursor: pointer;
-            color: var(--ink-black);
+            color: var(--text-primary);
             padding: 0;
             width: 30px;
             height: 30px;
@@ -450,7 +462,7 @@
         }
         
         .explainer-close:hover {
-            background: var(--cloud-gray);
+            background: var(--bg-secondary);
         }
         
         .explainer-content {
@@ -464,13 +476,13 @@
             flex: 1;
             overflow-y: auto;
             padding: 20px;
-            background: #ffffff;
+            background: var(--bg-primary);
         }
         
         .explainer-input-area {
-            border-top: 1px solid var(--cloud-gray);
+            border-top: 1px solid var(--border-primary);
             padding: 15px 20px;
-            background: #ffffff;
+            background: var(--bg-primary);
         }
         
         .explainer-input-container {
@@ -481,15 +493,15 @@
         .explainer-input {
             flex: 1;
             padding: 12px;
-            border: 1px solid var(--cloud-gray);
+            border: 1px solid var(--border-primary);
             border-radius: 8px;
             font-size: 14px;
             font-family: 'IBM Plex Sans', sans-serif;
             resize: none;
             min-height: 20px;
             max-height: 120px;
-            background: #ffffff;
-            color: var(--ink-black);
+            background: var(--bg-secondary);
+            color: var(--text-primary);
             display: flex;
             align-items: center;
             line-height: 1.4;
@@ -503,7 +515,7 @@
         
         .explainer-send {
             background: var(--bright-purple);
-            color: white;
+            color: var(--text-primary);
             border: none;
             border-radius: 8px;
             padding: 12px 20px;
@@ -515,47 +527,15 @@
         }
         
         .explainer-send:hover:not(:disabled) {
-            background: #8e2bbf;
+            background: var(--bright-purple);
         }
         
         .explainer-send:disabled {
-            background: var(--cloud-gray);
+            background: var(--bg-secondary);
             cursor: not-allowed;
             position: relative;
         }
         
-        .explainer-send.processing {
-            background: var(--cloud-gray);
-            cursor: not-allowed;
-            position: relative;
-            color: transparent;
-            min-width: 60px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-        
-        .explainer-send.processing::after {
-            content: '';
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            width: 16px;
-            height: 16px;
-            border: 2px solid rgba(173, 53, 250, 0.3);
-            border-top: 2px solid var(--bright-purple);
-            border-radius: 50%;
-            animation: spin-centered 1s linear infinite;
-            z-index: 1;
-        }
-        
-        @keyframes spin-centered {
-            0% { transform: translate(-50%, -50%) rotate(0deg); }
-            100% { transform: translate(-50%, -50%) rotate(360deg); }
-        }
-        
-        /* Message styles for explainer - updated with brand colors */
         .explainer-message {
             margin-bottom: 20px;
             padding: 12px 16px;
@@ -566,22 +546,22 @@
         }
         
         .explainer-message.user {
-            background: #b8a9e8;
-            color: white;
+            background: rgba(173, 53, 250, 0.1);
+            color: var(--text-primary);
             margin-left: auto;
             text-align: right;
         }
         
         .explainer-message.assistant {
-            background: #ffffff;
-            color: var(--ink-black);
-            border: 1px solid var(--cloud-gray);
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+            border: 1px solid var(--border-primary);
         }
         
         .explainer-message.system {
-            background: #ffffff;
-            color: var(--ink-black);
-            border: 1px solid var(--cloud-gray);
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+            border: 1px solid var(--border-primary);
             font-style: italic;
             text-align: left;
             margin: 10px 0;
@@ -597,6 +577,7 @@
         
         .explainer-message .content {
             font-size: 14px;
+            color: var(--text-primary);
         }
         
         .explainer-message .content h1,
@@ -605,32 +586,35 @@
             font-family: 'Inter', sans-serif;
             font-weight: 600;
             margin: 12px 0 8px 0;
-            color: var(--ink-black);
+            color: var(--text-primary);
         }
         
         .explainer-message .content ul,
         .explainer-message .content ol {
             margin: 8px 0;
             padding-left: 20px;
+            color: var(--text-primary);
         }
         
         .explainer-message .content code {
-            background: var(--cloud-gray);
+            background: var(--bg-tertiary);
             padding: 1px 3px;
             border-radius: 3px;
             font-family: 'IBM Plex Mono', 'Courier New', monospace;
             font-size: 12px;
             font-weight: 400;
+            color: var(--text-primary);
         }
         
         .explainer-message .content pre {
-            background: var(--cloud-gray);
+            background: var(--bg-tertiary);
             padding: 8px;
             border-radius: 6px;
             overflow-x: auto;
             font-family: 'IBM Plex Mono', 'Courier New', monospace;
             font-size: 12px;
             font-weight: 400;
+            color: var(--text-primary);
         }
         
         .explainer-message .content blockquote {
@@ -638,6 +622,7 @@
             padding-left: 12px;
             margin: 12px 0;
             font-style: italic;
+            color: var(--text-primary);
         }
         
         .explainer-typing {
@@ -994,13 +979,14 @@
             padding: 10px 15px;
             border: none;
             border-radius: 4px;
-            color: var(--ink-black);
+            color: var(--text-primary);
             text-align: left;
             font-size: 13px;
             font-family: 'IBM Plex Sans', sans-serif;
             transition: all 0.2s ease;
             position: relative;
             cursor: pointer;
+            background: var(--bg-secondary);
         }
         
         .explainer-tool-call:hover {
@@ -1008,57 +994,32 @@
         }
         
         .explainer-tool-call.running {
-            background: var(--cloud-gray);
+            background: var(--bg-secondary);
             border-left: 3px solid var(--bright-purple);
         }
         
         .explainer-tool-call.completed {
-            background: #ffffff;
-            border-left: 3px solid var(--cloud-gray);
+            background: var(--bg-secondary);
+            border-left: 3px solid var(--border-primary);
         }
         
         .explainer-tool-call.error {
-            background: #fff8f8;
+            background: var(--bg-secondary);
             border-left: 3px solid var(--warm-coral);
-        }
-        
-        .explainer-tool-call.error .tool-status {
-            color: var(--warm-coral);
-        }
-        
-        .explainer-tool-call-content {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        
-        .explainer-tool-call .tool-name {
-            font-weight: 500;
-            flex: 1;
-        }
-        
-        .explainer-tool-call .tool-status {
-            font-size: 11px;
-            opacity: 0.7;
-            margin-left: 10px;
-        }
-        
-        .explainer-tool-call.running .tool-status::after {
-            content: "...";
-            animation: dots 1.5s infinite;
         }
         
         .explainer-tool-call-details {
             display: none;
             margin-top: 10px;
             padding: 10px;
-            background: #f8f9fa;
+            background: var(--bg-tertiary);
             border-radius: 4px;
-            border: 1px solid var(--cloud-gray);
+            border: 1px solid var(--border-primary);
             font-family: 'IBM Plex Mono', 'Courier New', monospace;
             font-size: 11px;
             max-height: 300px;
             overflow-y: auto;
+            color: var(--text-primary);
         }
         
         .explainer-tool-call-details.show {
@@ -1070,7 +1031,7 @@
             font-family: 'Inter', sans-serif;
             font-size: 12px;
             font-weight: 600;
-            color: var(--ink-black);
+            color: var(--text-primary);
         }
         
         .explainer-tool-call-details pre {
@@ -1079,13 +1040,7 @@
             word-break: break-word;
             background: none;
             padding: 0;
-        }
-        
-        @keyframes dots {
-            0%, 20% { content: ""; }
-            40% { content: "."; }
-            60% { content: ".."; }
-            80%, 100% { content: "..."; }
+            color: var(--text-primary);
         }
         
         /* Settings interface styles */
@@ -1095,30 +1050,26 @@
             right: 0;
             width: var(--explainer-width);
             height: calc(100vh - 60px);
-            background: #ffffff;
+            background: var(--bg-primary);
             z-index: 20;
             display: flex;
             flex-direction: column;
             transform: translateX(100%);
             transition: transform 0.3s ease;
-            border-left: 1px solid var(--cloud-gray);
+            border-left: 1px solid var(--border-primary);
         }
         
         .explainer-settings-overlay.show {
             transform: translateX(0);
         }
         
-        .explainer-settings-overlay.resizing {
-            transition: none !important;
-        }
-        
         .settings-header {
             padding: 15px 20px;
-            border-bottom: 1px solid var(--cloud-gray);
+            border-bottom: 1px solid var(--border-primary);
             display: flex;
             align-items: center;
             justify-content: space-between;
-            background: #ffffff;
+            background: var(--bg-primary);
         }
         
         .settings-header h3 {
@@ -1126,7 +1077,7 @@
             font-weight: 600;
             margin: 0;
             font-size: 16px;
-            color: var(--ink-black);
+            color: var(--text-primary);
         }
         
         .settings-close {
@@ -1134,7 +1085,7 @@
             border: none;
             font-size: 24px;
             cursor: pointer;
-            color: var(--ink-black);
+            color: var(--text-primary);
             padding: 0;
             width: 30px;
             height: 30px;
@@ -1146,7 +1097,7 @@
         }
         
         .settings-close:hover {
-            background: var(--cloud-gray);
+            background: var(--bg-secondary);
         }
         
         .settings-content {
@@ -1157,8 +1108,8 @@
         
         .settings-sidebar {
             width: 180px;
-            background: #ffffff;
-            border-right: 1px solid var(--cloud-gray);
+            background: var(--bg-primary);
+            border-right: 1px solid var(--border-primary);
             overflow-y: auto;
             padding: 10px 0;
         }
@@ -1173,28 +1124,30 @@
             cursor: pointer;
             font-family: 'IBM Plex Sans', sans-serif;
             font-size: 13px;
-            color: var(--ink-black);
+            color: var(--text-primary);
             transition: background 0.2s ease;
         }
         
         .settings-section:hover {
-            background: var(--cloud-gray);
+            background: var(--bg-secondary);
         }
         
         .settings-section.active {
-            background: var(--cloud-gray);
+            background: var(--bg-secondary);
             border-left: 3px solid var(--bright-purple);
         }
         
         .settings-section-name {
             font-weight: 500;
             margin-bottom: 2px;
+            color: var(--text-primary);
         }
         
         .settings-section-desc {
             font-size: 11px;
             opacity: 0.7;
             line-height: 1.3;
+            color: var(--text-secondary);
         }
         
         .settings-main {
@@ -1202,13 +1155,13 @@
             display: flex;
             flex-direction: column;
             overflow: hidden;
+            background: var(--bg-primary);
         }
         
         .settings-editor {
             flex: 1;
             padding: 20px;
             overflow-y: auto;
-            background: #ffffff;
         }
         
         .settings-editor h4 {
@@ -1216,27 +1169,26 @@
             font-weight: 600;
             margin: 0 0 8px 0;
             font-size: 16px;
-            color: var(--ink-black);
+            color: var(--text-primary);
         }
         
         .settings-editor p {
             margin: 0 0 15px 0;
             font-size: 13px;
-            color: var(--ink-black);
-            opacity: 0.8;
+            color: var(--text-secondary);
         }
         
         .settings-textarea {
             width: 100%;
             min-height: 400px;
             padding: 15px;
-            border: 1px solid var(--cloud-gray);
+            border: 1px solid var(--border-primary);
             border-radius: 6px;
             font-family: 'IBM Plex Mono', 'Courier New', monospace;
             font-size: 12px;
             line-height: 1.4;
-            background: #ffffff;
-            color: var(--ink-black);
+            background: var(--bg-secondary);
+            color: var(--text-primary);
             resize: vertical;
             box-sizing: border-box;
         }
@@ -1249,17 +1201,16 @@
         
         .settings-actions {
             padding: 15px 20px;
-            border-top: 1px solid var(--cloud-gray);
+            border-top: 1px solid var(--border-primary);
             display: flex;
             justify-content: space-between;
             align-items: center;
-            background: #ffffff;
+            background: var(--bg-primary);
         }
         
         .settings-info {
             font-size: 12px;
-            color: var(--ink-black);
-            opacity: 0.7;
+            color: var(--text-secondary);
         }
         
         .settings-buttons {
@@ -1279,37 +1230,37 @@
         }
         
         .settings-button.cancel {
-            background: var(--cloud-gray);
-            color: var(--ink-black);
+            background: var(--bg-secondary);
+            color: var(--text-primary);
         }
         
         .settings-button.cancel:hover {
-            background: #d5d6d8;
+            background: var(--bg-tertiary);
         }
         
         .settings-button.save {
             background: var(--bright-purple);
-            color: white;
+            color: var(--text-primary);
         }
         
         .settings-button.save:hover {
-            background: #8e2bbf;
+            background: var(--bright-purple);
         }
         
         .settings-button.save:disabled {
-            background: var(--cloud-gray);
-            color: var(--ink-black);
+            background: var(--bg-secondary);
+            color: var(--text-secondary);
             cursor: not-allowed;
             opacity: 0.5;
         }
         
         .settings-button.reload {
             background: var(--warm-coral);
-            color: white;
+            color: var(--text-primary);
         }
         
         .settings-button.reload:hover {
-            background: #e55a4a;
+            background: var(--warm-coral);
         }
     </style>
 </head>
@@ -1323,8 +1274,13 @@
                     <div class="beta-text">BETA</div>
                 </div>
             </div>
-            <button class="explainer-toggle" id="explainer-toggle" title="Open Explainer Agent">
-            </button>
+            <div class="header-buttons">
+                <button class="dark-mode-toggle" title="Toggle dark mode">
+                    <span class="icon">🌙</span>
+                </button>
+                <button class="explainer-toggle" id="explainer-toggle" title="Open Explainer Agent">
+                </button>
+            </div>
         </div>
         
         <div class="sidebar">
@@ -2131,7 +2087,26 @@
         
         document.addEventListener('DOMContentLoaded', () => {
             // Load dashboard by default
-            document.getElementById('content-frame').src = '/backend/dashboard';
+            const iframe = document.getElementById('content-frame');
+            iframe.src = '/backend/dashboard';
+            
+            // Send theme to initial iframe load
+            iframe.addEventListener('load', function sendInitialTheme() {
+                // Remove the listener to prevent multiple calls
+                iframe.removeEventListener('load', sendInitialTheme);
+                
+                // Send current theme to the iframe after a short delay to ensure dark mode is initialized
+                setTimeout(() => {
+                    try {
+                        iframe.contentWindow.postMessage({
+                            type: 'themeChange',
+                            theme: window.darkModeManager ? window.darkModeManager.currentTheme : 'light'
+                        }, '*');
+                    } catch (e) {
+                        // Ignore cross-origin errors
+                    }
+                }, 200);
+            });
             
             // Add logo click handler for the new top wordmark
             document.getElementById('dashboard-logo').addEventListener('click', function() {
@@ -2140,7 +2115,24 @@
                     btn.classList.remove('selected');
                 });
                 
-                document.getElementById('content-frame').src = '/backend/dashboard';
+                const iframe = document.getElementById('content-frame');
+                iframe.src = '/backend/dashboard';
+                
+                // Send theme to iframe after it loads
+                iframe.addEventListener('load', function sendThemeToIframe() {
+                    // Remove the listener to prevent multiple calls
+                    iframe.removeEventListener('load', sendThemeToIframe);
+                    
+                    // Send current theme to the iframe
+                    try {
+                        iframe.contentWindow.postMessage({
+                            type: 'themeChange',
+                            theme: window.darkModeManager ? window.darkModeManager.currentTheme : 'light'
+                        }, '*');
+                    } catch (e) {
+                        // Ignore cross-origin errors
+                    }
+                });
             });
             
             // Initialize frame navigation
@@ -2156,7 +2148,24 @@
                     
                     const href = this.getAttribute('data-href');
                     if (href) {
-                        document.getElementById('content-frame').src = href;
+                        const iframe = document.getElementById('content-frame');
+                        iframe.src = href;
+                        
+                        // Send theme to iframe after it loads
+                        iframe.addEventListener('load', function sendThemeToIframe() {
+                            // Remove the listener to prevent multiple calls
+                            iframe.removeEventListener('load', sendThemeToIframe);
+                            
+                            // Send current theme to the iframe
+                            try {
+                                iframe.contentWindow.postMessage({
+                                    type: 'themeChange',
+                                    theme: window.darkModeManager ? window.darkModeManager.currentTheme : 'light'
+                                }, '*');
+                            } catch (e) {
+                                // Ignore cross-origin errors
+                            }
+                        });
                     }
                 });
             });
@@ -2187,6 +2196,18 @@
             
             // Add message listener for iframe communication
             window.addEventListener('message', function(event) {
+                // Handle theme requests from iframes
+                if (event.data && event.data.type === 'requestTheme') {
+                    try {
+                        event.source.postMessage({
+                            type: 'themeChange',
+                            theme: window.darkModeManager ? window.darkModeManager.currentTheme : 'light'
+                        }, '*');
+                    } catch (e) {
+                        // Ignore cross-origin errors
+                    }
+                }
+                
                 // Handle messages from the anomaly analyzer iframe
                 if (event.data && event.data.type === 'ANALYZE_METRIC_CHANGE') {
                     const metric = event.data.metric;
@@ -3014,6 +3035,57 @@ Can you help me understand:
                 console.error('Error reloading agent:', error);
                 alert('Error reloading agent: ' + error.message);
             }
+        }
+
+        // Dark mode iframe communication
+        function setupIframeThemeCommunication() {
+            const iframe = document.getElementById('content-frame');
+            
+            // Listen for theme requests from iframe
+            window.addEventListener('message', (e) => {
+                if (e.data && e.data.type === 'requestTheme') {
+                    // Send current theme to iframe
+                    try {
+                        iframe.contentWindow.postMessage({
+                            type: 'themeChange',
+                            theme: window.darkModeManager ? window.darkModeManager.currentTheme : 'light'
+                        }, '*');
+                    } catch (error) {
+                        // Ignore cross-origin errors
+                    }
+                }
+            });
+
+            // Send theme to iframe when it loads
+            iframe.addEventListener('load', () => {
+                setTimeout(() => {
+                    try {
+                        iframe.contentWindow.postMessage({
+                            type: 'themeChange',
+                            theme: window.darkModeManager ? window.darkModeManager.currentTheme : 'light'
+                        }, '*');
+                    } catch (error) {
+                        // Ignore cross-origin errors
+                    }
+                }, 100);
+            });
+        }
+
+        // Initialize iframe communication when dark mode is ready
+        function initializeDarkModeCommunication() {
+            if (window.darkModeManager) {
+                setupIframeThemeCommunication();
+            } else {
+                // Wait for dark mode manager to be available
+                setTimeout(initializeDarkModeCommunication, 100);
+            }
+        }
+
+        // Start initialization when DOM is ready
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', initializeDarkModeCommunication);
+        } else {
+            initializeDarkModeCommunication();
         }
     </script>
 </body>

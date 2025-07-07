@@ -49,6 +49,10 @@ temp_logger.debug(f"Current directory: {current_dir}") # Use temp_logger
 temp_logger.info(f"Loaded environment variables from {dotenv_path}") # Use temp_logger
 temp_logger.info(f"Root log level determined from .env: {log_level_str}") # Use temp_logger
 
+# Define logs directory
+logs_dir = os.path.join(current_dir, 'logs')
+os.makedirs(logs_dir, exist_ok=True)
+
 # --- Uvicorn Logging Configuration Dictionary ---
 
 LOGGING_CONFIG = {
@@ -78,6 +82,13 @@ LOGGING_CONFIG = {
              "class": "logging.StreamHandler",
              "stream": "ext://sys.stdout", # Log access messages to stdout
         },
+        "weekly_analysis_file": {
+            "formatter": "default",
+            "class": "logging.FileHandler",
+            "filename": os.path.join(logs_dir, 'weekly_metric_analysis.log'),
+            "mode": "a",
+            "encoding": "utf-8",
+        },
          # Optional: Define a file handler if you want Uvicorn to manage file logging
          # "file": {
          #     "formatter": "default",
@@ -103,8 +114,59 @@ LOGGING_CONFIG = {
         "backend": {"level": log_level_str, "propagate": True},
         "anomalyAnalyzer": {"level": log_level_str, "propagate": True},
         "generate_weekly_analysis": {"level": log_level_str, "propagate": True},
-        # Add other module loggers here if they misbehave
-        "httpx": {"level": log_level_str, "propagate": True}, 
+        "metrics_manager": {"level": log_level_str, "propagate": True},
+        "monthly_report": {"level": log_level_str, "propagate": True},
+        
+        # Third-party library loggers - set to WARNING or higher to suppress INFO logs
+        "httpx": {"level": log_level_str, "propagate": True},
+        "urllib3": {"level": log_level_str, "propagate": True},
+        "requests": {"level": log_level_str, "propagate": True},
+        "openai": {"level": log_level_str, "propagate": True},
+        "anthropic": {"level": log_level_str, "propagate": True},
+        "psycopg2": {"level": log_level_str, "propagate": True},
+        "sqlalchemy": {"level": log_level_str, "propagate": True},
+        "pandas": {"level": log_level_str, "propagate": True},
+        "numpy": {"level": log_level_str, "propagate": True},
+        "matplotlib": {"level": log_level_str, "propagate": True},
+        "plotly": {"level": log_level_str, "propagate": True},
+        "PIL": {"level": log_level_str, "propagate": True},
+        "Pillow": {"level": log_level_str, "propagate": True},
+        "jinja2": {"level": log_level_str, "propagate": True},
+        "fastapi": {"level": log_level_str, "propagate": True},
+        "starlette": {"level": log_level_str, "propagate": True},
+        "pydantic": {"level": log_level_str, "propagate": True},
+        "asyncio": {"level": log_level_str, "propagate": True},
+        "aiohttp": {"level": log_level_str, "propagate": True},
+        "websockets": {"level": log_level_str, "propagate": True},
+        "schedule": {"level": log_level_str, "propagate": True},
+        "dotenv": {"level": log_level_str, "propagate": True},
+        
+        # Weekly analysis modules - add file handler for these
+        "tools.analysis.weekly": {"handlers": ["default", "weekly_analysis_file"], "level": log_level_str, "propagate": False},
+        "tools.analysis.weekly.analysis_engine": {"handlers": ["default", "weekly_analysis_file"], "level": log_level_str, "propagate": False},
+        "tools.analysis.weekly.data_processor": {"handlers": ["default", "weekly_analysis_file"], "level": log_level_str, "propagate": False},
+        "tools.analysis.weekly.time_utils": {"handlers": ["default", "weekly_analysis_file"], "level": log_level_str, "propagate": False},
+        "tools.analysis.weekly.report_generator": {"handlers": ["default", "weekly_analysis_file"], "level": log_level_str, "propagate": False},
+        "tools.analysis.weekly.scheduler": {"handlers": ["default", "weekly_analysis_file"], "level": log_level_str, "propagate": False},
+        
+        # Other tools modules
+        "tools": {"level": log_level_str, "propagate": True},
+        "tools.db_utils": {"level": log_level_str, "propagate": True},
+        "tools.data_fetcher": {"level": log_level_str, "propagate": True},
+        "tools.anomaly_detection": {"level": log_level_str, "propagate": True},
+        "tools.genChart": {"level": log_level_str, "propagate": True},
+        "tools.genChartdw": {"level": log_level_str, "propagate": True},
+        "tools.store_anomalies": {"level": log_level_str, "propagate": True},
+        
+        # Routes modules
+        "routes": {"level": log_level_str, "propagate": True},
+        "routes.dw_charts": {"level": log_level_str, "propagate": True},
+        "routes.database_admin": {"level": log_level_str, "propagate": True},
+        "routes.weekly_analysis": {"level": log_level_str, "propagate": True},
+        
+        # Agents modules
+        "agents": {"level": log_level_str, "propagate": True},
+        "agents.explainer_agent": {"level": log_level_str, "propagate": True},
     },
 }
 # --- End Logging Configuration ---
@@ -123,6 +185,7 @@ from anomalyAnalyzer import router as anomaly_analyzer_router, set_templates as 
 from routes.dw_charts import router as dw_charts_router
 from routes.database_admin import router as database_admin_router, set_templates as set_database_admin_templates
 from evals_routes import router as evals_router, set_templates as set_evals_templates
+from routes.weekly_analysis import router as weekly_analysis_router
 
 app = FastAPI()
 
@@ -654,6 +717,10 @@ logger.debug("Included evals router at /backend")
 set_database_admin_templates(templates)
 app.include_router(database_admin_router, prefix="/backend", tags=["database-admin"])
 logger.debug("Included database admin router at /backend")
+
+# Mount weekly analysis router
+app.include_router(weekly_analysis_router, tags=["weekly-analysis"])
+logger.debug("Included weekly analysis router")
 
 # Add redirect for anomaly analyzer without trailing slash
 @app.get("/anomaly-analyzer")
