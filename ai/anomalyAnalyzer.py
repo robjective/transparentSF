@@ -1962,63 +1962,66 @@ async def query_anomalies_endpoint(
             # Create cursor
             cursor = connection.cursor(cursor_factory=RealDictCursor)
             
-            # Build query with standard filters
+            # Build query with standard filters and join with metrics table to get greendirection
             query = """
-                SELECT * FROM anomalies WHERE 1=1 
+                SELECT a.*, m.greendirection 
+                FROM anomalies a
+                LEFT JOIN metrics m ON a.object_id = m.id::text
+                WHERE 1=1 
             """
             params = []
             
             # Apply standard filters from get_anomalies logic
             if only_anomalies:
-                query += "AND out_of_bounds = true "
+                query += "AND a.out_of_bounds = true "
                 
             # Filter for active anomalies if requested
             if only_active:
-                query += "AND is_active = true "
+                query += "AND a.is_active = true "
                 
             if group_filter:
-                query += "AND group_value ILIKE %s "
+                query += "AND a.group_value ILIKE %s "
                 params.append(f"%{group_filter}%")
                 
             if date_start:
-                query += "AND created_at >= %s "
+                query += "AND a.created_at >= %s "
                 params.append(date_start)
                 
             if date_end:
-                query += "AND created_at <= %s "
+                query += "AND a.created_at <= %s "
                 params.append(date_end)
                 
             if metric_name:
                 # Filter by metric name in the metadata JSON
-                query += "AND metadata->>'object_name' ILIKE %s "
+                query += "AND a.metadata->>'object_name' ILIKE %s "
                 params.append(f"%{metric_name}%")
             
             if district:
                 # Filter by district
-                query += "AND district = %s "
+                query += "AND a.district = %s "
                 params.append(district)
                 
             # Add object_id filter - this is our key addition
             if object_id:
-                query += "AND object_id = %s "
+                query += "AND a.object_id = %s "
                 params.append(str(object_id))
                 
             # Add period_type filter if provided
             if period_type:
-                query += "AND period_type = %s "
+                query += "AND a.period_type = %s "
                 params.append(period_type)
             
             # Order based on query_type
             if query_type == 'recent':
-                query += "ORDER BY created_at DESC "
+                query += "ORDER BY a.created_at DESC "
             elif query_type == 'by_group':
-                query += "ORDER BY group_value ASC, created_at DESC "
+                query += "ORDER BY a.group_value ASC, a.created_at DESC "
             elif query_type == 'by_date':
-                query += "ORDER BY created_at ASC "
+                query += "ORDER BY a.created_at ASC "
             elif query_type == 'by_anomaly_severity':
-                query += "ORDER BY ABS(difference) DESC "
+                query += "ORDER BY ABS(a.difference) DESC "
             elif query_type == 'by_district':
-                query += "ORDER BY district ASC, created_at DESC "
+                query += "ORDER BY a.district ASC, a.created_at DESC "
             
             # Add limit
             query += "LIMIT %s"
@@ -2059,15 +2062,17 @@ async def query_anomalies_endpoint(
                 "anomalies": []
             }
         
-        # Process results to match the frontend's expected format
-        anomalies = []
+        # Process results to match the frontend's expected format and categorize by greendirection
+        positive_anomalies = []
+        negative_anomalies = []
+        
         if anomalies_result.get("status") == "success":
             logging.info(f"Got {len(anomalies_result.get('results', []))} results from query")
             
             for item in anomalies_result.get("results", []):
                 try:
                     # SQL results structure is different from before
-                    # Now we have direct access to object_id
+                    # Now we have direct access to object_id and greendirection
                     
                     # Calculate percent change
                     comparison_mean = item.get("comparison_mean", 0)
@@ -2100,7 +2105,7 @@ async def query_anomalies_endpoint(
                             formatted_date = period_date.strftime('%Y-%m-%d')
                     
                     # Extract data from the result
-                    anomalies.append({
+                    anomaly_data = {
                         "id": item.get("id"),
                         "metric_name": item.get("object_name", ""),  # Use object_name directly
                         "object_id": item.get("object_id", ""),      # Use object_id directly
@@ -2115,17 +2120,60 @@ async def query_anomalies_endpoint(
                         "period_date": formatted_date,
                         "period_type": item_period_type,
                         "explanation": item.get("explanation", ""),
-                        "is_active": item.get("is_active", True)
-                    })
+                        "is_active": item.get("is_active", True),
+                        "greendirection": item.get("greendirection")  # Include greendirection from metrics table
+                    }
+                    
+                    # Categorize anomaly as positive or negative based on greendirection
+                    if percent_change is not None and item.get("greendirection"):
+                        greendirection = item.get("greendirection").lower()
+                        
+                        # Determine if this is a positive or negative anomaly based on greendirection
+                        if greendirection == 'up':
+                            # For metrics where up is good (greendirection=up)
+                            if percent_change > 0:
+                                positive_anomalies.append(anomaly_data)  # Increase is positive
+                            elif percent_change < 0:
+                                negative_anomalies.append(anomaly_data)  # Decrease is negative
+                        elif greendirection == 'down':
+                            # For metrics where down is good (greendirection=down)
+                            if percent_change > 0:
+                                negative_anomalies.append(anomaly_data)  # Increase is negative
+                            elif percent_change < 0:
+                                positive_anomalies.append(anomaly_data)  # Decrease is positive
+                        else:
+                            # If greendirection is not 'up' or 'down', use traditional logic
+                            if percent_change > 0:
+                                positive_anomalies.append(anomaly_data)
+                            elif percent_change < 0:
+                                negative_anomalies.append(anomaly_data)
+                    else:
+                        # Fallback to traditional logic if no greendirection or percent_change
+                        if percent_change > 0:
+                            positive_anomalies.append(anomaly_data)
+                        elif percent_change < 0:
+                            negative_anomalies.append(anomaly_data)
+                        
                 except Exception as item_error:
                     logging.error(f"Error processing anomaly item: {item_error}")
                     logging.error(f"Problem item: {item}")
             
-            logging.info(f"Returning {len(anomalies)} anomalies in response")
+            # Sort by absolute percent change (highest impact first)
+            positive_anomalies = sorted(positive_anomalies, 
+                                      key=lambda x: abs(float(x['percent_change'])), 
+                                      reverse=True)[:limit]
+            
+            negative_anomalies = sorted(negative_anomalies, 
+                                      key=lambda x: abs(float(x['percent_change'])), 
+                                      reverse=True)[:limit]
+            
+            logging.info(f"Categorized anomalies: {len(positive_anomalies)} positive, {len(negative_anomalies)} negative")
+            
             return {
                 "status": "success",
-                "count": len(anomalies),
-                "anomalies": anomalies
+                "count": len(positive_anomalies) + len(negative_anomalies),
+                "positive_anomalies": positive_anomalies,
+                "negative_anomalies": negative_anomalies
             }
         else:
             # Return error from the anomalies result

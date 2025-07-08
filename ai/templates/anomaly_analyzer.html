@@ -383,7 +383,8 @@
             border-color: #d966ff;
         }
         
-        #analysis-modal {
+        #analysis-modal,
+        #row-details-modal {
             display: none;
             position: fixed;
             z-index: 1000;
@@ -410,8 +411,15 @@
         
         #modal-content {
             flex: 1;
-            overflow: hidden;
+            overflow: auto;
             padding: 0;
+            position: relative;
+        }
+        
+        #row-modal-content {
+            flex: 1;
+            overflow: auto;
+            padding: 20px;
             position: relative;
         }
         
@@ -516,10 +524,11 @@
             justify-content: space-between;
             align-items: center;
             padding: 12px 16px;
-            background-color: var(--civic-blue);
-            color: white;
+            background-color: #f5f5f5;
+            color: var(--text-primary);
             border-top-left-radius: 8px;
             border-top-right-radius: 8px;
+            border-bottom: 1px solid var(--border-primary);
         }
         
         .modal-header h3 {
@@ -650,6 +659,36 @@
             color: var(--text-primary);
         }
         
+        .chart-container {
+            margin-bottom: 20px;
+            border: 1px solid var(--border-primary);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        
+        .action-buttons {
+            display: flex;
+            gap: 8px;
+            justify-content: center;
+            margin-top: 20px;
+            padding: 15px;
+        }
+        
+        .action-buttons .action-button {
+            padding: 8px 16px;
+            font-size: 12px;
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            min-width: 120px;
+        }
+        
+        .action-buttons .action-button i {
+            font-size: 16px;
+        }
+        
         @media (max-width: 768px) {
             .controls {
                 flex-direction: column;
@@ -663,6 +702,14 @@
             
             th, td {
                 padding: 10px;
+            }
+            
+            .action-buttons {
+                flex-direction: column;
+            }
+            
+            .action-buttons .action-button {
+                min-width: auto;
             }
         }
         
@@ -725,8 +772,8 @@
                 <label for="limit-select">Show Top/Bottom</label>
                 <select id="limit-select">
                     <option value="5">5 + 5 Changes</option>
-                    <option value="10" selected>10 + 10 Changes</option>
-                    <option value="25">25 + 25 Changes</option>
+                    <option value="10">10 + 10 Changes</option>
+                    <option value="25" selected>25 + 25 Changes</option>
                     <option value="50">50 + 50 Changes</option>
                 </select>
             </div>
@@ -824,6 +871,33 @@
         </div>
     </div>
     
+    <!-- Add Modal for Row Details -->
+    <div id="row-details-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="row-modal-title">Metric Details</h3>
+                <span class="row-modal-close">&times;</span>
+            </div>
+            <div id="row-modal-content">
+                <div class="chart-container">
+                    <div id="row-chart-loader" class="loader"></div>
+                    <div id="row-chart-content"></div>
+                </div>
+                <div class="action-buttons">
+                    <button id="add-to-monthly-report" class="action-button">
+                        <i class="fas fa-file-alt"></i> Add to Monthly Report
+                    </button>
+                    <button id="generate-map" class="action-button">
+                        <i class="fas fa-map"></i> Generate Map
+                    </button>
+                    <button id="analyze-metric" class="action-button">
+                        <i class="fas fa-chart-line"></i> Analyze Metric
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
     <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
     
     <script>
@@ -849,6 +923,14 @@
         const modalLoader = document.getElementById('modal-loader');
         const modalContent = document.getElementById('modal-content');
         const modalClose = document.querySelector('.modal-close');
+        
+        // Row details modal elements
+        const rowDetailsModal = document.getElementById('row-details-modal');
+        const rowModalTitle = document.getElementById('row-modal-title');
+        const rowModalContent = document.getElementById('row-modal-content');
+        const rowModalClose = document.querySelector('.row-modal-close');
+        const rowChartLoader = document.getElementById('row-chart-loader');
+        const rowChartContent = document.getElementById('row-chart-content');
         
 
         
@@ -878,6 +960,18 @@
         window.addEventListener('click', function(event) {
             if (event.target === analysisModal) {
                 analysisModal.style.display = 'none';
+            }
+        });
+        
+        // Close row details modal when clicking the X
+        rowModalClose.addEventListener('click', function() {
+            rowDetailsModal.style.display = 'none';
+        });
+        
+        // Close row details modal when clicking outside of it
+        window.addEventListener('click', function(event) {
+            if (event.target === rowDetailsModal) {
+                rowDetailsModal.style.display = 'none';
             }
         });
         
@@ -992,7 +1086,8 @@
             // Check if we have any data at all
             const hasMetricData = (metricData.positive_changes && metricData.positive_changes.length > 0) || 
                                  (metricData.negative_changes && metricData.negative_changes.length > 0);
-            const hasAnomalyData = anomalyData.anomalies && anomalyData.anomalies.length > 0;
+            const hasAnomalyData = (anomalyData.positive_anomalies && anomalyData.positive_anomalies.length > 0) || 
+                                  (anomalyData.negative_anomalies && anomalyData.negative_anomalies.length > 0);
             
             if (!hasMetricData && !hasAnomalyData) {
                 noDataDiv.style.display = 'block';
@@ -1000,45 +1095,48 @@
                 return;
             }
             
-            // Display Metric Changes section
-            if (hasMetricData) {
-                // Add section header for metric changes
-                const metricHeader = document.createElement('tr');
-                metricHeader.className = 'section-header';
-                metricHeader.innerHTML = `<td colspan="7">📊 Metric Changes</td>`;
-                metricsTbody.appendChild(metricHeader);
+            // Display Positive Changes section
+            if (metricData.positive_changes && metricData.positive_changes.length > 0) {
+                // Add section header for positive metric changes
+                const positiveMetricHeader = document.createElement('tr');
+                positiveMetricHeader.className = 'section-header';
+                positiveMetricHeader.innerHTML = `<td colspan="7">📊 Positive Metric Changes</td>`;
+                metricsTbody.appendChild(positiveMetricHeader);
                 
-                // Add positive changes subsection
-                if (metricData.positive_changes && metricData.positive_changes.length > 0) {
-                    const positiveHeader = document.createElement('tr');
-                    positiveHeader.className = 'subsection-header';
-                    positiveHeader.innerHTML = `<td colspan="7">↗️ Positive Changes</td>`;
-                    metricsTbody.appendChild(positiveHeader);
-                    
-                    metricData.positive_changes.forEach(metric => appendMetricRow(metric));
-                }
-                
-                // Add negative changes subsection
-                if (metricData.negative_changes && metricData.negative_changes.length > 0) {
-                    const negativeHeader = document.createElement('tr');
-                    negativeHeader.className = 'subsection-header';
-                    negativeHeader.innerHTML = `<td colspan="7">↘️ Negative Changes</td>`;
-                    metricsTbody.appendChild(negativeHeader);
-                    
-                    metricData.negative_changes.forEach(metric => appendMetricRow(metric));
-                }
+                metricData.positive_changes.forEach(metric => appendMetricRow(metric));
             }
             
-            // Display Anomalies section
-            if (hasAnomalyData) {
-                // Add section header for anomalies
-                const anomalyHeader = document.createElement('tr');
-                anomalyHeader.className = 'section-header';
-                anomalyHeader.innerHTML = `<td colspan="7">🚨 Statistical Anomalies</td>`;
-                metricsTbody.appendChild(anomalyHeader);
+            // Display Positive Anomalies section
+            if (anomalyData.positive_anomalies && anomalyData.positive_anomalies.length > 0) {
+                // Add section header for positive anomalies
+                const positiveAnomalyHeader = document.createElement('tr');
+                positiveAnomalyHeader.className = 'section-header';
+                positiveAnomalyHeader.innerHTML = `<td colspan="7">🚨 Positive Statistical Anomalies</td>`;
+                metricsTbody.appendChild(positiveAnomalyHeader);
                 
-                // Add all anomalies
-                anomalyData.anomalies.forEach(anomaly => appendAnomalyRow(anomaly));
+                anomalyData.positive_anomalies.forEach(anomaly => appendAnomalyRow(anomaly));
+            }
+            
+            // Display Negative Changes section
+            if (metricData.negative_changes && metricData.negative_changes.length > 0) {
+                // Add section header for negative metric changes
+                const negativeMetricHeader = document.createElement('tr');
+                negativeMetricHeader.className = 'section-header';
+                negativeMetricHeader.innerHTML = `<td colspan="7">📊 Negative Metric Changes</td>`;
+                metricsTbody.appendChild(negativeMetricHeader);
+                
+                metricData.negative_changes.forEach(metric => appendMetricRow(metric));
+            }
+            
+            // Display Negative Anomalies section
+            if (anomalyData.negative_anomalies && anomalyData.negative_anomalies.length > 0) {
+                // Add section header for negative anomalies
+                const negativeAnomalyHeader = document.createElement('tr');
+                negativeAnomalyHeader.className = 'section-header';
+                negativeAnomalyHeader.innerHTML = `<td colspan="7">🚨 Negative Statistical Anomalies</td>`;
+                metricsTbody.appendChild(negativeAnomalyHeader);
+                
+                anomalyData.negative_anomalies.forEach(anomaly => appendAnomalyRow(anomaly));
             }
         }
         
@@ -1065,9 +1163,20 @@
                 })
                 .then(data => {
                     if (data.status === 'success') {
-                        return {
-                            anomalies: data.anomalies || []
-                        };
+                        // Handle both old format (anomalies array) and new format (positive_anomalies, negative_anomalies)
+                        if (data.positive_anomalies && data.negative_anomalies) {
+                            // New format - combine positive and negative anomalies
+                            return {
+                                positive_anomalies: data.positive_anomalies || [],
+                                negative_anomalies: data.negative_anomalies || []
+                            };
+                        } else {
+                            // Old format - wrap in new structure for compatibility
+                            return {
+                                positive_anomalies: [],
+                                negative_anomalies: data.anomalies || []
+                            };
+                        }
                     } else {
                         throw new Error(data.message || 'Error fetching anomalies');
                     }
@@ -1243,7 +1352,24 @@
                 </td>
             `;
             
-
+            // Add click event to show details modal
+            row.addEventListener('click', function(e) {
+                // Don't trigger if they clicked the analyze button
+                if (e.target.tagName === 'BUTTON') return;
+                
+                // Remove selected class from all rows
+                document.querySelectorAll('#metrics-results tr').forEach(r => {
+                    r.classList.remove('selected');
+                });
+                
+                // Add selected class to this row
+                this.classList.add('selected');
+                
+                // Show metric details modal
+                showMetricDetailsModal(metric).catch(error => {
+                    console.error('Error showing metric details modal:', error);
+                });
+            });
             
             metricsTbody.appendChild(row);
         }
@@ -1332,7 +1458,7 @@
                 </td>
             `;
             
-            // Add click event to show chart
+            // Add click event to show details modal
             row.addEventListener('click', function(e) {
                 // Don't trigger if they clicked the analyze button
                 if (e.target.tagName === 'BUTTON') return;
@@ -1345,8 +1471,8 @@
                 // Add selected class to this row
                 this.classList.add('selected');
                 
-                // Show anomaly chart
-                showAnomalyChart(this.getAttribute('data-anomaly'));
+                // Show anomaly details modal
+                showAnomalyDetailsModal(anomaly);
             });
             
             metricsTbody.appendChild(row);
@@ -1362,6 +1488,257 @@
         function formatPercentChange(value) {
             if (value === null || value === undefined || isNaN(value)) return '-';
             return `${parseFloat(value).toFixed(2)}%`;
+        }
+        
+        // Function to show metric details modal
+        async function showMetricDetailsModal(metric) {
+            console.log('showMetricDetailsModal called with:', metric);
+            // Show the modal
+            rowDetailsModal.style.display = 'block';
+            rowModalTitle.textContent = `${metric.object_name || 'Metric'} Details`;
+            
+            // Show loader
+            rowChartLoader.style.display = 'block';
+            rowChartContent.innerHTML = '';
+            
+            // Get chart data
+            const metricId = metric.object_id || metric.id;
+            const district = metric.district || '0';
+            const periodType = periodSelect.value;
+            
+            // Create container for charts and maps
+            const contentContainer = document.createElement('div');
+            contentContainer.style.display = 'flex';
+            contentContainer.style.flexDirection = 'column';
+            contentContainer.style.gap = '20px';
+            
+            // Create chart iframe
+            const chartIframe = document.createElement('iframe');
+            chartIframe.style.width = '100%';
+            chartIframe.style.height = '600px';
+            chartIframe.style.border = 'none';
+            chartIframe.style.display = 'block';
+            chartIframe.style.borderRadius = '8px';
+            
+            // Set chart URL based on period type
+            let chartUrl;
+            if (periodType === 'month') {
+                chartUrl = `/backend/time-series-chart?metric_id=${metricId}&district=${district}&period_type=month`;
+            } else if (periodType === 'year') {
+                chartUrl = `/backend/time-series-chart?metric_id=${metricId}&district=${district}&period_type=year`;
+            } else if (periodType === 'week') {
+                chartUrl = `/backend/time-series-chart?metric_id=${metricId}&district=${district}&period_type=week`;
+            } else {
+                chartUrl = `/backend/time-series-chart?metric_id=${metricId}&district=${district}&period_type=day`;
+            }
+            
+            console.log('Setting chart iframe src to:', chartUrl);
+            chartIframe.src = chartUrl;
+            
+            // Create map iframes (only for citywide metrics)
+            if (district === '0') {
+                // First, try to fetch available maps for this metric
+                try {
+                    let mapsResponse;
+                    try {
+                        mapsResponse = await fetch(`/api/district-maps?metric_id=${metricId}`);
+                        if (!mapsResponse.ok) {
+                            throw new Error(`Failed to fetch from main API: ${mapsResponse.status}`);
+                        }
+                    } catch (apiError) {
+                        console.warn('Error using main API endpoint, falling back to backend:', apiError);
+                        mapsResponse = await fetch(`/backend/api/district-maps?metric_id=${metricId}`);
+                        if (!mapsResponse.ok) {
+                            throw new Error(`Failed to fetch maps: ${mapsResponse.status}`);
+                        }
+                    }
+                    
+                    const mapsData = await mapsResponse.json();
+                    console.log('Maps data received:', mapsData);
+                    if (mapsData.status === 'success' && mapsData.maps && mapsData.maps.length > 0) {
+                        console.log(`Found ${mapsData.maps.length} maps for metric:`, metricId);
+                        
+                        // Create iframes for all available maps
+                        mapsData.maps.forEach((map, index) => {
+                            console.log(`Creating iframe for map ${index + 1}:`, map);
+                            const mapIframe = document.createElement('iframe');
+                            mapIframe.style.width = '100%';
+                            mapIframe.style.height = '600px';
+                            mapIframe.style.border = 'none';
+                            mapIframe.style.display = 'block';
+                            mapIframe.style.borderRadius = '8px';
+                            mapIframe.style.marginBottom = '20px';
+                            
+                            // Add a title/label for each map
+                            const mapLabel = document.createElement('h4');
+                            mapLabel.textContent = `Map ${index + 1}${map.title ? ': ' + map.title : ''}`;
+                            mapLabel.style.marginBottom = '10px';
+                            mapLabel.style.color = 'var(--text-primary)';
+                            mapLabel.style.fontSize = '16px';
+                            mapLabel.style.fontWeight = '600';
+                            
+                            // Use the published_url directly instead of the backend endpoint
+                            if (map.published_url) {
+                                console.log(`Setting map ${index + 1} iframe src to:`, map.published_url);
+                                mapIframe.src = map.published_url;
+                            } else {
+                                console.warn(`No published_url found for map ${index + 1}, trying backend endpoint`);
+                                const mapUrl = `/backend/map-chart?id=${map.id}`;
+                                mapIframe.src = mapUrl;
+                            }
+                            
+                            // Add label and iframe to container
+                            contentContainer.appendChild(mapLabel);
+                            contentContainer.appendChild(mapIframe);
+                        });
+                    } else {
+                        console.log('No maps found for metric:', metricId);
+                    }
+                } catch (error) {
+                    console.warn('Failed to fetch maps for metric:', error);
+                }
+            }
+            
+            // Always append the chart iframe immediately
+            contentContainer.appendChild(chartIframe);
+            rowChartContent.appendChild(contentContainer);
+
+            // Hide loader when chart loads
+            chartIframe.onload = function() {
+                console.log('Chart iframe loaded successfully');
+                rowChartLoader.style.display = 'none';
+            };
+            
+            // Handle iframe load errors
+            chartIframe.onerror = function() {
+                console.error('Chart iframe failed to load');
+                rowChartLoader.style.display = 'none';
+                rowChartContent.innerHTML = '<div class="error-message">Failed to load chart. Please try again.</div>';
+            };
+            
+            // Add timeout to handle cases where iframe doesn't load
+            setTimeout(() => {
+                if (rowChartLoader.style.display !== 'none') {
+                    console.warn('Chart iframe load timeout');
+                    rowChartLoader.style.display = 'none';
+                    rowChartContent.innerHTML = '<div class="error-message">Chart is taking longer than expected to load. Please try again.</div>';
+                }
+            }, 10000); // 10 second timeout
+            
+            // Set up action button event listeners
+            setupActionButtons(metric, 'metric');
+        }
+        
+        // Function to show anomaly details modal
+        function showAnomalyDetailsModal(anomaly) {
+            console.log('showAnomalyDetailsModal called with:', anomaly);
+            // Show the modal
+            rowDetailsModal.style.display = 'block';
+            rowModalTitle.textContent = `${anomaly.metric_name || 'Anomaly'} Details`;
+            
+            // Show loader
+            rowChartLoader.style.display = 'block';
+            rowChartContent.innerHTML = '';
+            
+            // Get anomaly chart
+            const anomalyId = anomaly.id;
+            
+            // Create chart iframe
+            const chartIframe = document.createElement('iframe');
+            chartIframe.style.width = '100%';
+            chartIframe.style.height = '600px';
+            chartIframe.style.border = 'none';
+            chartIframe.style.display = 'block';
+            chartIframe.style.borderRadius = '8px';
+            
+            // Set chart URL
+            const chartUrl = `/anomaly-analyzer/anomaly-chart?id=${anomalyId}`;
+            console.log('Setting anomaly chart iframe src to:', chartUrl);
+            chartIframe.src = chartUrl;
+            
+            // Always append the iframe immediately
+            rowChartContent.appendChild(chartIframe);
+
+            // Hide loader when chart loads
+            chartIframe.onload = function() {
+                console.log('Anomaly chart iframe loaded successfully');
+                rowChartLoader.style.display = 'none';
+            };
+            
+            // Handle iframe load errors
+            chartIframe.onerror = function() {
+                console.error('Anomaly chart iframe failed to load');
+                rowChartLoader.style.display = 'none';
+                rowChartContent.innerHTML = '<div class="error-message">Failed to load anomaly chart. Please try again.</div>';
+            };
+            
+            // Add timeout to handle cases where iframe doesn't load
+            setTimeout(() => {
+                if (rowChartLoader.style.display !== 'none') {
+                    console.warn('Anomaly chart iframe load timeout');
+                    rowChartLoader.style.display = 'none';
+                    rowChartContent.innerHTML = '<div class="error-message">Anomaly chart is taking longer than expected to load. Please try again.</div>';
+                }
+            }, 10000); // 10 second timeout
+            
+            // Set up action button event listeners
+            setupActionButtons(anomaly, 'anomaly');
+        }
+        
+        // Function to set up action buttons
+        function setupActionButtons(data, type) {
+            // Remove existing event listeners
+            const addToReportBtn = document.getElementById('add-to-monthly-report');
+            const generateMapBtn = document.getElementById('generate-map');
+            const analyzeBtn = document.getElementById('analyze-metric');
+            
+            // Clone buttons to remove old event listeners
+            const newAddToReportBtn = addToReportBtn.cloneNode(true);
+            const newGenerateMapBtn = generateMapBtn.cloneNode(true);
+            const newAnalyzeBtn = analyzeBtn.cloneNode(true);
+            
+            addToReportBtn.parentNode.replaceChild(newAddToReportBtn, addToReportBtn);
+            generateMapBtn.parentNode.replaceChild(newGenerateMapBtn, generateMapBtn);
+            analyzeBtn.parentNode.replaceChild(newAnalyzeBtn, analyzeBtn);
+            
+            // Add to monthly report
+            newAddToReportBtn.addEventListener('click', function() {
+                console.log('Add to monthly report clicked for:', data);
+                // TODO: Implement add to monthly report functionality
+                alert('Add to monthly report functionality will be implemented soon.');
+            });
+            
+            // Generate map
+            newGenerateMapBtn.addEventListener('click', function() {
+                console.log('Generate map clicked for:', data);
+                // TODO: Implement generate map functionality
+                alert('Generate map functionality will be implemented soon.');
+            });
+            
+            // Analyze metric
+            newAnalyzeBtn.addEventListener('click', function() {
+                console.log('Analyze metric clicked for:', data);
+                if (type === 'metric') {
+                    analyzeMetricChange(data);
+                } else {
+                    // For anomalies, create a metric-like object
+                    const metricData = {
+                        id: data.object_id,
+                        object_name: data.metric_name,
+                        district: data.district,
+                        previous_value: data.comparison_mean,
+                        recent_value: data.recent_mean,
+                        delta: data.difference,
+                        percent_change: data.percent_change,
+                        previous_period: data.period_date,
+                        recent_period: data.period_date,
+                        period_type: data.period_type
+                    };
+                    analyzeMetricChange(metricData);
+                }
+                // Close the details modal
+                rowDetailsModal.style.display = 'none';
+            });
         }
         
         // Function to analyze a metric change
