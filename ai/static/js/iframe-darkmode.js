@@ -20,6 +20,18 @@
             }
         });
         
+        // Update logo based on theme
+        const logoImages = document.querySelectorAll('#wordmark-logo, img[src*="wordmark.png"]');
+        logoImages.forEach(img => {
+            if (theme === 'dark') {
+                // Use dark wordmark for dark mode
+                img.src = '/static/darkwordmark.png';
+            } else {
+                // Use regular wordmark for light mode
+                img.src = '/static/wordmark.png';
+            }
+        });
+        
         console.log('Theme applied to iframe:', theme);
     }
     

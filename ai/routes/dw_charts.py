@@ -74,7 +74,9 @@ async def generate_dw_time_series_chart(chart_id: int = Query(..., description="
             'period_type': period_type,
             'district': district,
             'chart_id': chart_id,
-            'executed_query_url': metadata_row.get('executed_query_url', '')
+            'executed_query_url': metadata_row.get('executed_query_url', ''),
+            'source-name': 'DataSF',
+            'byline': 'Chart: TransparentSF'
         }
         
         # Generate the Datawrapper chart
@@ -120,7 +122,9 @@ async def generate_dw_anomaly_chart(anomaly_id: int = Query(..., description="An
                 "status": "success",
                 "message": f"Successfully generated DW anomaly chart for anomaly_id {anomaly_id}",
                 "chart_url": chart_url,
-                "anomaly_id": anomaly_id
+                "anomaly_id": anomaly_id,
+                "source-name": "DataSF",
+                "byline": "Chart: TransparentSF"
             })
         else:
             logger.error(f"Failed to generate DW anomaly chart for anomaly_id {anomaly_id}")

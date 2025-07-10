@@ -103,6 +103,12 @@
             font-size: 0.9rem;
         }
         
+        /* Dark mode support for metadata */
+        [data-theme="dark"] .metadata {
+            background-color: rgba(30, 30, 30, 0.8);
+            color: #ffffff;
+        }
+        
         .chart-caption {
             font-size: 11px;
             padding: 6px;
@@ -226,6 +232,137 @@
             
             body {
                 padding: 5px;
+            }
+        }
+        
+        /* Improved group filter styling */
+        .group-filter-container {
+            background: linear-gradient(135deg, rgba(246, 241, 234, 0.8) 0%, rgba(255, 255, 255, 0.9) 100%);
+            border: 1px solid rgba(74, 116, 99, 0.2);
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        }
+        
+        /* Dark mode support for group filter */
+        [data-theme="dark"] .group-filter-container {
+            background: linear-gradient(135deg, rgba(30, 30, 30, 0.8) 0%, rgba(45, 45, 45, 0.9) 100%);
+            border: 1px solid rgba(74, 116, 99, 0.4);
+            color: #ffffff;
+        }
+        
+        [data-theme="dark"] .group-filter-container .form-check-label {
+            color: #ffffff;
+        }
+        
+        [data-theme="dark"] .group-filter-container .badge {
+            background-color: #4A7463 !important;
+            color: #ffffff !important;
+        }
+        
+        [data-theme="dark"] .group-filter-container .btn {
+            color: #ffffff;
+        }
+        
+        [data-theme="dark"] .group-filter-container .btn-outline-primary {
+            border-color: #4A7463;
+            color: #4A7463;
+        }
+        
+        [data-theme="dark"] .group-filter-container .btn-outline-primary:hover {
+            background-color: #4A7463;
+            color: #ffffff;
+        }
+        
+        [data-theme="dark"] .group-filter-container .btn-outline-secondary {
+            border-color: #6c757d;
+            color: #6c757d;
+        }
+        
+        [data-theme="dark"] .group-filter-container .btn-outline-secondary:hover {
+            background-color: #6c757d;
+            color: #ffffff;
+        }
+        
+        [data-theme="dark"] .group-filter-container .btn-primary {
+            background-color: #4A7463;
+            border-color: #4A7463;
+        }
+        
+        [data-theme="dark"] .group-filter-container .btn-primary:hover {
+            background-color: #3a5d4e;
+            border-color: #3a5d4e;
+        }
+        
+        [data-theme="dark"] .group-filter-container .text-muted {
+            color: #adb5bd !important;
+        }
+        
+        [data-theme="dark"] .group-checkbox-container:hover {
+            background-color: rgba(74, 116, 99, 0.2);
+        }
+        
+        /* Dark mode support for alerts */
+        [data-theme="dark"] .alert-warning {
+            background-color: rgba(255, 193, 7, 0.2);
+            border-color: #ffc107;
+            color: #ffffff;
+        }
+        
+        [data-theme="dark"] .alert-warning .btn-close {
+            filter: invert(1);
+        }
+        
+        .group-checkbox-container {
+            transition: all 0.2s ease-in-out;
+        }
+        
+        .group-checkbox-container:hover {
+            background-color: rgba(74, 116, 99, 0.05);
+            border-radius: 4px;
+            padding: 2px;
+        }
+        
+        .form-check-input:checked {
+            background-color: var(--spruce-green);
+            border-color: var(--spruce-green);
+        }
+        
+        .form-check-input:focus {
+            box-shadow: 0 0 0 0.2rem rgba(74, 116, 99, 0.25);
+        }
+        
+        .btn-group .btn {
+            border-radius: 4px !important;
+        }
+        
+        .btn-group .btn:first-child {
+            border-top-right-radius: 0 !important;
+            border-bottom-right-radius: 0 !important;
+        }
+        
+        .btn-group .btn:last-child {
+            border-top-left-radius: 0 !important;
+            border-bottom-left-radius: 0 !important;
+        }
+        
+        /* Responsive improvements for group filters */
+        @media (max-width: 768px) {
+            .group-filter-container .btn-group {
+                flex-direction: column;
+                width: 100%;
+            }
+            
+            .group-filter-container .btn-group .btn {
+                border-radius: 4px !important;
+                margin-bottom: 2px;
+            }
+            
+            .group-filter-container .d-flex {
+                flex-direction: column;
+            }
+            
+            .group-filter-container .d-flex .btn {
+                margin-bottom: 5px;
             }
         }
         
@@ -459,6 +596,16 @@
         
         // Function to render the time series chart
         function renderTimeSeriesChart(data) {
+            // Get metadata and data
+            const metadata = data.metadata || {};
+            const timeSeriesData = data.data || [];
+            const itemNoun = metadata.item_noun || '';
+            
+            if (timeSeriesData.length === 0) {
+                showError('No data available for the specified parameters.');
+                return;
+            }
+            
             console.log("Rendering time series chart for data:", data);
             
             // Check if we have valid data
@@ -466,10 +613,6 @@
                 showError('Invalid or incomplete time series data received.');
                 return;
             }
-            
-            // Extract data from the API response format
-            const metadata = data.metadata || {};
-            const timeSeriesData = data.data;
             
             // Determine period type early so it can be used throughout the function
             const isYearlyData = metadata.period_type === 'yearly' || metadata.period_type === 'year' || periodType === 'year';
@@ -577,7 +720,7 @@
                             name: `${year} Daily`,
                             line: { color: lineColor, width: 1 },
                             opacity: 0.25,
-                            showlegend: false, // keep legend focused on averages
+                            showlegend: fullView, // keep legend focused on averages
                             hoverinfo: 'skip', // No hover labels for raw data
                             hoverlabel: {
                                 bgcolor: '#F6F1EA',
@@ -598,7 +741,7 @@
                             mode: 'lines',
                             name: `${year} 7-Day Avg`,
                             line: { color: lineColor, width: 3 },
-                            showlegend: true,
+                            showlegend: fullView,
                             hovertemplate: `${year} 7-Day Avg<br>%{customdata}<br>%{y}<extra></extra>`,
                             hoverlabel: {
                                 bgcolor: '#F6F1EA',
@@ -690,7 +833,7 @@
                             name: groupValue,
                             line: { color: colorPalette[colorIndex % colorPalette.length], width: 2 },
                             marker: { color: colorPalette[colorIndex % colorPalette.length], size: 6 },
-                            showlegend: false,
+                            showlegend: fullView,
                             hovertemplate: isWeeklyData ? 
                                 `${groupValue}<br>%{x|%B %d, %Y}<br>%{y}<extra></extra>` : 
                                 `${groupValue}<br>%{x|%B %Y}<br>%{y}<extra></extra>`,
@@ -786,7 +929,7 @@
                             width: 1,
                             dash: 'dash' // Dashed line
                         },
-                        showlegend: false
+                        showlegend: fullView
                     });
                 }
             } else {
@@ -838,7 +981,7 @@
                         width: 1,
                         dash: 'solid' // Solid line
                     },
-                    showlegend: !hasGroups
+                    showlegend: fullView
                 });
                 
                 // Add time series data
@@ -847,10 +990,10 @@
                     y: values,
                     type: 'scatter',
                     mode: 'lines+markers',
-                    name: 'Time Series',
+                    name: itemNoun || 'Time Series',
                     line: { color: '#ad35fa', width: 2 }, // Bright Blue
                     marker: { color: '#ad35fa', size: 6 }, // Bright Blue
-                    showlegend: !hasGroups,
+                    showlegend: fullView,
                     hovertemplate: isWeeklyData ? '%{x|%B %d, %Y}<br>%{y}<extra></extra>' : '%{x|%B %Y}<br>%{y}<extra></extra>', // Format based on period type
                     hoverlabel: {
                         bgcolor: '#F6F1EA', // Soft Sand
@@ -881,12 +1024,12 @@
             if (district !== undefined && district !== null && district !== 0) {
                 // Only add subtitle if district is specified and not citywide (0)
                 const districtName = `District ${district}`;
-                subtitleText = `${districtName} - ${metadata.period_type || periodType} Data`;
+                subtitleText = `${districtName} - ${metadata.period_type || periodType} Data${itemNoun ? ' · ' + itemNoun : ''}`;
                 combinedTitleText = `${objectName}<br><span style="font-size: 0.8em;">${subtitleText}</span>`; // Combine with smaller subtitle
             } else {
                 // Optional: If district is 0 (Citywide), you could add a generic subtitle if desired
-                 subtitleText = `Citywide - ${metadata.period_type || periodType} Data`;
-                 combinedTitleText = `${objectName}<br><span style="font-size: 0.8em;">${subtitleText}</span>`; // Combine with smaller subtitle
+                subtitleText = `Citywide - ${metadata.period_type || periodType} Data${itemNoun ? ' · ' + itemNoun : ''}`;
+                combinedTitleText = `${objectName}<br><span style="font-size: 0.8em;">${subtitleText}</span>`; // Combine with smaller subtitle
             }
             // --- END RE-ADD SUBTITLE LOGIC ---
             
@@ -957,7 +1100,7 @@
                     },
                     yaxis: {
                         title: {
-                            text: yAxisLabel,
+                            text: '',
                             font: { 
                                 family: 'IBM Plex Sans, Arial, sans-serif',
                                 size: 10,
@@ -1101,7 +1244,7 @@
                     },
                     yaxis: {
                         title: {
-                            text: yAxisLabel,
+                            text: '',
                             font: { 
                                 family: 'IBM Plex Sans, Arial, sans-serif',
                                 size: 10, // Reduced from 12
@@ -1119,7 +1262,7 @@
                             color: '#222222' // Ink Black
                         }
                     },
-                    showlegend: !hasGroups,
+                    showlegend: true,
                     legend: {
                         orientation: 'h',
                         x: 0.5,
@@ -1292,64 +1435,58 @@
                 });
             }
             
-            // Add DataSF link if available
-            if (metadata.executed_query_url) {
-                // Create the link element
-                const datasfLink = document.createElement('a');
-                datasfLink.href = metadata.executed_query_url;
-                datasfLink.target = '_blank';
-                datasfLink.style.color = '#71B2CA';
-                datasfLink.style.textDecoration = 'none';
-                datasfLink.style.position = 'absolute';
-                datasfLink.style.bottom = '5px'; // Moved up from 10px
-                datasfLink.style.left = '10px';  // Changed from 50%
-                datasfLink.style.transform = 'none'; // Removed translateX(-50%)
-                datasfLink.style.fontSize = '11px'; // Reduced from 12px
-                datasfLink.style.zIndex = '1000';
-                datasfLink.style.backgroundColor = 'rgba(255, 255, 255, 0.9)';
-                datasfLink.style.padding = '3px 8px'; // Reduced padding
-                datasfLink.style.borderRadius = '4px';
-                datasfLink.innerHTML = 'Source: DataSF <i class="fas fa-external-link-alt"></i>';
-                
-                // Add the link directly to the chart container
-                const chartContainer = document.getElementById('chart-section');
-                if (chartContainer) {
-                    // Remove any existing DataSF links first
-                    const existingLinks = chartContainer.querySelectorAll('a[href*="datasf"]');
-                    existingLinks.forEach(link => link.remove());
-                    
-                    // Add the new link
-                    chartContainer.appendChild(datasfLink);
-                    console.log('DataSF link added to chart container with URL:', metadata.executed_query_url);
-                } else {
-                    console.error('Chart container not found');
-                }
+            // Attribution logic
+            const chartContainer = document.getElementById('chart-section');
+            // Remove any existing attribution elements
+            const oldAttributions = chartContainer.querySelectorAll('.chart-attribution, a[href*="datasf"], span[data-source-note]');
+            oldAttributions.forEach(el => el.remove());
+
+            if (metadata['source-name'] && metadata['executed_query_url']) {
+                // Show DataSF as a link
+                const sourceLink = document.createElement('a');
+                sourceLink.href = metadata['executed_query_url'];
+                sourceLink.target = '_blank';
+                sourceLink.style.color = '#71B2CA';
+                sourceLink.style.textDecoration = 'none';
+                sourceLink.style.position = 'absolute';
+                sourceLink.style.bottom = '5px';
+                sourceLink.style.left = '10px';
+                sourceLink.style.fontSize = '11px';
+                sourceLink.style.zIndex = '1000';
+                sourceLink.style.backgroundColor = 'rgba(255, 255, 255, 0.9)';
+                sourceLink.style.padding = '3px 8px';
+                sourceLink.style.borderRadius = '4px';
+                sourceLink.className = 'chart-attribution';
+                sourceLink.innerHTML = `Source: ${metadata['source-name']} <i class="fas fa-external-link-alt"></i>`;
+                chartContainer.appendChild(sourceLink);
+            } else if (metadata['source-name']) {
+                // Show DataSF as plain text
+                const sourceNote = document.createElement('span');
+                sourceNote.style.color = '#999999';
+                sourceNote.style.fontSize = '12px';
+                sourceNote.style.position = 'absolute';
+                sourceNote.style.bottom = '10px';
+                sourceNote.style.left = '10px';
+                sourceNote.style.zIndex = '10';
+                sourceNote.className = 'chart-attribution';
+                sourceNote.textContent = `Source: ${metadata['source-name']}`;
+                chartContainer.appendChild(sourceNote);
+            }
+            if (metadata['byline']) {
+                // Show the chart byline (e.g., Chart: TransparentSF)
+                const bylineNote = document.createElement('span');
+                bylineNote.style.color = '#999999';
+                bylineNote.style.fontSize = '12px';
+                bylineNote.style.position = 'absolute';
+                bylineNote.style.bottom = '25px';
+                bylineNote.style.left = '10px';
+                bylineNote.style.zIndex = '10';
+                bylineNote.className = 'chart-attribution';
+                bylineNote.textContent = metadata['byline'];
+                chartContainer.appendChild(bylineNote);
             }
             
-            // Add a note about the data source if no DataSF link is available
-            if (!metadata.executed_query_url) {
-                const chartContainer = document.getElementById('chart-section');
-                if (chartContainer) {
-                    // Remove any existing source notes first
-                    const existingNotes = chartContainer.querySelectorAll('span[data-source-note]');
-                    existingNotes.forEach(note => note.remove());
-                    
-                    // Create and add the source note
-                    const sourceNote = document.createElement('span');
-                    sourceNote.setAttribute('data-source-note', 'true');
-                    sourceNote.style.color = '#999999';
-                    sourceNote.style.fontSize = '12px';
-                    sourceNote.style.position = 'absolute';
-                    sourceNote.style.bottom = '10px';
-                    sourceNote.style.left = '50%';
-                    sourceNote.style.transform = 'translateX(-50%)';
-                    sourceNote.style.zIndex = '10';
-                    sourceNote.textContent = 'Source: TransparentSF';
-                    
-                    chartContainer.appendChild(sourceNote);
-                    console.log('Source note added to chart container');
-                }
-            }
+
             
             const config = {
                 responsive: true,
@@ -1483,6 +1620,11 @@
                 
                 // Apply initial theme colors
                 applyThemeToPlot(document.documentElement.getAttribute('data-theme') || 'light');
+                
+                // Add group filter to chart if needed
+                if (window.hasGroups && fullView) {
+                    addGroupFilterToChart();
+                }
             });
             
             // Display metadata after rendering chart
@@ -1603,79 +1745,150 @@
                         <p class="mb-1"><strong>Range:</strong> ${formatValue(min)} - ${formatValue(max)}</p>
                     </div>
                 </div>
-                ${groupCounts}
             `;
             
             // Set HTML
             metadataEl.innerHTML = html;
             
-            // If groups are present, add a filter control
-            if (hasGroups) {
-                const groupFilterDiv = document.createElement('div');
-                groupFilterDiv.className = 'mt-2 p-2 bg-light rounded';
-                groupFilterDiv.innerHTML = `
-                    <h6 class="fs-6">Filter by Groups</h6>
-                    <div id="group-checkboxes" class="mb-2"></div>
-                    <div class="d-flex gap-2">
-                        <button id="apply-group-filter" class="btn btn-sm btn-primary">Apply Filter</button>
-                        <button id="clear-group-filter" class="btn btn-sm btn-outline-secondary">Clear Filter</button>
-                    </div>
-                `;
-                
-                metadataEl.appendChild(groupFilterDiv);
-                
-                // Add checkboxes for each group
-                const checkboxesDiv = document.getElementById('group-checkboxes');
-                const uniqueGroups = Object.keys(groupCounter);
-                
-                uniqueGroups.forEach(group => {
-                    const isChecked = !groups || groups.split(',').includes(group);
-                    const checkbox = document.createElement('div');
-                    checkbox.className = 'form-check form-check-inline';
-                    checkbox.innerHTML = `
-                        <input class="form-check-input group-checkbox" type="checkbox" id="group-${group}" 
-                               value="${group}" ${isChecked ? 'checked' : ''}>
-                        <label class="form-check-label" for="group-${group}">${group}</label>
-                    `;
-                    checkboxesDiv.appendChild(checkbox);
-                });
-                
-                // Add event listeners for filter buttons
-                document.getElementById('apply-group-filter').addEventListener('click', applyGroupFilter);
-                document.getElementById('clear-group-filter').addEventListener('click', clearGroupFilter);
+            // If groups are present and full view is enabled, add filter to chart
+            if (hasGroups && fullView) {
+                // We'll add the filter to the chart after it's rendered
+                window.hasGroups = true;
+                window.groupCounter = groupCounter;
+                window.uniqueGroups = Object.keys(groupCounter);
             }
         }
         
-        // Function to apply group filter
-        function applyGroupFilter() {
+        // Function to select all groups
+        function selectAllGroups() {
+            document.querySelectorAll('.group-checkbox').forEach(checkbox => {
+                checkbox.checked = true;
+            });
+            updateSelectedCount();
+            updateChartWithCurrentFilters();
+        }
+        
+        // Function to uncheck all groups
+        function uncheckAllGroups() {
+            document.querySelectorAll('.group-checkbox').forEach(checkbox => {
+                checkbox.checked = false;
+            });
+            updateSelectedCount();
+            updateChartWithCurrentFilters();
+        }
+        
+        // Function to update the selected count display
+        function updateSelectedCount() {
+            const checkboxes = document.querySelectorAll('.group-checkbox:checked');
+            const selectedCount = checkboxes.length;
+            const totalCount = document.querySelectorAll('.group-checkbox').length;
+            const countElement = document.getElementById('selected-count');
+            
+            if (countElement) {
+                if (selectedCount === totalCount) {
+                    countElement.textContent = 'All';
+                    countElement.className = 'badge bg-success ms-2';
+                } else if (selectedCount === 0) {
+                    countElement.textContent = 'None';
+                    countElement.className = 'badge bg-warning ms-2';
+                } else {
+                    countElement.textContent = `${selectedCount}/${totalCount}`;
+                    countElement.className = 'badge bg-primary ms-2';
+                }
+            }
+        }
+        
+        // Function to update chart with current filter selections
+        function updateChartWithCurrentFilters() {
+            // Show loading state on the update button
+            const updateBtn = document.getElementById('apply-group-filter');
+            if (updateBtn) {
+                const originalText = updateBtn.innerHTML;
+                updateBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Updating...';
+                updateBtn.disabled = true;
+                
+                // Also show loading state on the chart container
+                const chartContainer = document.getElementById('chart-section');
+                if (chartContainer) {
+                    chartContainer.style.opacity = '0.7';
+                    chartContainer.style.transition = 'opacity 0.3s ease';
+                }
+                
+                // Re-enable button and restore chart opacity after chart update
+                setTimeout(() => {
+                    updateBtn.innerHTML = originalText;
+                    updateBtn.disabled = false;
+                    if (chartContainer) {
+                        chartContainer.style.opacity = '1';
+                    }
+                }, 1000);
+            }
+            
             const checkboxes = document.querySelectorAll('.group-checkbox:checked');
             const selectedGroups = Array.from(checkboxes).map(cb => cb.value);
             
-            if (selectedGroups.length === 0) {
-                alert('Please select at least one group to filter by.');
-                return;
+            // Remove any existing warning
+            const existingWarning = document.querySelector('.alert-warning');
+            if (existingWarning) {
+                existingWarning.remove();
             }
             
-            // Build new URL with selected groups
+            // Only show warning if no groups are selected, but don't auto-select all
+            if (selectedGroups.length === 0) {
+                const warningDiv = document.createElement('div');
+                warningDiv.className = 'alert alert-warning alert-dismissible fade show mt-2';
+                warningDiv.innerHTML = `
+                    <i class="fas fa-exclamation-triangle me-2"></i>
+                    No series selected. The chart will be empty. Use "Select All" to show all series.
+                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                `;
+                
+                // Add new warning
+                const groupFilterDiv = document.querySelector('#metadata .mt-3');
+                if (groupFilterDiv) {
+                    groupFilterDiv.appendChild(warningDiv);
+                }
+            }
+            
+            // Update URL without page reload
             const urlParams = new URLSearchParams(window.location.search);
-            urlParams.set('groups', selectedGroups.join(','));
+            
+            // Handle groups parameter - send empty string if no groups selected
+            if (selectedGroups.length > 0) {
+                urlParams.set('groups', selectedGroups.join(','));
+                window.groups = selectedGroups.join(',');
+            } else {
+                // Send empty string to indicate no groups should be shown
+                urlParams.set('groups', '');
+                window.groups = '';
+            }
             
             // Make sure group_field is also set if not already present
             if (groupField && !urlParams.has('group_field')) {
                 urlParams.set('group_field', groupField);
             }
             
-            // Redirect to the same page with updated parameters
-            window.location.href = `${window.location.pathname}?${urlParams.toString()}`;
+            // Update URL without reloading the page
+            const newUrl = `${window.location.pathname}?${urlParams.toString()}`;
+            window.history.replaceState({}, '', newUrl);
+            
+            // Re-fetch and render the chart with new filters
+            fetchTimeSeriesData();
         }
         
-        // Function to clear group filter
+        // Function to apply group filter (now uses automatic updates)
+        function applyGroupFilter() {
+            updateChartWithCurrentFilters();
+        }
+        
+        // Function to clear group filter (now uses automatic updates)
         function clearGroupFilter() {
-            const urlParams = new URLSearchParams(window.location.search);
-            urlParams.delete('groups');
-            
-            // Redirect to the same page with updated parameters
-            window.location.href = `${window.location.pathname}?${urlParams.toString()}`;
+            // Check all checkboxes first
+            document.querySelectorAll('.group-checkbox').forEach(checkbox => {
+                checkbox.checked = true;
+            });
+            updateSelectedCount();
+            updateChartWithCurrentFilters();
         }
         
         // Function to fetch time series data
@@ -1697,7 +1910,7 @@
                     apiUrl = `/api/chart-by-metric?metric_id=${metricId}&district=${district}&period_type=${periodType}`;
                     
                     // Add groups parameter if present
-                    if (groups) {
+                    if (groups !== null && groups !== undefined) {
                         apiUrl += `&groups=${encodeURIComponent(groups)}`;
                     }
                     

@@ -69,6 +69,9 @@ class DarkModeManager {
         // Update toggle button if it exists
         this.updateToggleButton();
         
+        // Update logo based on theme
+        this.updateLogo();
+        
         // Notify iframes only if requested
         if (notifyIframes) {
             this.notifyIframes();
@@ -114,6 +117,21 @@ class DarkModeManager {
                 icon.textContent = this.currentTheme === 'light' ? '🌙' : '☀️';
             }
         }
+    }
+
+    updateLogo() {
+        // Find all logo images that should be updated
+        const logoImages = document.querySelectorAll('#wordmark-logo, img[src*="wordmark.png"]');
+        
+        logoImages.forEach(img => {
+            if (this.currentTheme === 'dark') {
+                // Use dark wordmark for dark mode
+                img.src = '/static/darkwordmark.png';
+            } else {
+                // Use regular wordmark for light mode
+                img.src = '/static/wordmark.png';
+            }
+        });
     }
 
     setupEventListeners() {

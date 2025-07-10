@@ -408,85 +408,10 @@
         const anomalyId = urlParams.get('id');
         const fullView = urlParams.get('full_view') === 'true';
         
-        // Apply chart-section-mode by default unless full_view=true is specified
-        document.body.classList.toggle('chart-section-mode', !fullView);
-        
         // Elements
         const loadingEl = document.getElementById('loading');
         const errorMessageEl = document.getElementById('error-message');
         const metadataEl = document.getElementById('metadata');
-        
-        // Hide non-chart elements by default unless full_view=true is specified
-        if (!fullView) {
-            const header = document.querySelector('.header');
-            const metadata = document.getElementById('metadata');
-            const buttons = document.querySelector('.mt-3');
-            const embedModal = document.getElementById('embedModal');
-            
-            if (header) header.style.display = 'none';
-            if (metadata) metadata.style.display = 'none';
-            if (buttons) buttons.style.display = 'none';
-            if (embedModal) embedModal.style.display = 'none';
-            
-            // Set chart container to maintain aspect ratio
-            const chartContainer = document.getElementById('chart-section');
-            if (chartContainer) {
-                chartContainer.style.margin = '0 auto';
-                chartContainer.style.maxWidth = '100%';
-                chartContainer.style.width = '100%';
-                chartContainer.style.display = 'flex';
-                chartContainer.style.justifyContent = 'center';
-                chartContainer.style.alignItems = 'center';
-                
-                // Add permalink button to chart section
-                let permalinkBtn = document.getElementById('chart-section-permalink');
-                if (!permalinkBtn) {
-                    permalinkBtn = document.createElement('button');
-                    permalinkBtn.id = 'chart-section-permalink';
-                    permalinkBtn.className = 'btn btn-sm btn-link';
-                    permalinkBtn.style.position = 'absolute';
-                    permalinkBtn.style.bottom = '5px';
-                    permalinkBtn.style.right = '5px';
-                    permalinkBtn.style.zIndex = '1000';
-                    permalinkBtn.style.fontSize = '10px';
-                    permalinkBtn.style.color = '#888888';
-                    permalinkBtn.style.textDecoration = 'none';
-                    permalinkBtn.style.border = 'none';
-                    permalinkBtn.style.background = 'none';
-                    permalinkBtn.style.padding = '0';
-                    permalinkBtn.style.cursor = 'pointer';
-                    permalinkBtn.innerHTML = '<i class="fas fa-share-alt me-1"></i>Share';
-                    permalinkBtn.onclick = function() {
-                        const fullUrl = window.location.href.split('#')[0];
-                        copyToClipboard(fullUrl);
-                    };
-                    chartContainer.appendChild(permalinkBtn);
-                    
-                    // Add full view button
-                    const fullViewBtn = document.createElement('button');
-                    fullViewBtn.id = 'full-view-btn';
-                    fullViewBtn.className = 'btn btn-sm btn-link';
-                    fullViewBtn.style.position = 'absolute';
-                    fullViewBtn.style.bottom = '5px';
-                    fullViewBtn.style.left = '5px';
-                    fullViewBtn.style.zIndex = '1000';
-                    fullViewBtn.style.fontSize = '10px';
-                    fullViewBtn.style.color = '#888888';
-                    fullViewBtn.style.textDecoration = 'none';
-                    fullViewBtn.style.border = 'none';
-                    fullViewBtn.style.background = 'none';
-                    fullViewBtn.style.padding = '0';
-                    fullViewBtn.style.cursor = 'pointer';
-                    fullViewBtn.innerHTML = '<i class="fas fa-expand me-1"></i>Full View';
-                    fullViewBtn.onclick = function() {
-                        const currentUrl = new URL(window.location.href);
-                        currentUrl.searchParams.set('full_view', 'true');
-                        window.open(currentUrl.toString(), '_blank');
-                    };
-                    chartContainer.appendChild(fullViewBtn);
-                }
-            }
-        }
         
         // Function to show loading state
         function showLoading() {
@@ -555,6 +480,7 @@
             const metadata = document.getElementById('metadata');
             const buttons = document.querySelector('.mt-3');
             const embedModal = document.getElementById('embedModal');
+            const datasfLink = document.getElementById('datasf-link');
             const shareBtn = document.getElementById('share-btn');
             const embedBtn = document.getElementById('embed-btn');
             const backButton = document.querySelector('a[href="javascript:history.back()"]');
@@ -563,11 +489,12 @@
             document.body.classList.toggle('chart-section-mode', isChartSection);
             
             if (isChartSection) {
-                // Hide ALL non-chart elements
+                // Hide non-chart elements
                 if (header) header.style.display = 'none';
                 if (metadata) metadata.style.display = 'none';
                 if (buttons) buttons.style.display = 'none';
                 if (embedModal) embedModal.style.display = 'none';
+                if (datasfLink) datasfLink.style.display = 'none';
                 if (shareBtn) shareBtn.style.display = 'none';
                 if (embedBtn) embedBtn.style.display = 'none';
                 if (backButton) backButton.style.display = 'none';
@@ -576,37 +503,139 @@
                 const chartContainer = document.getElementById('chart-section');
                 if (chartContainer) {
                     chartContainer.style.margin = '0 auto';
-                    chartContainer.style.maxWidth = '600px';
+                    chartContainer.style.maxWidth = '100%'; // Changed from 600px to 100%
                     chartContainer.style.width = '100%';
-                    chartContainer.style.height = 'auto';
-                    chartContainer.style.display = 'block';
-                    chartContainer.style.padding = '10px';
+                    chartContainer.style.display = 'flex';
+                    chartContainer.style.justifyContent = 'center';
+                    chartContainer.style.alignItems = 'center';
+                    
+                    // Add permalink button to chart section
+                    let permalinkBtn = document.getElementById('chart-section-permalink');
+                    if (!permalinkBtn) {
+                        permalinkBtn = document.createElement('button');
+                        permalinkBtn.id = 'chart-section-permalink';
+                        permalinkBtn.className = 'btn btn-sm btn-link';
+                        permalinkBtn.style.position = 'absolute';
+                        permalinkBtn.style.bottom = '5px';
+                        permalinkBtn.style.right = '5px';
+                        permalinkBtn.style.zIndex = '1000';
+                        permalinkBtn.style.fontSize = '10px';
+                        permalinkBtn.style.color = '#888888';
+                        permalinkBtn.style.textDecoration = 'none';
+                        permalinkBtn.style.border = 'none';
+                        permalinkBtn.style.background = 'none';
+                        permalinkBtn.style.padding = '0';
+                        permalinkBtn.style.cursor = 'pointer';
+                        permalinkBtn.innerHTML = '<i class="fas fa-share-alt me-1"></i>Share';
+                        permalinkBtn.onclick = function() {
+                            const fullUrl = window.location.href.split('#')[0];
+                            if (navigator.share) {
+                                navigator.share({
+                                    title: 'TransparentSF Chart',
+                                    text: 'Check out this chart from TransparentSF',
+                                    url: fullUrl
+                                }).catch(err => {
+                                    console.error('Error sharing:', err);
+                                    // Fallback to copying to clipboard
+                                    copyToClipboard(fullUrl);
+                                });
+                            } else {
+                                // Fallback to copying to clipboard
+                                copyToClipboard(fullUrl);
+                            }
+                        };
+                        chartContainer.appendChild(permalinkBtn);
+                    }
+                    
+                    // Add full view button if it doesn't exist
+                    let fullViewBtn = document.getElementById('full-view-btn');
+                    if (!fullViewBtn) {
+                        fullViewBtn = document.createElement('button');
+                        fullViewBtn.id = 'full-view-btn';
+                        fullViewBtn.className = 'btn btn-sm btn-link';
+                        fullViewBtn.style.position = 'absolute';
+                        fullViewBtn.style.bottom = '5px';
+                        fullViewBtn.style.left = '5px';
+                        fullViewBtn.style.zIndex = '1000';
+                        fullViewBtn.style.fontSize = '10px';
+                        fullViewBtn.style.color = '#888888';
+                        fullViewBtn.style.textDecoration = 'none';
+                        fullViewBtn.style.border = 'none';
+                        fullViewBtn.style.background = 'none';
+                        fullViewBtn.style.padding = '0';
+                        fullViewBtn.style.cursor = 'pointer';
+                        fullViewBtn.innerHTML = '<i class="fas fa-expand me-1"></i>Full View';
+                        fullViewBtn.onclick = function() {
+                            const baseUrl = window.location.href.split('#')[0]; // Get URL without hash
+                            const currentUrl = new URL(baseUrl);
+                            currentUrl.searchParams.set('full_view', 'true');
+                            window.open(currentUrl.toString(), '_blank');
+                        };
+                        chartContainer.appendChild(fullViewBtn);
+                    }
                 }
                 
-                // Update chart dimensions
-                const anomalyChart = document.getElementById('anomaly-chart');
-                if (anomalyChart) {
-                    anomalyChart.style.width = '100%';
-                    anomalyChart.style.height = '0';
-                    anomalyChart.style.paddingBottom = '100%';
+                // Hide the chart caption
+                const chartCaption = document.querySelector('.chart-caption');
+                if (chartCaption) {
+                    chartCaption.style.display = 'none';
                 }
                 
-                // Update plot dimensions
+                // Update chart size to fit container
                 const plotElement = document.getElementById('anomaly-plot');
                 if (plotElement) {
-                    plotElement.style.width = '100%';
-                    plotElement.style.height = '100%';
                     Plotly.Plots.resize(plotElement);
+                }
+                
+                // Send chart height to parent window
+                const sendHeight = () => {
+                    const chartElement = document.getElementById('anomaly-chart');
+                    if (chartElement) {
+                        // Calculate height based on the 4:3 aspect ratio
+                        const width = chartElement.offsetWidth;
+                        const height = width * 0.75; // 3/4 = 0.75
+                        window.parent.postMessage({
+                            type: 'chartHeight',
+                            height: height
+                        }, '*'); // Changed from window.location.origin to '*' to allow embedding on different origins
+                    }
+                };
+                
+                // Send height initially and after any changes
+                sendHeight();
+                const observer = new ResizeObserver(sendHeight);
+                const chartElement = document.getElementById('anomaly-chart');
+                if (chartElement) {
+                    observer.observe(chartElement);
                 }
             } else {
                 // Show all elements
                 if (header) header.style.display = 'block';
                 if (metadata) metadata.style.display = 'block';
-                if (buttons) buttons.style.display = 'flex';
+                if (buttons) buttons.style.display = 'block';
                 if (embedModal) embedModal.style.display = 'block';
+                if (datasfLink) datasfLink.style.display = 'block';
                 if (shareBtn) shareBtn.style.display = 'block';
                 if (embedBtn) embedBtn.style.display = 'block';
                 if (backButton) backButton.style.display = 'block';
+                
+                // Remove permalink button if it exists
+                const permalinkBtn = document.getElementById('chart-section-permalink');
+                if (permalinkBtn) {
+                    permalinkBtn.remove();
+                }
+                
+                // Remove full view button if it exists
+                const fullViewBtn = document.getElementById('full-view-btn');
+                if (fullViewBtn) {
+                    fullViewBtn.remove();
+                }
+                
+                // Show the chart caption
+                const chartCaption = document.querySelector('.chart-caption');
+                if (chartCaption) {
+                    chartCaption.style.display = 'block';
+                }
                 
                 // Reset chart container styles
                 const chartContainer = document.getElementById('chart-section');
@@ -614,9 +643,9 @@
                     chartContainer.style.margin = '';
                     chartContainer.style.maxWidth = '';
                     chartContainer.style.width = '';
-                    chartContainer.style.height = '';
                     chartContainer.style.display = '';
-                    chartContainer.style.padding = '';
+                    chartContainer.style.justifyContent = '';
+                    chartContainer.style.alignItems = '';
                 }
             }
         }

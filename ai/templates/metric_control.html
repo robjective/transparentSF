@@ -619,6 +619,129 @@
             border-radius: 4px;
             width: 100%;
         }
+        
+        /* Anomaly card specific styles */
+        .chart-card.anomaly-positive {
+            border-left: 4px solid #28a745;
+        }
+        
+        .chart-card.anomaly-negative {
+            border-left: 4px solid #dc3545;
+        }
+        
+        .chart-card.anomaly-positive .chart-card-header {
+            background-color: #d4edda;
+            border-bottom-color: #c3e6cb;
+        }
+        
+        .chart-card.anomaly-negative .chart-card-header {
+            background-color: #f8d7da;
+            border-bottom-color: #f5c6cb;
+        }
+        
+        .anomaly-info {
+            font-size: 12px;
+            color: #6c757d;
+            margin-top: 5px;
+            line-height: 1.4;
+        }
+        
+        .anomaly-percent-change {
+            font-weight: bold;
+            padding: 2px 6px;
+            border-radius: 3px;
+            margin-left: 5px;
+        }
+        
+        .anomaly-percent-change.positive {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        
+        .anomaly-percent-change.negative {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+        
+        /* Anomaly summary styles */
+        .anomaly-summary {
+            grid-column: 1 / -1;
+            margin-bottom: 20px;
+            padding: 15px;
+            background-color: #f8f9fa;
+            border-radius: 8px;
+            border: 1px solid #dee2e6;
+        }
+        
+        .anomaly-summary h3 {
+            margin: 0 0 10px 0;
+            color: #495057;
+            font-size: 18px;
+            font-weight: 600;
+        }
+        
+        .anomaly-summary-stats {
+            display: flex;
+            gap: 20px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+        
+        .anomaly-stat {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        
+        .anomaly-stat-label {
+            font-weight: bold;
+            font-size: 14px;
+        }
+        
+        .anomaly-stat-count {
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-weight: bold;
+            font-size: 14px;
+        }
+        
+        .anomaly-stat-count.positive {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        
+        .anomaly-stat-count.negative {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+        
+        .anomaly-stat-count.total {
+            background-color: #e9ecef;
+            color: #495057;
+        }
+        
+        .anomaly-stat-description {
+            color: #6c757d;
+            font-size: 14px;
+        }
+        
+        /* Responsive design for anomaly summary */
+        @media (max-width: 768px) {
+            .anomaly-summary-stats {
+                flex-direction: column;
+                gap: 10px;
+                align-items: flex-start;
+            }
+            
+            .anomaly-stat {
+                width: 100%;
+                justify-content: space-between;
+            }
+            
+            .anomaly-summary h3 {
+                font-size: 16px;
+            }
+        }
        
         .btn-subtle-primary {
             background-color: #6c757d;
@@ -3195,6 +3318,35 @@
                 
                 if (charts.length > 0) {
                     let chartsHtml = '';
+                    
+                    // Add summary section for anomalies
+                    if (chartType === 'anomalies') {
+                        const positiveCount = charts.filter(chart => chart.anomaly_type === 'positive').length;
+                        const negativeCount = charts.filter(chart => chart.anomaly_type === 'negative').length;
+                        
+                        chartsHtml += `
+                            <div class="anomaly-summary">
+                                <h3>Anomaly Summary</h3>
+                                <div class="anomaly-summary-stats">
+                                    <div class="anomaly-stat">
+                                        <span class="anomaly-stat-label" style="color: #28a745;">📉 Positive Anomalies:</span>
+                                        <span class="anomaly-stat-count positive">${positiveCount}</span>
+                                        <span class="anomaly-stat-description">(Improving trends)</span>
+                                    </div>
+                                    <div class="anomaly-stat">
+                                        <span class="anomaly-stat-label" style="color: #dc3545;">📈 Negative Anomalies:</span>
+                                        <span class="anomaly-stat-count negative">${negativeCount}</span>
+                                        <span class="anomaly-stat-description">(Concerning trends)</span>
+                                    </div>
+                                    <div class="anomaly-stat">
+                                        <span class="anomaly-stat-label" style="color: #495057;">📊 Total Anomalies:</span>
+                                        <span class="anomaly-stat-count total">${charts.length}</span>
+                                    </div>
+                                </div>
+                            </div>
+                        `;
+                    }
+                    
                     charts.forEach(chart => {
                         chartsHtml += createChartCard(chart, chartType);
                     });
@@ -3210,13 +3362,37 @@
         }
         
         function createChartCard(chart, chartType) {
-            const { id, title, url, dwUrl } = chart;
+            const { id, title, url, dwUrl, anomaly_type, percent_change, period_date } = chart;
+            
+            // Determine CSS class for anomaly cards
+            let cardClass = 'chart-card';
+            if (chartType === 'anomalies' && anomaly_type) {
+                cardClass += ` anomaly-${anomaly_type}`;
+            }
+            
+            // Create additional info for anomalies
+            let additionalInfo = '';
+            if (chartType === 'anomalies' && (anomaly_type || percent_change || period_date)) {
+                let infoParts = [];
+                if (period_date) {
+                    infoParts.push(`Period: ${period_date}`);
+                }
+                if (percent_change !== undefined && percent_change !== null) {
+                    const changeText = percent_change > 0 ? `+${percent_change.toFixed(1)}%` : `${percent_change.toFixed(1)}%`;
+                    const changeClass = anomaly_type === 'positive' ? 'positive' : 'negative';
+                    infoParts.push(`<span class="anomaly-percent-change ${changeClass}">${changeText}</span>`);
+                }
+                if (infoParts.length > 0) {
+                    additionalInfo = `<div class="anomaly-info">${infoParts.join(' | ')}</div>`;
+                }
+            }
             
             // Use onload event to adjust iframe height dynamically
             return `
-                <div class="chart-card">
+                <div class="${cardClass}">
                     <div class="chart-card-header">
                         <h4>${title || `Chart ${id}`}</h4>
+                        ${additionalInfo}
                     </div>
                     <div class="chart-card-body">
                         ${chartType === 'maps' ? 
@@ -3243,10 +3419,25 @@
             try {
                 const doc = iframe.contentDocument || iframe.contentWindow.document;
                 if (doc && doc.body && doc.body.scrollHeight) {
-                    iframe.style.height = doc.body.scrollHeight + 'px';
+                    // For chart-section mode, use a fixed aspect ratio
+                    if (doc.body.classList.contains('chart-section-mode')) {
+                        // Use 4:3 aspect ratio for chart-section mode
+                        const width = iframe.offsetWidth;
+                        const height = width * 0.75; // 3/4 aspect ratio
+                        iframe.style.height = height + 'px';
+                    } else {
+                        // For full view mode, use the actual content height
+                        iframe.style.height = doc.body.scrollHeight + 'px';
+                    }
                 }
             } catch (err) {
                 console.warn('Unable to access iframe content for height adjustment:', err);
+                // Fallback to fixed height for chart-section mode
+                if (iframe.src && iframe.src.includes('#chart-section')) {
+                    const width = iframe.offsetWidth;
+                    const height = width * 0.75; // 3/4 aspect ratio
+                    iframe.style.height = height + 'px';
+                }
             }
         }
         
@@ -3328,21 +3519,63 @@
                     throw new Error(`API error: ${data.message}`);
                 }
                 
-                const anomalies = data.anomalies || [];
+                // Handle new API format with positive_anomalies and negative_anomalies arrays
+                let allAnomalies = [];
+                
+                // Add positive anomalies (good news - crime going down)
+                if (data.positive_anomalies && Array.isArray(data.positive_anomalies)) {
+                    allAnomalies = allAnomalies.concat(data.positive_anomalies.map(anomaly => ({
+                        ...anomaly,
+                        anomaly_type: 'positive'
+                    })));
+                }
+                
+                // Add negative anomalies (bad news - crime going up)
+                if (data.negative_anomalies && Array.isArray(data.negative_anomalies)) {
+                    allAnomalies = allAnomalies.concat(data.negative_anomalies.map(anomaly => ({
+                        ...anomaly,
+                        anomaly_type: 'negative'
+                    })));
+                }
+                
+                // Fallback to old format if new format is not present
+                if (allAnomalies.length === 0 && data.anomalies && Array.isArray(data.anomalies)) {
+                    allAnomalies = data.anomalies.map(anomaly => ({
+                        ...anomaly,
+                        anomaly_type: 'unknown'
+                    }));
+                }
                 
                 // Transform anomalies to modal format
-                return anomalies.map(anomaly => {
+                return allAnomalies.map(anomaly => {
                     // Check if DW URL exists in metadata
                     let dwUrl = null;
                     if (anomaly.metadata && typeof anomaly.metadata === 'object') {
                         dwUrl = anomaly.metadata.dw_url || null;
                     }
                     
+                    // Create a descriptive title based on the anomaly data
+                    let title = `Anomaly ${anomaly.id}`;
+                    if (anomaly.group_value) {
+                        title += ` - ${anomaly.group_value}`;
+                    }
+                    if (anomaly.group_field_name) {
+                        title += ` (${anomaly.group_field_name})`;
+                    }
+                    if (anomaly.anomaly_type === 'positive') {
+                        title += ' 📉'; // Down arrow for positive (good) anomalies
+                    } else if (anomaly.anomaly_type === 'negative') {
+                        title += ' 📈'; // Up arrow for negative (bad) anomalies
+                    }
+                    
                     return {
                         id: anomaly.id,
-                        title: `Anomaly ${anomaly.id} - ${anomaly.group_value || 'Total'}`,
-                        url: `/anomaly-analyzer/anomaly-chart?id=${anomaly.id}`,
-                        dwUrl: dwUrl
+                        title: title,
+                        url: `/anomaly-analyzer/anomaly-chart?id=${anomaly.id}#chart-section`,
+                        dwUrl: dwUrl,
+                        anomaly_type: anomaly.anomaly_type,
+                        percent_change: anomaly.percent_change,
+                        period_date: anomaly.period_date
                     };
                 });
                 

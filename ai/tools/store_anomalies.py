@@ -81,9 +81,9 @@ def create_anomalies_table(connection):
                 
                 # Create indexes
                 cursor.execute("""
-                    CREATE INDEX idx_anomalies_created_at ON anomalies (created_at);
-                    CREATE INDEX idx_anomalies_object_id ON anomalies (object_id);
-                    CREATE INDEX idx_anomalies_is_active ON anomalies (is_active);
+                    CREATE INDEX anomalies_created_at_idx ON anomalies (created_at);
+                    CREATE INDEX anomalies_object_id_idx ON anomalies (object_id);
+                    CREATE INDEX anomalies_is_active_idx ON anomalies (is_active);
                 """)
                 
                 connection.commit()
@@ -102,20 +102,22 @@ def create_anomalies_table(connection):
             if not column_exists:
                 # Add is_active column if it doesn't exist
                 cursor.execute("ALTER TABLE anomalies ADD COLUMN is_active BOOLEAN DEFAULT TRUE")
-                cursor.execute("CREATE INDEX idx_anomalies_is_active ON anomalies (is_active)")
+                cursor.execute("CREATE INDEX anomalies_is_active_idx ON anomalies (is_active)")
                 connection.commit()
                 logging.info("Added is_active column to anomalies table")
                 
-            # Check if required indexes exist
+            # Check if required indexes exist (check for both naming conventions)
             cursor.execute("""
-                SELECT EXISTS (
-                    SELECT FROM pg_indexes 
-                    WHERE tablename = 'anomalies' AND indexname = 'idx_anomalies_created_at'
+                SELECT COUNT(*) FROM pg_indexes 
+                WHERE tablename = 'anomalies' AND (
+                    indexname IN ('idx_anomalies_created_at', 'anomalies_created_at_idx') OR
+                    indexname IN ('idx_anomalies_is_active', 'anomalies_is_active_idx') OR
+                    indexname IN ('idx_anomalies_object_id', 'anomalies_object_id_idx')
                 );
             """)
-            index_exists = cursor.fetchone()[0]
+            index_count = cursor.fetchone()[0]
             
-            if not index_exists:
+            if index_count < 2:  # We expect at least 2 of the 3 main indexes
                 logging.warning("Some indexes on anomalies table may be missing. Performance might be affected.")
             
             return True
@@ -165,6 +167,9 @@ def store_anomalies_in_db(connection, results, metadata):
             
             # Also handle "DistrictX" format without spaces
             object_name = re.sub(r' - District\d+', '', object_name)
+            
+            # Handle dot format like "📞 311 Cases.0" or "📞 311 Cases.00000" - remove the dot and any digits
+            object_name = re.sub(r'\.\d+$', '', object_name)
             
             # Log the cleaned object name
             logging.info(f"Cleaned object_name: {object_name}")

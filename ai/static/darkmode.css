@@ -247,6 +247,17 @@ button:hover {
     background: var(--bg-secondary);
 }
 
+/* Logo updates for dark mode */
+[data-theme="dark"] #wordmark-logo,
+[data-theme="dark"] img[src*="wordmark.png"] {
+    content: url('/static/darkwordmark.png');
+}
+
+[data-theme="light"] #wordmark-logo,
+[data-theme="light"] img[src*="wordmark.png"] {
+    content: url('/static/wordmark.png');
+}
+
 ::-webkit-scrollbar-thumb {
     background: var(--border-secondary);
     border-radius: 4px;

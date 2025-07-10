@@ -929,32 +929,49 @@ def process_metric_analysis(metric_info, period_type='month', process_districts=
             try:
                 # Skip non-numeric or invalid districts
                 try:
-                    district_num = int(district)
-                    if district_num < 1 or district_num > 11:
+                    # Convert string floats like '2.00000' or '2.0' to int
+                    if isinstance(district, str):
+                        try:
+                            district_num = int(float(district))
+                        except Exception:
+                            district_num = int(district)
+                    else:
+                        district_num = int(district)
+                    
+                    if district_num < 0 or district_num > 11:
                         logging.warning(f"Skipping invalid district number: {district}")
                         continue
-                except (ValueError, TypeError):
-                    logging.warning(f"Skipping non-numeric district: {district}")
+                    
+                    # Process district 0 as a regular district (citywide data)
+                    if district_num == 0:
+                        logging.info(f"Processing district 0 as citywide data")
+                        
+                    logging.info(f"Processing district {district_num} (original: {district})")
+                except (ValueError, TypeError) as e:
+                    logging.warning(f"Skipping non-numeric district: {district} (error: {e})")
                     continue
                 
                 logging.info(f"Processing district {district}")
                 
                 # Create district-specific filter conditions by copying the original ones
                 district_filter_conditions = filter_conditions.copy()
-                district_filter_conditions.append({
-                    'field': 'supervisor_district',
-                    'operator': '=',
-                    'value': str(district)
-                })
+                
+                # For district 0 (citywide), don't add supervisor_district filter
+                # For other districts, add the district filter
+                if district_num != 0:
+                    district_filter_conditions.append({
+                        'field': 'supervisor_district',
+                        'operator': '=',
+                        'value': str(district)
+                    })
+                    logging.info(f"Added district filter for district {district_num}")
+                else:
+                    logging.info(f"Processing district 0 (citywide) - no district filter added")
                 
                 # Process analysis for this district
-                # For district 0 (citywide), keep supervisor_district as a category field
-                if district == 0:
-                    district_category_fields = category_fields
-                else:
-                    # For other districts, remove supervisor_district from category fields
-                    district_category_fields = [f for f in category_fields if not ((isinstance(f, dict) and f.get('fieldName') == 'supervisor_district') 
-                                    or f == 'supervisor_district')]
+                # For all districts (except 0 which we skipped), remove supervisor_district from category fields
+                district_category_fields = [f for f in category_fields if not ((isinstance(f, dict) and f.get('fieldName') == 'supervisor_district') 
+                                or f == 'supervisor_district')]
                 
                 district_result = process_single_analysis(
                     context_variables=context_variables.copy(),
@@ -1092,8 +1109,8 @@ def process_single_analysis(context_variables, category_fields, period_type, per
             logging.warning(f"Category field '{category_field_name}' not found in dataset for {query_name}")
             continue
         
-        # Skip supervisor_district if we're doing district-specific analysis (but not for district 0/citywide)
-        if district is not None and district != 0 and category_field_name == 'supervisor_district':
+        # Skip supervisor_district if we're doing district-specific analysis
+        if district is not None and category_field_name == 'supervisor_district':
             logging.info(f"Skipping supervisor_district category for district-specific analysis (district {district})")
             continue
         
@@ -1160,7 +1177,7 @@ def process_single_analysis(context_variables, category_fields, period_type, per
                 output_dir='monthly' if period_type == 'month' else 'annual',
                 object_type='dashboard_metric',
                 object_id=metric_id,  # Ensure we're using just the metric_id
-                object_name=query_name
+                object_name=base_metric_name if base_metric_name else query_name
             )
             
             # Get markdown and HTML content from anomaly results
@@ -1341,8 +1358,14 @@ def transform_query_for_period(original_query, date_field, category_fields, peri
                 if field_name:
                     # Handle supervisor_district specially
                     if field_name == 'supervisor_district':
-                        category_select += f", CASE WHEN supervisor_district IS NOT NULL THEN supervisor_district ELSE NULL END as supervisor_district"
-                        group_by_fields.append("supervisor_district")
+                        # Check if this is the 311 cases endpoint (vw6y-z8j6) and apply floor()
+                        if 'vw6y-z8j6' in original_query or 'requested_datetime' in original_query:
+                            category_select += f", floor(supervisor_district) as supervisor_district"
+                            group_by_fields.append("floor(supervisor_district)")
+                            logging.info("Applied floor() to supervisor_district for 311 cases endpoint")
+                        else:
+                            category_select += f", CASE WHEN supervisor_district IS NOT NULL THEN supervisor_district ELSE NULL END as supervisor_district"
+                            group_by_fields.append("supervisor_district")
                     else:
                         category_select += f", {field_name}"
                         group_by_fields.append(field_name)
@@ -1371,6 +1394,23 @@ def transform_query_for_period(original_query, date_field, category_fields, peri
             {group_by_clause}
             ORDER BY {period_field}
             """
+            
+            # Add district filter if specified
+            if district is not None:
+                # Add the district filter after the date conditions
+                # Check if this is the 311 cases endpoint and apply floor() to the filter
+                if 'vw6y-z8j6' in original_query or 'requested_datetime' in original_query:
+                    transformed_query = transformed_query.replace(
+                        f"ORDER BY {period_field}",
+                        f"AND floor(supervisor_district) = '{district}' ORDER BY {period_field}"
+                    )
+                    logging.info(f"Added district filter to YTD query: floor(supervisor_district) = '{district}'")
+                else:
+                    transformed_query = transformed_query.replace(
+                        f"ORDER BY {period_field}",
+                        f"AND supervisor_district = '{district}' ORDER BY {period_field}"
+                    )
+                    logging.info(f"Added district filter to YTD query: supervisor_district = '{district}'")
             
             # Make sure we're using <= consistently by directly replacing potential leftover < operators
             transformed_query = transformed_query.replace(f"{date_field_match} < '{recent_end}'", f"{date_field_match} <= '{recent_end}'")
@@ -1408,8 +1448,14 @@ def transform_query_for_period(original_query, date_field, category_fields, peri
             if field_name:
                 # Handle supervisor_district specially
                 if field_name == 'supervisor_district':
-                    category_select += f", CASE WHEN supervisor_district IS NOT NULL THEN supervisor_district ELSE NULL END as supervisor_district"
-                    category_fields_list.append("supervisor_district")
+                    # Check if this is the 311 cases endpoint (vw6y-z8j6) and apply floor()
+                    if 'vw6y-z8j6' in original_query or 'requested_datetime' in original_query:
+                        category_select += f", CASE WHEN supervisor_district IS NOT NULL THEN floor(supervisor_district) ELSE NULL END as supervisor_district"
+                        category_fields_list.append("floor(supervisor_district)")
+                        logging.info("Applied floor() to supervisor_district for 311 cases endpoint")
+                    else:
+                        category_select += f", CASE WHEN supervisor_district IS NOT NULL THEN supervisor_district ELSE NULL END as supervisor_district"
+                        category_fields_list.append("supervisor_district")
                 else:
                     category_select += f", {field_name}"
                     category_fields_list.append(field_name)
@@ -1440,8 +1486,13 @@ def transform_query_for_period(original_query, date_field, category_fields, peri
         
         # Add district filter if specified
         if district is not None:
-            date_range += f" AND supervisor_district = '{district}'"
-            logging.info(f"Added district filter to query: supervisor_district = '{district}'")
+            # Check if this is the 311 cases endpoint and apply floor() to the filter
+            if 'vw6y-z8j6' in original_query or 'requested_datetime' in original_query:
+                date_range += f" AND floor(supervisor_district) = '{district}'"
+                logging.info(f"Added district filter to query: floor(supervisor_district) = '{district}'")
+            else:
+                date_range += f" AND supervisor_district = '{district}'"
+                logging.info(f"Added district filter to query: supervisor_district = '{district}'")
         
         # Build the complete transformed query - simplified to just count records
         # Note: In Socrata API, we don't need a FROM clause
@@ -1492,8 +1543,13 @@ def transform_query_for_period(original_query, date_field, category_fields, peri
         
         # Add district filter if specified
         if district is not None and 'supervisor_district' in modified_query:
-            where_clause = where_clause.rstrip() + f" AND supervisor_district = '{district}'\n"
-            logging.info(f"Added district filter to WHERE clause: supervisor_district = '{district}'")
+            # Check if this is the 311 cases endpoint and apply floor() to the filter
+            if 'vw6y-z8j6' in original_query or 'requested_datetime' in original_query:
+                where_clause = where_clause.rstrip() + f" AND floor(supervisor_district) = '{district}'\n"
+                logging.info(f"Added district filter to WHERE clause: floor(supervisor_district) = '{district}'")
+            else:
+                where_clause = where_clause.rstrip() + f" AND supervisor_district = '{district}'\n"
+                logging.info(f"Added district filter to WHERE clause: supervisor_district = '{district}'")
     else:
         # Create a new WHERE clause with just date filters for both periods
         where_clause = f"""
@@ -1506,8 +1562,13 @@ def transform_query_for_period(original_query, date_field, category_fields, peri
         
         # Add district filter if specified
         if district is not None and 'supervisor_district' in modified_query:
-            where_clause = where_clause.rstrip() + f" AND supervisor_district = '{district}'\n"
-            logging.info(f"Added district filter to new WHERE clause: supervisor_district = '{district}'")
+            # Check if this is the 311 cases endpoint and apply floor() to the filter
+            if 'vw6y-z8j6' in original_query or 'requested_datetime' in original_query:
+                where_clause = where_clause.rstrip() + f" AND floor(supervisor_district) = '{district}'\n"
+                logging.info(f"Added district filter to new WHERE clause: floor(supervisor_district) = '{district}'")
+            else:
+                where_clause = where_clause.rstrip() + f" AND supervisor_district = '{district}'\n"
+                logging.info(f"Added district filter to new WHERE clause: supervisor_district = '{district}'")
     
     # If we have a valid FROM clause, proceed with transformation
     if from_clause:
@@ -1524,8 +1585,14 @@ def transform_query_for_period(original_query, date_field, category_fields, peri
             if field_name:
                 # Handle supervisor_district specially
                 if field_name == 'supervisor_district':
-                    category_select += f", CASE WHEN supervisor_district IS NOT NULL THEN supervisor_district ELSE NULL END as supervisor_district"
-                    category_fields_list.append("supervisor_district")
+                    # Check if this is the 311 cases endpoint (vw6y-z8j6) and apply floor()
+                    if 'vw6y-z8j6' in original_query or 'requested_datetime' in original_query:
+                        category_select += f", floor(supervisor_district) as supervisor_district"
+                        category_fields_list.append("floor(supervisor_district)")
+                        logging.info("Applied floor() to supervisor_district for 311 cases endpoint")
+                    else:
+                        category_select += f", CASE WHEN supervisor_district IS NOT NULL THEN supervisor_district ELSE NULL END as supervisor_district"
+                        category_fields_list.append("supervisor_district")
                 else:
                     category_select += f", {field_name}"
                     category_fields_list.append(field_name)
@@ -1657,50 +1724,77 @@ def main():
     for dir_name in ['monthly', 'annual']:
         os.makedirs(os.path.join(OUTPUT_DIR, dir_name), exist_ok=True)
     
-    # Load dashboard queries
-    dashboard_queries_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "dashboard", "dashboard_queries.json")
-    enhanced_queries_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "dashboard", "dashboard_queries_enhanced.json")
+    # Load metric from database
+    try:
+        from tools.db_utils import get_postgres_connection
+        import psycopg2.extras
+        
+        connection = get_postgres_connection()
+        if not connection:
+            logger.error("Database connection failed")
+            return
+        
+        cursor = connection.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        
+        # Get the metric details from the database
+        cursor.execute("""
+            SELECT 
+                m.id,
+                m.metric_name,
+                m.metric_key,
+                m.category,
+                m.subcategory,
+                m.endpoint,
+                m.summary,
+                m.definition,
+                m.data_sf_url,
+                m.ytd_query,
+                m.metric_query,
+                m.dataset_title,
+                m.dataset_category,
+                m.show_on_dash,
+                m.item_noun,
+                m.greendirection,
+                m.location_fields,
+                m.category_fields,
+                m.metadata
+            FROM metrics m
+            WHERE m.id = %s AND m.is_active = true
+        """, (metric_id,))
+        
+        metric_row = cursor.fetchone()
+        cursor.close()
+        connection.close()
+        
+        if not metric_row:
+            logger.error(f"Metric ID {metric_id} not found in database")
+            return
     
-    # Log the paths we're trying to use
-    logger.info(f"Looking for enhanced queries at: {enhanced_queries_path}")
-    logger.info(f"Looking for standard queries at: {dashboard_queries_path}")
-    
-    # Try to load enhanced queries first, fall back to regular queries
-    if os.path.exists(enhanced_queries_path):
-        logger.info("Found enhanced dashboard queries file")
-        dashboard_queries = load_json_file(enhanced_queries_path)
-        if dashboard_queries:
-            logger.info("Successfully loaded enhanced dashboard queries")
-        else:
-            logger.error("Failed to load enhanced dashboard queries")
-    else:
-        logger.warning(f"Enhanced queries file not found at {enhanced_queries_path}")
-        logger.info("Using standard dashboard queries")
-        dashboard_queries = load_json_file(dashboard_queries_path)
-        if dashboard_queries:
-            logger.info("Successfully loaded standard dashboard queries")
-        else:
-            logger.error("Failed to load standard dashboard queries")
-    
-    if not dashboard_queries:
-        logger.error("Failed to load dashboard queries")
+        # Build metric_info structure for the analysis functions
+        metric_info = {
+            'metric_id': str(metric_row['id']),
+            'query_name': metric_row['metric_name'],
+            'top_category': metric_row['category'],
+            'subcategory': metric_row['subcategory'],
+            'endpoint': metric_row['endpoint'],
+            'summary': metric_row['summary'],
+            'definition': metric_row['definition'],
+            'data_sf_url': metric_row['data_sf_url'],
+            'category_fields': metric_row['category_fields'] or [],
+            'location_fields': metric_row['location_fields'] or [],
+            'query_data': {
+                'ytd_query': metric_row['ytd_query'],
+                'metric_query': metric_row['metric_query'],
+                'id': metric_row['id'],
+                'endpoint': metric_row['endpoint']
+            }
+        }
+        
+        logger.info(f"Found metric: {metric_info['query_name']} with ID {metric_info['metric_id']} in category {metric_info['top_category']}")
+        
+    except Exception as e:
+        logger.error(f"Error loading metric from database: {str(e)}")
         return
-    
-    # Log the structure of the loaded queries
-    logger.info(f"Loaded queries structure: {list(dashboard_queries.keys())}")
-    
-    # Find the metric in the queries
-    metric_info = find_metric_in_queries(dashboard_queries, metric_id)
-    if not metric_info:
-        logger.error(f"Metric with ID '{metric_id}' not found in dashboard queries")
-        return
-    
-    # Log the found metric info
-    logger.info(f"Found metric: {metric_info.get('query_name')} with ID {metric_info.get('metric_id')} in category {metric_info.get('top_category')}")
-    
-    # Make sure metric_id is in the metric_info
-    if 'metric_id' not in metric_info:
-        metric_info['metric_id'] = metric_id
     
     # Log whether we're processing districts
     if process_districts:

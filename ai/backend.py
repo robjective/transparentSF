@@ -2779,7 +2779,8 @@ async def get_chart_data(chart_id: int):
                 object_name, 
                 field_name, 
                 district, 
-                group_field
+                group_field,
+                executed_query_url
             FROM time_series_metadata 
             WHERE chart_id = %s
         """, (chart_id,))
@@ -2826,7 +2827,10 @@ async def get_chart_data(chart_id: int):
                 "object_id": metadata_result["object_id"],
                 "object_name": metadata_result["object_name"],
                 "field_name": metadata_result["field_name"],
-                "district": metadata_result["district"]
+                "district": metadata_result["district"],
+                "executed_query_url": metadata_result.get("executed_query_url", ""),
+                "source-name": "DataSF",
+                "byline": "Chart: TransparentSF"
             }
         }
         
@@ -2983,8 +2987,13 @@ async def get_chart_by_metric(
         # Parse groups parameter if provided
         group_values = None
         if groups:
-            group_values = [g.strip() for g in groups.split(',')]
-            logger.info(f"Using specified group values: {group_values}")
+            if groups.strip() == '':
+                # Empty string means no groups should be shown
+                group_values = []
+                logger.info("Empty groups parameter - will return no data")
+            else:
+                group_values = [g.strip() for g in groups.split(',')]
+                logger.info(f"Using specified group values: {group_values}")
         
         logger.info(f"Looking for chart with object_id={metric_id}, district={district}, period_type={db_period_type}, group_field={group_field}, groups={groups}")
         
@@ -3118,7 +3127,7 @@ async def get_chart_by_metric(
         
         # Query to get chart data points
         if group_field:
-            if group_values:
+            if group_values and len(group_values) > 0:
                 # Create placeholders for the IN clause
                 placeholders = ', '.join(['%s'] * len(group_values))
                 

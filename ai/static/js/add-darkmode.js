@@ -88,6 +88,17 @@
             p, span, div {
                 color: var(--text-primary) !important;
             }
+            
+            /* Logo updates for dark mode */
+            [data-theme="dark"] #wordmark-logo,
+            [data-theme="dark"] img[src*="wordmark.png"] {
+                content: url('/static/darkwordmark.png') !important;
+            }
+            
+            [data-theme="light"] #wordmark-logo,
+            [data-theme="light"] img[src*="wordmark.png"] {
+                content: url('/static/wordmark.png') !important;
+            }
         `;
         document.head.appendChild(style);
     }
