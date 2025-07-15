@@ -35,6 +35,7 @@ from tools.genGhostPost import publish_newsletter_to_ghost
 from monthly_report import expand_chart_references, generate_email_compatible_report
 from typing import Optional
 from tools.analysis.weekly import run_weekly_analysis
+from background_jobs import job_manager
 
 # Use the root logger configured elsewhere (e.g., in monthly_report.py)
 logger = logging.getLogger(__name__)
@@ -844,14 +845,15 @@ async def generate_ytd_metrics():
     """Generate YTD metrics on demand."""
     logger.debug("Generate YTD metrics called")
     try:
-        # Import and call the main function directly instead of running as subprocess
-        # This ensures logging appears in the main process console
+        # Import and call the main function in a background thread to prevent blocking
         from generate_dashboard_metrics import main as generate_metrics_main
+        import asyncio
         
-        logger.info("Starting YTD metrics generation...")
+        logger.info("Starting YTD metrics generation in background...")
         
-        # Call the main function directly in the same process
-        generate_metrics_main()
+        # Run the main function in a thread pool to prevent blocking the web server
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, generate_metrics_main)
         
         logger.info("YTD metrics generated successfully")
         return JSONResponse({
@@ -866,6 +868,61 @@ async def generate_ytd_metrics():
         }, status_code=500)
 
 
+@router.post("/generate_ytd_metrics_async")
+async def generate_ytd_metrics_async():
+    """Generate YTD metrics asynchronously with job tracking."""
+    logger.debug("Generate YTD metrics async called")
+    try:
+        from generate_dashboard_metrics import main as generate_metrics_main
+        
+        # Create a background job
+        job_id = job_manager.create_job("ytd_metrics", "Generate YTD dashboard metrics")
+        
+        # Start the job in the background
+        asyncio.create_task(job_manager.run_job(job_id, generate_metrics_main))
+        
+        return JSONResponse({
+            "status": "success",
+            "message": "YTD metrics generation started",
+            "job_id": job_id
+        })
+    except Exception as e:
+        logger.exception(f"Error starting YTD metrics generation: {str(e)}")
+        return JSONResponse({
+            "status": "error",
+            "message": str(e)
+        }, status_code=500)
+
+
+@router.get("/jobs/{job_id}")
+async def get_job_status(job_id: str):
+    """Get the status of a background job."""
+    job = job_manager.get_job(job_id)
+    if not job:
+        return JSONResponse({
+            "status": "error",
+            "message": "Job not found"
+        }, status_code=404)
+    
+    return JSONResponse({
+        "status": "success",
+        "job": job.to_dict()
+    })
+
+
+@router.get("/jobs")
+async def list_jobs():
+    """List all background jobs."""
+    jobs = job_manager.get_all_jobs()
+    return JSONResponse({
+        "status": "success",
+        "jobs": [job.to_dict() for job in jobs.values()]
+    })
+
+
+
+
+
 @router.get("/generate_weekly_report")
 async def generate_weekly_report():
     """Generate weekly report on demand."""
@@ -874,12 +931,21 @@ async def generate_weekly_report():
         # Import the necessary functions
         from tools.analysis.weekly import run_weekly_analysis
         # from tools.analysis.weekly import generate_weekly_newsletter
+        import asyncio
         
         # Run the weekly analysis with specific metrics instead of empty list
         # Using metric IDs 1-3 as defaults, which are usually the most reliable metrics
-        logger.info("Running weekly analysis for default metrics")
+        logger.info("Running weekly analysis for default metrics in background")
         metrics_to_process = ["1", "2", "3"]  # Convert to strings as the function expects string IDs
-        results = run_weekly_analysis(metrics_list=metrics_to_process, process_districts=True)
+        
+        # Run in background thread to prevent blocking
+        loop = asyncio.get_event_loop()
+        results = await loop.run_in_executor(
+            None,
+            run_weekly_analysis,
+            metrics_to_process,
+            True  # process_districts
+        )
         
         # Generate a newsletter
         # Newsletter generation temporarily disabled
@@ -1035,13 +1101,15 @@ async def run_all_metrics(period_type: str = 'year'):
     # Handle weekly analysis separately
     if period_type == 'week':
         try:
-            logger.info("Running weekly analysis for all default metrics")
+            logger.info("Running weekly analysis for all default metrics in background")
             
             # Import necessary functions
             from tools.analysis.weekly import run_weekly_analysis
+            import asyncio
             
-            # Run the weekly analysis
-            results = run_weekly_analysis(process_districts=True)
+            # Run the weekly analysis in background thread to prevent blocking
+            loop = asyncio.get_event_loop()
+            results = await loop.run_in_executor(None, run_weekly_analysis, None, True)
             
             if results and len(results) > 0:
                 # Generate a newsletter
@@ -1449,7 +1517,7 @@ async def execute_qdrant_query(request: Request):
             'query_info': {
                 'collection': collection_name,
                 'query': query,
-                'vector_size': len(query_vector),
+                "vector_size": len(query_vector),
                 'total_points': collection_info.points_count,
                 'score_guide': {
                     '0.5+': 'Very High Relevance',

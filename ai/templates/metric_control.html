@@ -938,6 +938,55 @@
             cursor: not-allowed;
         }
         
+        .reorder-category-header {
+            background-color: var(--accent-color);
+            color: white;
+            padding: 10px 15px;
+            margin: 15px 0 10px 0;
+            border-radius: 4px;
+            font-weight: bold;
+            font-size: 14px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        .reorder-item.active {
+            border-left: 4px solid #28a745;
+        }
+        
+        .reorder-item.inactive {
+            border-left: 4px solid #6c757d;
+            opacity: 0.7;
+        }
+        
+        .metric-status {
+            font-size: 11px;
+            padding: 2px 6px;
+            border-radius: 3px;
+            margin-left: 8px;
+        }
+        
+        .metric-status.active {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        
+        .metric-status.inactive {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+        
+        .reorder-item-details span {
+            display: inline-block;
+            margin-right: 15px;
+            font-size: 11px;
+        }
+        
+        .metric-order {
+            font-weight: bold;
+            color: var(--accent-color) !important;
+        }
+        
         .drag-handle {
             font-size: 18px;
             color: #6c757d;
@@ -1627,6 +1676,16 @@
                 </div>
                 
                 <div class="metric-form-group">
+                    <label for="category">Category</label>
+                    <input type="text" id="category" name="category" required placeholder="e.g. crime, safety, economy">
+                </div>
+                
+                <div class="metric-form-group">
+                    <label for="subcategory">Subcategory</label>
+                    <input type="text" id="subcategory" name="subcategory" placeholder="e.g. Crime, Fire, Housing">
+                </div>
+                
+                <div class="metric-form-group">
                     <label for="summary">Summary</label>
                     <textarea id="summary" name="summary" required></textarea>
                 </div>
@@ -2189,6 +2248,8 @@
                 document.getElementById('metricId').value = metric.id || '';
                 document.getElementById('metricId').readOnly = true; // Make ID read-only in edit mode
                 document.getElementById('endpoint').value = metric.endpoint || '';
+                document.getElementById('category').value = metric.category || '';
+                document.getElementById('subcategory').value = metric.subcategory || '';
                 document.getElementById('summary').value = metric.summary || '';
                 document.getElementById('definition').value = metric.definition || '';
                 document.getElementById('dataSfUrl').value = metric.data_sf_url || '';
@@ -2213,6 +2274,8 @@
         async function handleMetricFormSubmission(event) {
             event.preventDefault();
             
+            console.log('Metric form submission triggered - this should not happen when running metrics');
+            
             const isEditMode = document.getElementById('isEditMode').value === 'true';
             const form = event.target;
             const formData = new FormData(form);
@@ -2225,7 +2288,16 @@
                         metricData.name = value;
                         break;
                     case 'metricId':
-                        metricData.id = value;
+                        // Only include ID for new metrics, not for editing
+                        if (!isEditMode) {
+                            metricData.id = value;
+                        }
+                        break;
+                    case 'category':
+                        metricData.category = value;
+                        break;
+                    case 'subcategory':
+                        metricData.subcategory = value;
                         break;
                     case 'dataSfUrl':
                         metricData.data_sf_url = value;
@@ -2593,15 +2665,238 @@
             metricHeaderDiv.style.display = 'block';
         }
         
-        // Placeholder functions for other functionality
+        // Metric reordering functionality
         async function loadMetricsForReordering() {
-            // Placeholder for reordering functionality
-            console.log('Loading metrics for reordering...');
+            try {
+                const loadingState = document.getElementById('reorderLoadingState');
+                const reorderList = document.getElementById('metricReorderList');
+                
+                // Show loading state
+                loadingState.style.display = 'block';
+                reorderList.innerHTML = '';
+                
+                // Fetch metrics with their current display order
+                const response = await fetch('/api/metrics-with-order');
+                if (!response.ok) {
+                    throw new Error(`Failed to fetch metrics: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                if (data.status !== 'success') {
+                    throw new Error(`API error: ${data.message}`);
+                }
+                
+                const metrics = data.metrics || [];
+                
+                // Group metrics by category
+                const groupedMetrics = metrics.reduce((acc, metric) => {
+                    if (!acc[metric.category]) {
+                        acc[metric.category] = [];
+                    }
+                    acc[metric.category].push(metric);
+                    return acc;
+                }, {});
+                
+                // Build the reorder list HTML
+                let reorderHtml = '';
+                Object.entries(groupedMetrics).forEach(([category, categoryMetrics]) => {
+                    // Sort metrics within category by display_order, then by ID
+                    categoryMetrics.sort((a, b) => {
+                        const orderA = a.display_order || 999;
+                        const orderB = b.display_order || 999;
+                        if (orderA !== orderB) {
+                            return orderA - orderB;
+                        }
+                        return a.id - b.id;
+                    });
+                    
+                    reorderHtml += `<li class="reorder-category-header">${category}</li>`;
+                    
+                    categoryMetrics.forEach((metric, index) => {
+                        const isActive = metric.is_active ? 'active' : 'inactive';
+                        const statusText = metric.is_active ? 'Active' : 'Inactive';
+                        const displayOrder = metric.display_order || 999;
+                        
+                        reorderHtml += `
+                            <li class="reorder-item ${isActive}" data-metric-id="${metric.id}" data-display-order="${displayOrder}">
+                                <div class="reorder-item-info">
+                                    <div class="reorder-item-title">
+                                        <strong>${metric.name}</strong>
+                                        <span class="metric-status ${isActive}">${statusText}</span>
+                                    </div>
+                                    <div class="reorder-item-details">
+                                        <span class="metric-id">ID: ${metric.id}</span>
+                                        <span class="metric-subcategory">${metric.subcategory}</span>
+                                        <span class="metric-endpoint">${metric.endpoint}</span>
+                                        <span class="metric-order">Order: ${displayOrder}</span>
+                                    </div>
+                                </div>
+                                <div class="reorder-item-controls">
+                                    <button type="button" class="reorder-btn" onclick="moveMetricUp(${metric.id})" ${index === 0 ? 'disabled' : ''}>
+                                        ↑
+                                    </button>
+                                    <button type="button" class="reorder-btn" onclick="moveMetricDown(${metric.id})" ${index === categoryMetrics.length - 1 ? 'disabled' : ''}>
+                                        ↓
+                                    </button>
+                                </div>
+                            </li>
+                        `;
+                    });
+                });
+                
+                reorderList.innerHTML = reorderHtml;
+                
+                // Hide loading state
+                loadingState.style.display = 'none';
+                
+            } catch (error) {
+                console.error('Error loading metrics for reordering:', error);
+                const reorderList = document.getElementById('metricReorderList');
+                reorderList.innerHTML = `
+                    <li style="color: #dc3545; padding: 20px; text-align: center;">
+                        Error loading metrics: ${error.message}
+                    </li>
+                `;
+                document.getElementById('reorderLoadingState').style.display = 'none';
+            }
         }
         
         async function saveMetricOrder() {
-            // Placeholder for save order functionality
-            console.log('Saving metric order...');
+            try {
+                const saveBtn = document.querySelector('#metricReorderModal .save-btn');
+                const originalText = saveBtn.textContent;
+                
+                // Show loading state
+                saveBtn.disabled = true;
+                saveBtn.textContent = 'Saving...';
+                
+                // Collect all metrics with their current display_order
+                const metricItems = document.querySelectorAll('#metricReorderList .reorder-item');
+                const metrics = [];
+                
+                metricItems.forEach((item, index) => {
+                    const metricId = parseInt(item.dataset.metricId);
+                    const displayOrder = parseInt(item.dataset.displayOrder);
+                    metrics.push({
+                        id: metricId,
+                        display_order: displayOrder
+                    });
+                });
+                
+                // Send update request to backend
+                const response = await fetch('/api/update-metric-order', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        metrics: metrics
+                    })
+                });
+                
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.detail || `HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const result = await response.json();
+                
+                if (result.status === 'success') {
+                    // Show success message
+                    alert(`✅ Successfully updated display order for ${metrics.length} metrics!`);
+                    
+                    // Reload the main metrics list to reflect changes
+                    await loadMetrics();
+                    
+                    // Close the modal
+                    closeMetricReorderModal();
+                } else {
+                    throw new Error(result.message || 'Unknown error occurred');
+                }
+                
+            } catch (error) {
+                console.error('Error saving metric order:', error);
+                alert(`❌ Error saving metric order: ${error.message}`);
+            } finally {
+                // Reset button state
+                const saveBtn = document.querySelector('#metricReorderModal .save-btn');
+                saveBtn.disabled = false;
+                saveBtn.textContent = originalText;
+            }
+        }
+        
+        function moveMetricUp(metricId) {
+            const currentItem = document.querySelector(`[data-metric-id="${metricId}"]`);
+            const prevItem = currentItem.previousElementSibling;
+            
+            // Skip category headers
+            if (prevItem && !prevItem.classList.contains('reorder-category-header')) {
+                // Swap display_order values
+                const currentOrder = parseInt(currentItem.dataset.displayOrder);
+                const prevOrder = parseInt(prevItem.dataset.displayOrder);
+                
+                currentItem.dataset.displayOrder = prevOrder;
+                prevItem.dataset.displayOrder = currentOrder;
+                
+                // Update the order display
+                currentItem.querySelector('.metric-order').textContent = `Order: ${prevOrder}`;
+                prevItem.querySelector('.metric-order').textContent = `Order: ${currentOrder}`;
+                
+                // Move the DOM elements
+                currentItem.parentNode.insertBefore(currentItem, prevItem);
+                
+                // Update button states
+                updateReorderButtonStates();
+            }
+        }
+        
+        function moveMetricDown(metricId) {
+            const currentItem = document.querySelector(`[data-metric-id="${metricId}"]`);
+            const nextItem = currentItem.nextElementSibling;
+            
+            // Skip category headers
+            if (nextItem && !nextItem.classList.contains('reorder-category-header')) {
+                // Swap display_order values
+                const currentOrder = parseInt(currentItem.dataset.displayOrder);
+                const nextOrder = parseInt(nextItem.dataset.displayOrder);
+                
+                currentItem.dataset.displayOrder = nextOrder;
+                nextItem.dataset.displayOrder = currentOrder;
+                
+                // Update the order display
+                currentItem.querySelector('.metric-order').textContent = `Order: ${nextOrder}`;
+                nextItem.querySelector('.metric-order').textContent = `Order: ${currentOrder}`;
+                
+                // Move the DOM elements
+                currentItem.parentNode.insertBefore(nextItem, currentItem);
+                
+                // Update button states
+                updateReorderButtonStates();
+            }
+        }
+        
+        function updateReorderButtonStates() {
+            const metricItems = document.querySelectorAll('#metricReorderList .reorder-item');
+            
+            metricItems.forEach((item, index) => {
+                const upBtn = item.querySelector('.reorder-btn:first-child');
+                const downBtn = item.querySelector('.reorder-btn:last-child');
+                
+                // Find the previous and next items (skipping category headers)
+                let prevItem = item.previousElementSibling;
+                while (prevItem && prevItem.classList.contains('reorder-category-header')) {
+                    prevItem = prevItem.previousElementSibling;
+                }
+                
+                let nextItem = item.nextElementSibling;
+                while (nextItem && nextItem.classList.contains('reorder-category-header')) {
+                    nextItem = nextItem.nextElementSibling;
+                }
+                
+                // Update button states
+                upBtn.disabled = !prevItem;
+                downBtn.disabled = !nextItem;
+            });
         }
         
         async function loadColumns(metricId) {
@@ -2773,10 +3068,21 @@
             const districtId = document.getElementById('district-select').value;
             const generateMetricsBtn = document.getElementById('generate-metrics-btn');
             const progressContainer = document.getElementById('generate-progress');
-            const progressBar = progressContainer.querySelector('.progress-bar-fill');
-            const progressStatus = progressContainer.querySelector('.progress-status');
+            const progressBar = progressContainer?.querySelector('.progress-bar-fill');
+            const progressStatus = progressContainer?.querySelector('.progress-status');
             const progressLog = document.getElementById('progress-log');
             const generateStatus = document.getElementById('generate-status');
+            
+            // Check if required elements exist
+            if (!progressContainer || !progressBar || !progressStatus) {
+                console.error('Required progress elements not found:', {
+                    progressContainer: !!progressContainer,
+                    progressBar: !!progressBar,
+                    progressStatus: !!progressStatus
+                });
+                alert('Error: Progress UI elements not found. Please refresh the page and try again.');
+                return;
+            }
             
             // Check if we're running all metrics for weekly analysis
             if (metricId === 'all' && periodType === 'week') {
@@ -2838,7 +3144,7 @@
                         const progressPercent = ((i + 1) / allMetrics.length) * 100;
                         
                         progressStatus.textContent = `Processing metric ${i + 1}/${allMetrics.length}: ${metric.name}`;
-                        progressBar.style.width = `${progressPercent}%`;
+                        updateProgressBar(progressBar, `${progressPercent}%`);
                         addLogEntry(`Starting weekly analysis for metric ${metric.id} (${metric.name})...`, 'info');
                         
                         try {
@@ -2858,32 +3164,31 @@
                         }
                     }
                     
-                    progressBar.style.width = '100%';
+                    updateProgressBar(progressBar, '100%');
                     progressStatus.textContent = 'Weekly analysis completed for all metrics';
                     addLogEntry(`Weekly analysis completed. Successful: ${successful}, Failed: ${failed}`, 'success');
                     
-                    generateStatus.innerHTML = `
-                        <div style="color: #28a745;">
-                            <h4>✅ Weekly Analysis Complete</h4>
-                            <p>Weekly analysis completed for all metrics</p>
-                            <p>Successful: ${successful}, Failed: ${failed}</p>
-                            <p><a href="/weekly-report" target="_blank">View Weekly Report</a></p>
-                        </div>
-                    `;
+                                    updateGenerateStatus(generateStatus, `
+                    <div style="color: #28a745;">
+                        <h4>✅ Weekly Analysis Complete</h4>
+                        <p>Weekly analysis completed for all metrics</p>
+                        <p>Successful: ${successful}, Failed: ${failed}</p>
+                        <p><a href="/weekly-report" target="_blank">View Weekly Report</a></p>
+                    </div>
+                `);
                     
                 } catch (error) {
                     console.error('Error generating weekly analysis for all metrics:', error);
-                    progressBar.style.width = '100%';
-                    progressBar.style.backgroundColor = '#dc3545';
+                    updateProgressBar(progressBar, '100%', '#dc3545');
                     progressStatus.textContent = `Error: ${error.message}`;
                     addLogEntry(`Error: ${error.message}`, 'error');
                     
-                    generateStatus.innerHTML = `
+                    updateGenerateStatus(generateStatus, `
                         <div style="color: #dc3545;">
                             <h4>❌ Error</h4>
                             <p>An error occurred while generating weekly analysis: ${error.message}</p>
                         </div>
-                    `;
+                    `);
                 } finally {
                     generateMetricsBtn.classList.remove('loading');
                     generateMetricsBtn.disabled = false;
@@ -2898,7 +3203,7 @@
                     generateMetricsBtn.classList.add('loading');
                     generateMetricsBtn.disabled = true;
                     progressContainer.style.display = 'block';
-                    progressBar.style.width = '0%';
+                    updateProgressBar(progressBar, '0%');
                     progressStatus.textContent = 'Initializing monthly analysis for all metrics...';
                     progressLog.innerHTML = '';
                     
@@ -2951,7 +3256,7 @@
                         const progressPercent = ((i + 1) / allMetrics.length) * 100;
                         
                         progressStatus.textContent = `Processing metric ${i + 1}/${allMetrics.length}: ${metric.name}`;
-                        progressBar.style.width = `${progressPercent}%`;
+                        updateProgressBar(progressBar, `${progressPercent}%`);
                         addLogEntry(`Starting monthly analysis for metric ${metric.id} (${metric.name})...`, 'info');
                         
                         try {
@@ -2971,7 +3276,7 @@
                         }
                     }
                     
-                    progressBar.style.width = '100%';
+                    updateProgressBar(progressBar, '100%');
                     progressStatus.textContent = 'Monthly analysis completed for all metrics';
                     addLogEntry(`Monthly analysis completed. Successful: ${successful}, Failed: ${failed}`, 'success');
                     
@@ -2986,8 +3291,7 @@
                     
                 } catch (error) {
                     console.error('Error generating monthly analysis for all metrics:', error);
-                    progressBar.style.width = '100%';
-                    progressBar.style.backgroundColor = '#dc3545';
+                    updateProgressBar(progressBar, '100%', '#dc3545');
                     progressStatus.textContent = `Error: ${error.message}`;
                     addLogEntry(`Error: ${error.message}`, 'error');
                     
@@ -3064,7 +3368,7 @@
                         const progressPercent = ((i + 1) / allMetrics.length) * 100;
                         
                         progressStatus.textContent = `Processing metric ${i + 1}/${allMetrics.length}: ${metric.name}`;
-                        progressBar.style.width = `${progressPercent}%`;
+                        updateProgressBar(progressBar, `${progressPercent}%`);
                         addLogEntry(`Starting annual analysis for metric ${metric.id} (${metric.name})...`, 'info');
                         
                         try {
@@ -3084,7 +3388,7 @@
                         }
                     }
                     
-                    progressBar.style.width = '100%';
+                    updateProgressBar(progressBar, '100%');
                     progressStatus.textContent = 'Annual analysis completed for all metrics';
                     addLogEntry(`Annual analysis completed. Successful: ${successful}, Failed: ${failed}`, 'success');
                     
@@ -3099,8 +3403,7 @@
                     
                 } catch (error) {
                     console.error('Error generating annual analysis for all metrics:', error);
-                    progressBar.style.width = '100%';
-                    progressBar.style.backgroundColor = '#dc3545';
+                    updateProgressBar(progressBar, '100%', '#dc3545');
                     progressStatus.textContent = `Error: ${error.message}`;
                     addLogEntry(`Error: ${error.message}`, 'error');
                     
@@ -3119,13 +3422,15 @@
             
             // Original logic for specific metrics
             if (!metricId || metricId === 'all') {
-                generateStatus.style.display = 'block';
-                generateStatus.innerHTML = `
+                if (generateStatus) {
+                    generateStatus.style.display = 'block';
+                                    updateGenerateStatus(generateStatus, `
                     <div style="color: #dc3545;">
                         <h4>❌ Error</h4>
                         <p>Please select a specific metric first</p>
                     </div>
-                `;
+                `);
+                }
                 return;
             }
             
@@ -3134,7 +3439,7 @@
                 generateMetricsBtn.classList.add('loading');
                 generateMetricsBtn.disabled = true;
                 progressContainer.style.display = 'block';
-                progressBar.style.width = '0%';
+                updateProgressBar(progressBar, '0%');
                 progressStatus.textContent = 'Initializing metric generation...';
                 progressLog.innerHTML = '';
                 
@@ -3144,33 +3449,51 @@
                 // Handle different period types
                 if (periodType === 'both') {
                     // First run monthly analysis
-                    progressStatus.textContent = 'Running monthly analysis...';
-                    progressBar.style.width = '25%';
+                    progressStatus.textContent = 'Starting monthly analysis...';
+                    updateProgressBar(progressBar, '25%');
                     addLogEntry(`Starting monthly analysis for metric ${metricId} in district ${districtId}...`, 'info');
                     
-                    const monthlyResponse = await fetch(`/backend/run_specific_metric?metric_id=${metricId}&district_id=${districtId}&period_type=month`);
+                    const monthlyResponse = await fetch('/run_specific_metric_async', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            metric_id: metricId,
+                            district_id: districtId,
+                            period_type: 'month'
+                        })
+                    });
                     const monthlyData = await monthlyResponse.json();
                     if (monthlyData.status !== 'success') {
                         throw new Error(`Monthly analysis failed: ${monthlyData.message}`);
                     }
                     
-                    progressBar.style.width = '50%';
-                    addLogEntry('Monthly analysis completed successfully', 'success');
+                    // Poll for monthly job completion
+                    const monthlyJobId = monthlyData.job_id;
+                    await pollJobCompletion(monthlyJobId, 'monthly analysis', 25, 50);
                     
                     // Then run annual analysis
-                    progressStatus.textContent = 'Running annual analysis...';
+                    progressStatus.textContent = 'Starting annual analysis...';
                     addLogEntry(`Starting annual analysis for metric ${metricId} in district ${districtId}...`, 'info');
                     
-                    const annualResponse = await fetch(`/backend/run_specific_metric?metric_id=${metricId}&district_id=${districtId}&period_type=year`);
+                    const annualResponse = await fetch('/run_specific_metric_async', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            metric_id: metricId,
+                            district_id: districtId,
+                            period_type: 'year'
+                        })
+                    });
                     const annualData = await annualResponse.json();
                     if (annualData.status !== 'success') {
                         throw new Error(`Annual analysis failed: ${annualData.message}`);
                     }
                     
-                    progressBar.style.width = '100%';
-                    progressStatus.textContent = 'Monthly and annual analysis completed successfully';
-                    addLogEntry('Annual analysis completed successfully', 'success');
+                    // Poll for annual job completion
+                    const annualJobId = annualData.job_id;
+                    await pollJobCompletion(annualJobId, 'annual analysis', 50, 100);
                     
+                    progressStatus.textContent = 'Monthly and annual analysis completed successfully';
                     generateStatus.innerHTML = `
                         <div style="color: #28a745;">
                             <h4>✅ Generation Complete</h4>
@@ -3179,18 +3502,27 @@
                     `;
                 } else if (periodType === 'week') {
                     // Weekly analysis for individual metric
-                    progressStatus.textContent = 'Running weekly analysis...';
-                    progressBar.style.width = '50%';
+                    progressStatus.textContent = 'Starting weekly analysis...';
+                    updateProgressBar(progressBar, '50%');
                     addLogEntry(`Starting weekly analysis for metric ${metricId} in district ${districtId}...`, 'info');
                     
-                    const response = await fetch(`/backend/run_specific_metric?metric_id=${metricId}&district_id=${districtId}&period_type=week`);
+                    const response = await fetch('/run_specific_metric_async', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            metric_id: metricId,
+                            district_id: districtId,
+                            period_type: 'week'
+                        })
+                    });
                     const data = await response.json();
                     
                     if (data.status === 'success') {
-                        progressBar.style.width = '100%';
-                        progressStatus.textContent = 'Weekly analysis completed successfully';
-                        addLogEntry('Weekly analysis completed successfully', 'success');
+                        // Poll for job completion
+                        const jobId = data.job_id;
+                        await pollJobCompletion(jobId, 'weekly analysis', 50, 100);
                         
+                        progressStatus.textContent = 'Weekly analysis completed successfully';
                         generateStatus.innerHTML = `
                             <div style="color: #28a745;">
                                 <h4>✅ Weekly Analysis Complete</h4>
@@ -3203,18 +3535,27 @@
                     }
                 } else {
                     // Single period type analysis
-                    progressStatus.textContent = `Running ${periodType} analysis...`;
-                    progressBar.style.width = '50%';
+                    progressStatus.textContent = `Starting ${periodType} analysis...`;
+                    updateProgressBar(progressBar, '50%');
                     addLogEntry(`Starting ${periodType} analysis for metric ${metricId} in district ${districtId}...`, 'info');
                     
-                    const response = await fetch(`/backend/run_specific_metric?metric_id=${metricId}&district_id=${districtId}&period_type=${periodType}`);
+                    const response = await fetch('/run_specific_metric_async', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            metric_id: metricId,
+                            district_id: districtId,
+                            period_type: periodType
+                        })
+                    });
                     const data = await response.json();
                     
                     if (data.status === 'success') {
-                        progressBar.style.width = '100%';
-                        progressStatus.textContent = `${periodType} analysis completed successfully`;
-                        addLogEntry(`${periodType} analysis completed successfully`, 'success');
+                        // Poll for job completion
+                        const jobId = data.job_id;
+                        await pollJobCompletion(jobId, `${periodType} analysis`, 50, 100);
                         
+                        progressStatus.textContent = `${periodType} analysis completed successfully`;
                         generateStatus.innerHTML = `
                             <div style="color: #28a745;">
                                 <h4>✅ Generation Complete</h4>
@@ -3231,26 +3572,48 @@
                 
             } catch (error) {
                 console.error('Error generating metrics:', error);
-                progressBar.style.width = '100%';
-                progressBar.style.backgroundColor = '#dc3545';
+                updateProgressBar(progressBar, '100%', '#dc3545');
                 progressStatus.textContent = `Error: ${error.message}`;
                 addLogEntry(`Error: ${error.message}`, 'error');
                 
-                generateStatus.innerHTML = `
+                updateGenerateStatus(generateStatus, `
                     <div style="color: #dc3545;">
                         <h4>❌ Error</h4>
                         <p>An error occurred while generating metrics: ${error.message}</p>
                     </div>
-                `;
+                `);
             } finally {
                 generateMetricsBtn.classList.remove('loading');
                 generateMetricsBtn.disabled = false;
             }
         }
         
+        // Helper function to safely update progress bar
+        function updateProgressBar(progressBar, width, backgroundColor = null) {
+            if (progressBar && progressBar.style) {
+                progressBar.style.width = width;
+                if (backgroundColor) {
+                    progressBar.style.backgroundColor = backgroundColor;
+                }
+            }
+        }
+        
+        // Helper function to safely update generate status
+        function updateGenerateStatus(generateStatus, html) {
+            if (generateStatus) {
+                generateStatus.style.display = 'block';
+                generateStatus.innerHTML = html;
+            }
+        }
+        
         // Function to add a log entry with timestamp
         function addLogEntry(message, type = 'info') {
             const progressLog = document.getElementById('progress-log');
+            if (!progressLog) {
+                console.warn('Progress log element not found, cannot add log entry');
+                return;
+            }
+            
             const now = new Date();
             const timeString = now.toLocaleTimeString();
             
@@ -3260,6 +3623,59 @@
             
             progressLog.appendChild(logEntry);
             progressLog.scrollTop = progressLog.scrollHeight;
+        }
+        
+        // Function to poll for job completion
+        async function pollJobCompletion(jobId, jobName, startProgress, endProgress) {
+            const progressContainer = document.getElementById('generate-progress');
+            const progressStatus = progressContainer?.querySelector('.progress-status');
+            const progressBar = progressContainer?.querySelector('.progress-bar-fill');
+            
+            // Check if required elements exist
+            if (!progressContainer || !progressStatus || !progressBar) {
+                console.error('Required progress elements not found for job polling');
+                throw new Error('Progress UI elements not found');
+            }
+            
+            return new Promise((resolve, reject) => {
+                const pollInterval = setInterval(async () => {
+                    try {
+                        const response = await fetch(`/backend/jobs/${jobId}`);
+                        const data = await response.json();
+                        
+                        if (data.status === 'success') {
+                            const job = data.job;
+                            
+                            if (job.status === 'running') {
+                                const progress = startProgress + (endProgress - startProgress) * (job.progress / 100);
+                                updateProgressBar(progressBar, `${progress}%`);
+                                progressStatus.textContent = `Running ${jobName}... (${job.progress}%)`;
+                            } else if (job.status === 'completed') {
+                                clearInterval(pollInterval);
+                                updateProgressBar(progressBar, `${endProgress}%`);
+                                progressStatus.textContent = `${jobName} completed successfully`;
+                                addLogEntry(`${jobName} completed successfully`, 'success');
+                                resolve(job.result);
+                            } else if (job.status === 'failed') {
+                                clearInterval(pollInterval);
+                                throw new Error(job.error || `${jobName} failed`);
+                            }
+                        } else {
+                            clearInterval(pollInterval);
+                            throw new Error('Failed to get job status');
+                        }
+                    } catch (error) {
+                        clearInterval(pollInterval);
+                        reject(error);
+                    }
+                }, 2000); // Poll every 2 seconds
+                
+                // Set a timeout to stop polling after 10 minutes
+                setTimeout(() => {
+                    clearInterval(pollInterval);
+                    reject(new Error(`${jobName} timed out`));
+                }, 600000);
+            });
         }
         
         // Charts modal functions
@@ -3308,6 +3724,8 @@
             try {
                 let charts = [];
                 
+                console.log(`Loading charts for periodType: ${periodType}, chartType: ${chartType}, metricId: ${metricId}, districtId: ${districtId}`);
+                
                 if (chartType === 'time-series') {
                     charts = await loadTimeSeriesChartsForModal(metricId, districtId, periodType);
                 } else if (chartType === 'anomalies') {
@@ -3315,6 +3733,8 @@
                 } else if (chartType === 'maps') {
                     charts = await loadMapsForModal(metricId);
                 }
+                
+                console.log(`Charts loaded: ${charts.length}`, charts);
                 
                 if (charts.length > 0) {
                     let chartsHtml = '';
@@ -3507,6 +3927,8 @@
                 if (periodType === 'weekly') apiPeriodType = 'week';
                 if (periodType === 'day') apiPeriodType = 'day'; // YTD charts use 'day' period type
                 
+                console.log(`Loading anomalies for metricId: ${metricId}, districtId: ${districtId}, periodType: ${periodType}, apiPeriodType: ${apiPeriodType}`);
+                
                 const response = await fetch(`/anomaly-analyzer/api/query-anomalies?object_id=${metricId}&district=${districtId}&period_type=${apiPeriodType}&only_anomalies=true&only_active=true&limit=10`);
                 
                 if (!response.ok) {
@@ -3514,6 +3936,7 @@
                 }
                 
                 const data = await response.json();
+                console.log('API response data:', data);
                 
                 if (data.status === "error") {
                     throw new Error(`API error: ${data.message}`);
@@ -3524,6 +3947,7 @@
                 
                 // Add positive anomalies (good news - crime going down)
                 if (data.positive_anomalies && Array.isArray(data.positive_anomalies)) {
+                    console.log(`Found ${data.positive_anomalies.length} positive anomalies`);
                     allAnomalies = allAnomalies.concat(data.positive_anomalies.map(anomaly => ({
                         ...anomaly,
                         anomaly_type: 'positive'
@@ -3532,6 +3956,7 @@
                 
                 // Add negative anomalies (bad news - crime going up)
                 if (data.negative_anomalies && Array.isArray(data.negative_anomalies)) {
+                    console.log(`Found ${data.negative_anomalies.length} negative anomalies`);
                     allAnomalies = allAnomalies.concat(data.negative_anomalies.map(anomaly => ({
                         ...anomaly,
                         anomaly_type: 'negative'
@@ -3540,14 +3965,17 @@
                 
                 // Fallback to old format if new format is not present
                 if (allAnomalies.length === 0 && data.anomalies && Array.isArray(data.anomalies)) {
+                    console.log(`Found ${data.anomalies.length} anomalies in old format`);
                     allAnomalies = data.anomalies.map(anomaly => ({
                         ...anomaly,
                         anomaly_type: 'unknown'
                     }));
                 }
                 
+                console.log(`Total anomalies found: ${allAnomalies.length}`);
+                
                 // Transform anomalies to modal format
-                return allAnomalies.map(anomaly => {
+                const transformedAnomalies = allAnomalies.map(anomaly => {
                     // Check if DW URL exists in metadata
                     let dwUrl = null;
                     if (anomaly.metadata && typeof anomaly.metadata === 'object') {
@@ -3578,6 +4006,9 @@
                         period_date: anomaly.period_date
                     };
                 });
+                
+                console.log('Transformed anomalies:', transformedAnomalies);
+                return transformedAnomalies;
                 
             } catch (error) {
                 console.error('Error loading anomaly charts:', error);

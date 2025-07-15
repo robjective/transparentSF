@@ -5,10 +5,25 @@ from datetime import datetime, date, timedelta
 import uuid
 import logging
 from typing import Dict, Any
-from tools.genAggregate import aggregate_data
-from tools.anomaly_detection import filter_data_by_date_and_conditions
-from tools.store_time_series import store_time_series_in_db
-from tools.db_utils import execute_with_connection
+import sys
+
+# Add current directory to path for direct script execution
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
+# Handle imports for both direct execution and package import
+try:
+    # Try relative imports first (for package import)
+    from .genAggregate import aggregate_data
+    from .anomaly_detection import filter_data_by_date_and_conditions
+    from .store_time_series import store_time_series_in_db
+    from .db_utils import execute_with_connection
+except ImportError:
+    # Fall back to absolute imports (for direct script execution)
+    from genAggregate import aggregate_data
+    from anomaly_detection import filter_data_by_date_and_conditions
+    from store_time_series import store_time_series_in_db
+    from db_utils import execute_with_connection
+
 import plotly.graph_objects as go
 
 # Configure logging

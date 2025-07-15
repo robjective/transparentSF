@@ -1300,6 +1300,68 @@ async def get_top_metric_changes(
             
             logger.info(f"Processing chart_id {chart_id} - comparing periods {latest_period} and {previous_period}")
             
+            # Check for stale data by comparing most_recent_data_date with recent_period.end
+            stale_data_warning = None
+            if chart['object_id'] and chart['object_id'] != 'unknown':
+                try:
+                    # Get the most_recent_data_date from metrics table
+                    cursor.execute("""
+                        SELECT most_recent_data_date 
+                        FROM metrics 
+                        WHERE id = %s
+                        LIMIT 1
+                    """, [chart['object_id']])
+                    metric_result = cursor.fetchone()
+                    
+                    if metric_result and metric_result['most_recent_data_date']:
+                        # Get the recent_period.end from time_series_metadata metadata column
+                        cursor.execute("""
+                            SELECT metadata 
+                            FROM time_series_metadata 
+                            WHERE chart_id = %s
+                            LIMIT 1
+                        """, [chart_id])
+                        metadata_result = cursor.fetchone()
+                        
+                        if metadata_result and metadata_result['metadata']:
+                            metadata = metadata_result['metadata']
+                            if isinstance(metadata, str):
+                                import json
+                                try:
+                                    metadata = json.loads(metadata)
+                                except json.JSONDecodeError:
+                                    metadata = {}
+                            
+                            # Look for the end date in filter_conditions (the condition with operator "<=")
+                            filter_conditions = metadata.get('filter_conditions', [])
+                            expected_end_date = None
+                            
+                            for condition in filter_conditions:
+                                if condition.get('operator') == '<=' and condition.get('is_date', False):
+                                    end_date_str = condition.get('value')
+                                    if end_date_str:
+                                        try:
+                                            if 'T' in end_date_str:
+                                                expected_end_date = datetime.fromisoformat(end_date_str.replace('Z', '+00:00')).date()
+                                            else:
+                                                expected_end_date = datetime.strptime(end_date_str, '%Y-%m-%d').date()
+                                            break
+                                        except ValueError:
+                                            try:
+                                                expected_end_date = datetime.strptime(end_date_str, '%Y-%m').date()
+                                                break
+                                            except ValueError:
+                                                continue
+                            
+                            # Compare dates
+                            if expected_end_date and metric_result['most_recent_data_date'] < expected_end_date:
+                                days_stale = (expected_end_date - metric_result['most_recent_data_date']).days
+                                stale_data_warning = f"Data is {days_stale} days stale (most recent: {metric_result['most_recent_data_date']}, expected: {expected_end_date})"
+                                logger.warning(f"Stale data detected for chart {chart_id} ({chart['object_name']}): {stale_data_warning}")
+                                    
+                except Exception as e:
+                    logger.warning(f"Error checking stale data for chart {chart_id}: {e}")
+            
             # Get the data for both periods and join them
             data_query = """
             WITH latest AS (
@@ -1429,6 +1491,11 @@ async def get_top_metric_changes(
                     except (ValueError, TypeError) as e:
                         logger.error(f"Error processing citywide changes data: {e}")
                 result['citywide_changes'] = citywide_changes
+                
+                # Add stale data warning if detected
+                if stale_data_warning:
+                    result['stale_data_warning'] = stale_data_warning
+                    logger.warning(f"Adding stale data warning to result: {stale_data_warning}")
                     
                 # Log the values for debugging
                 logger.info(f"Result for chart {chart_id}: {result['object_name']} - Previous: {result['previous_value']} ({result['previous_period']}), Recent: {result['recent_value']} ({result['recent_period']}), Delta: {result['delta']}, greendirection: {result['greendirection']}, citywide_changes: {citywide_changes}")
@@ -1448,6 +1515,7 @@ async def get_top_metric_changes(
                     "object_id": object_id,
                     "district": district,
                     "report_date": report_date.isoformat(),
+                    "stale_data_warnings": 0,
                     "positive_changes": [],
                     "negative_changes": []
                 }
@@ -1524,12 +1592,22 @@ async def get_top_metric_changes(
                 if 'citywide_changes' not in item:
                     item['citywide_changes'] = ""
                 
+                # Ensure stale_data_warning is included
+                if 'stale_data_warning' not in item:
+                    item['stale_data_warning'] = None
+                
                 formatted.append(item)
             return formatted
             
         # Format the results
         positive_formatted = process_results(positive_changes)
         negative_formatted = process_results(negative_changes)
+        
+        # Count stale data warnings
+        stale_data_count = 0
+        for result in positive_formatted + negative_formatted:
+            if result.get('stale_data_warning'):
+                stale_data_count += 1
         
         cursor.close()
         conn.close()
@@ -1542,6 +1620,7 @@ async def get_top_metric_changes(
                 "object_id": object_id,
                 "district": district,
                 "report_date": report_date.isoformat(),
+                "stale_data_warnings": stale_data_count,
                 "positive_changes": positive_formatted,
                 "negative_changes": negative_formatted
             }
@@ -2484,6 +2563,207 @@ async def anomaly_chart_page(request: Request):
         return templates_local.TemplateResponse("anomaly_chart.html", {"request": request})
     
     return templates.TemplateResponse("anomaly_chart.html", {"request": request})
+
+@router.post("/api/add-to-monthly-report")
+async def add_to_monthly_report(request: Request):
+    """
+    Add an item from the anomaly analyzer to a monthly report.
+    Creates a new monthly report if one doesn't exist for the current month.
+    """
+    try:
+        data = await request.json()
+        item_data = data.get("item_data", {})
+        report_title = data.get("report_title", "")
+        district = data.get("district", "0")
+        period_type = data.get("period_type", "month")
+        
+        logger.info(f"Adding item to monthly report: {item_data.get('object_name', 'Unknown')}")
+        
+        # Import the monthly report functions
+        from .monthly_report import (
+            initialize_monthly_reporting_table, 
+            store_prioritized_items,
+            get_monthly_reports_list
+        )
+        
+        # Initialize the monthly reporting table
+        init_result = initialize_monthly_reporting_table()
+        if not init_result:
+            return JSONResponse(
+                status_code=500,
+                content={"status": "error", "message": "Failed to initialize monthly reporting table"}
+            )
+        
+        # Get current date
+        from datetime import datetime
+        report_date = datetime.now().date()
+        
+        # Check if a report already exists for this month and district
+        existing_reports = get_monthly_reports_list()
+        existing_report = None
+        
+        for report in existing_reports:
+            if (report.get("district") == district and 
+                report.get("period_type") == period_type):
+                # Check if it's from the current month
+                report_date_str = report.get("report_date", "")
+                if report_date_str:
+                    try:
+                        report_datetime = datetime.fromisoformat(report_date_str.replace('Z', '+00:00'))
+                        if (report_datetime.year == report_date.year and 
+                            report_datetime.month == report_date.month):
+                            existing_report = report
+                            break
+                    except:
+                        continue
+        
+        # Create the item data in the format expected by store_prioritized_items
+        prioritized_item = {
+            "metric": item_data.get("object_name", "Unknown Metric"),
+            "metric_id": item_data.get("id", "Unknown"),
+            "group": item_data.get("group_value", "All"),
+            "recent_mean": float(item_data.get("recent_value", 0)),
+            "comparison_mean": float(item_data.get("previous_value", 0)),
+            "difference_value": float(item_data.get("delta", 0)),
+            "difference": float(item_data.get("delta", 0)),
+            "district": district,
+            "change_type": "positive" if float(item_data.get("delta", 0)) > 0 else "negative",
+            "percent_change": float(item_data.get("percent_change", 0)),
+            "greendirection": "up",  # Default, could be enhanced to get from metrics table
+            "citywide_changes": "",
+            "priority": 1,  # High priority since user manually selected it
+            "explanation": f"Manually added from anomaly analyzer on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+            "trend_analysis": "",
+            "follow_up": ""
+        }
+        
+        # Add anomaly-specific metadata if this is an anomaly
+        if item_data.get("type") == "anomaly":
+            prioritized_item["metadata"] = {
+                "anomaly_id": item_data.get("anomaly_id"),
+                "source": "anomaly_analyzer",
+                "added_manually": True,
+                "added_at": datetime.now().isoformat()
+            }
+        else:
+            prioritized_item["metadata"] = {
+                "source": "anomaly_analyzer",
+                "added_manually": True,
+                "added_at": datetime.now().isoformat()
+            }
+        
+        if existing_report:
+            # Add to existing report
+            logger.info(f"Adding item to existing report: {existing_report.get('id')}")
+            
+            # Import database utilities
+            from .tools.db_utils import execute_with_connection
+            import os
+            
+            def add_to_existing_report_operation(connection):
+                cursor = connection.cursor()
+                
+                # Get the next priority number for this report
+                cursor.execute("""
+                    SELECT COALESCE(MAX(priority), 0) + 1 
+                    FROM monthly_reporting 
+                    WHERE report_id = %s
+                """, (existing_report["id"],))
+                
+                next_priority = cursor.fetchone()[0]
+                
+                # Create item title
+                metric_name = prioritized_item["metric"]
+                group_value = prioritized_item["group"]
+                item_title = f"{metric_name} - {group_value}" if group_value != "All" else metric_name
+                
+                # Insert the new record
+                cursor.execute("""
+                    INSERT INTO monthly_reporting (
+                        report_id, report_date, item_title, metric_name, metric_id, group_value, group_field_name, 
+                        period_type, comparison_mean, recent_mean, difference, 
+                        percent_change, rationale, explanation, priority, district, metadata
+                    ) VALUES (
+                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                    ) RETURNING id
+                """, (
+                    existing_report["id"],
+                    report_date,
+                    item_title,
+                    prioritized_item["metric"],
+                    prioritized_item["metric_id"],
+                    prioritized_item["group"],
+                    "group",
+                    period_type,
+                    prioritized_item["comparison_mean"],
+                    prioritized_item["recent_mean"],
+                    prioritized_item["difference"],
+                    prioritized_item["percent_change"],
+                    prioritized_item["explanation"],
+                    "",  # explanation: will be filled in by generate_explanations
+                    next_priority,
+                    district,
+                    json.dumps(prioritized_item["metadata"])
+                ))
+                
+                inserted_id = cursor.fetchone()[0]
+                connection.commit()
+                cursor.close()
+                return inserted_id
+            
+            # Execute the operation
+            result = execute_with_connection(
+                operation=add_to_existing_report_operation,
+                db_host=os.getenv("POSTGRES_HOST", "localhost"),
+                db_port=int(os.getenv("POSTGRES_PORT", "5432")),
+                db_name=os.getenv("POSTGRES_DB", "transparentsf"),
+                db_user=os.getenv("POSTGRES_USER", "postgres"),
+                db_password=os.getenv("POSTGRES_PASSWORD", "postgres")
+            )
+            
+            if result["status"] != "success":
+                return JSONResponse(
+                    status_code=500,
+                    content={"status": "error", "message": f"Failed to add item to existing report: {result['message']}"}
+                )
+            
+            return JSONResponse(content={
+                "status": "success",
+                "message": f"Successfully added '{prioritized_item['metric']}' to existing monthly report",
+                "report_id": existing_report["id"],
+                "item_id": result["result"]
+            })
+            
+        else:
+            # Create a new report
+            logger.info("Creating new monthly report")
+            
+            # Store the prioritized item (this will create a new report)
+            store_result = store_prioritized_items(
+                [prioritized_item],
+                period_type=period_type,
+                district=district
+            )
+            
+            if store_result.get("status") != "success":
+                return JSONResponse(
+                    status_code=500,
+                    content={"status": "error", "message": f"Failed to create new report: {store_result.get('message')}"}
+                )
+            
+            return JSONResponse(content={
+                "status": "success",
+                "message": f"Successfully created new monthly report and added '{prioritized_item['metric']}'",
+                "report_id": store_result.get("report_id"),
+                "item_id": store_result.get("inserted_ids", [None])[0]
+            })
+            
+    except Exception as e:
+        logger.error(f"Error adding item to monthly report: {str(e)}", exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={"status": "error", "message": f"Failed to add item to monthly report: {str(e)}"}
+        )
 
 # Run the application
 if __name__ == "__main__":

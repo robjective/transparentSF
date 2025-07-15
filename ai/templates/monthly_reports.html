@@ -858,7 +858,7 @@
                         Re-prioritize deltas
                     </button>
                     <button id="reexplain-deltas-btn" class="action-btn primary-btn">
-                        Re-explain deltas
+                        Re-explain deltas & generate newsletter text
                     </button>
                     <button id="rerunReportBtn" class="action-btn primary-btn">
                         Re-write newsletter
@@ -2731,14 +2731,14 @@
                     return;
                 }
 
-                if (!confirm('Are you sure you want to regenerate explanations for this newsletter? This will replace all existing explanations with new AI-generated ones.')) {
+                if (!confirm('Are you sure you want to regenerate explanations, get perplexity context, and generate newsletter text for this newsletter? This will replace all existing explanations with new AI-generated ones and add additional context.')) {
                     return;
                 }
 
                 try {
                     const reexplainBtn = document.getElementById('reexplain-deltas-btn');
                     reexplainBtn.disabled = true;
-                    reexplainBtn.innerHTML = '<div style="display: flex; align-items: center; justify-content: center;"><span class="loading"></span> Re-explaining...</div>';
+                    reexplainBtn.innerHTML = '<div style="display: flex; align-items: center; justify-content: center;"><span class="loading"></span> Re-explaining & generating...</div>';
 
                     const response = await fetch('/backend/regenerate_explanations', {
                         method: 'POST',
@@ -2753,7 +2753,17 @@
                     const result = await response.json();
 
                     if (response.ok && result.status === 'success') {
-                        alert(`Success! ${result.message}`);
+                        let successMessage = `Success! ${result.message}`;
+                        
+                        // Add detailed status information if available
+                        if (result.explanations_generated !== undefined) {
+                            successMessage += `\n\nDetailed Status:`;
+                            successMessage += `\n• Explanations: ${result.explanations_generated ? '✅ Generated' : '❌ Failed'}`;
+                            successMessage += `\n• Perplexity Context: ${result.context_enriched ? '✅ Enriched' : '❌ Failed'}`;
+                            successMessage += `\n• Newsletter Text: ${result.newsletter_text_generated ? '✅ Generated' : '❌ Failed'}`;
+                        }
+                        
+                        alert(successMessage);
                         // Optionally refresh the newsletter details
                         updateReportDetails(filename);
                     } else {
@@ -2766,7 +2776,7 @@
                 } finally {
                     const reexplainBtn = document.getElementById('reexplain-deltas-btn');
                     reexplainBtn.disabled = false;
-                    reexplainBtn.textContent = 'Re-explain deltas';
+                    reexplainBtn.textContent = 'Re-explain deltas & generate newsletter text';
                 }
             }
         });

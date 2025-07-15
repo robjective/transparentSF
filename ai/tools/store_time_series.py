@@ -12,7 +12,19 @@ import logging
 import pandas as pd
 from typing import Dict, List, Any, Optional, Union, Tuple
 from datetime import datetime, date
-from tools.db_utils import get_postgres_connection, execute_with_connection, CustomJSONEncoder
+import sys
+
+# Add current directory to path for direct script execution
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
+# Handle imports for both direct execution and package import
+try:
+    # Try relative imports first (for package import)
+    from .db_utils import get_postgres_connection, execute_with_connection, CustomJSONEncoder
+except ImportError:
+    # Fall back to absolute imports (for direct script execution)
+    from db_utils import get_postgres_connection, execute_with_connection, CustomJSONEncoder
+
 from dotenv import load_dotenv
 
 # Load environment variables from .env file

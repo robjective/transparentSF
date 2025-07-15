@@ -6,7 +6,7 @@ This script creates the database and necessary tables if they don't exist.
 
 import os
 import logging
-from db_utils import get_postgres_connection, execute_with_connection
+from .db_utils import get_postgres_connection, execute_with_connection
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)

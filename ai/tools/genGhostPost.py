@@ -69,7 +69,7 @@ def publish_newsletter_to_ghost(filename, title=None):
         else:
             # Try to create an email-compatible version
             try:
-                from monthly_report import generate_email_compatible_report
+                from ..monthly_report import generate_email_compatible_report
                 email_compatible_path = generate_email_compatible_report(file_path)
                 if email_compatible_path and os.path.exists(email_compatible_path):
                     print(f"Generated email-compatible version: {email_compatible_path}")

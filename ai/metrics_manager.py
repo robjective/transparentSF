@@ -6,7 +6,7 @@ import json
 import logging
 import os
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
 import psycopg2.extras
 
 # Configure logging
@@ -383,6 +383,9 @@ async def run_specific_metric_db(metric_id: int, district_id: int = 0, period_ty
         logs_dir = os.path.join(script_dir, 'logs')
         os.makedirs(logs_dir, exist_ok=True)
         
+        # Import asyncio for background processing
+        import asyncio
+        
         # Determine which script to run based on period_type
         if period_type == 'ytd':
             # For YTD metrics, use generate_dashboard_metrics.py
@@ -392,16 +395,22 @@ async def run_specific_metric_db(metric_id: int, district_id: int = 0, period_ty
                 from generate_dashboard_metrics import process_single_metric
                 
                 if callable(process_single_metric):
-                    result = process_single_metric(metric_id=metric_id, period_type=period_type)
+                    # Run in background thread to prevent blocking
+                    loop = asyncio.get_event_loop()
+                    result = await loop.run_in_executor(None, process_single_metric, metric_id, period_type)
                     logger.info(f"YTD metrics generation completed for metric ID {metric_id}")
                 else:
                     from generate_dashboard_metrics import main as generate_all_metrics
-                    generate_all_metrics()
+                    # Run in background thread to prevent blocking
+                    loop = asyncio.get_event_loop()
+                    await loop.run_in_executor(None, generate_all_metrics)
                     logger.info(f"All YTD metrics generated (including metric ID {metric_id})")
             except (ImportError, AttributeError) as e:
                 logger.warning(f"Could not import specific metric generation function: {str(e)}")
                 from generate_dashboard_metrics import main as generate_all_metrics
-                generate_all_metrics()
+                # Run in background thread to prevent blocking
+                loop = asyncio.get_event_loop()
+                await loop.run_in_executor(None, generate_all_metrics)
                 logger.info(f"All YTD metrics generated (including metric ID {metric_id})")
         
         elif period_type == 'week':
@@ -412,9 +421,13 @@ async def run_specific_metric_db(metric_id: int, district_id: int = 0, period_ty
                 from tools.analysis.weekly import run_weekly_analysis
                 # from tools.analysis.weekly import generate_weekly_newsletter
                 
-                results = run_weekly_analysis(
-                    metrics_list=[str(metric_id)],
-                    process_districts=(district_id == 0)
+                # Run in background thread to prevent blocking
+                loop = asyncio.get_event_loop()
+                results = await loop.run_in_executor(
+                    None, 
+                    run_weekly_analysis,
+                    [str(metric_id)],
+                    (district_id == 0)
                 )
                 
                 # Newsletter generation temporarily disabled
@@ -441,10 +454,14 @@ async def run_specific_metric_db(metric_id: int, district_id: int = 0, period_ty
             try:
                 from generate_metric_analysis import process_metric_analysis
                 
-                result = process_metric_analysis(
-                    metric_info=metric_info,
-                    period_type=period_type,
-                    process_districts=True
+                # Run in background thread to prevent blocking
+                loop = asyncio.get_event_loop()
+                result = await loop.run_in_executor(
+                    None,
+                    process_metric_analysis,
+                    metric_info,
+                    period_type,
+                    True  # process_districts
                 )
                 logger.info(f"{period_type.capitalize()} analysis completed for metric ID {metric_id}")
                 
@@ -471,6 +488,137 @@ async def run_specific_metric_db(metric_id: int, district_id: int = 0, period_ty
         return JSONResponse({
             "status": "error",
             "message": f"Error running metric analysis: {str(e)}"
+        }, status_code=500)
+
+
+@router.post("/run_specific_metric_async")
+async def run_specific_metric_async(request: Request):
+    """Run analysis for a specific metric asynchronously with job tracking."""
+    try:
+        body = await request.json()
+        metric_id = body.get('metric_id')
+        district_id = body.get('district_id', 0)
+        period_type = body.get('period_type', 'year')
+        
+        if not metric_id:
+            return JSONResponse({
+                "status": "error",
+                "message": "metric_id is required"
+            }, status_code=400)
+        
+        logger.info(f"Run specific metric async called for metric_id: {metric_id}, district_id: {district_id}, period_type: {period_type}")
+        
+        # Import the background job manager
+        from background_jobs import job_manager
+        
+        # Create a background job
+        job_id = job_manager.create_job(
+            "metric_analysis", 
+            f"Analysis for metric {metric_id} ({period_type})"
+        )
+        
+        # Define the function to run in the background
+        def run_metric_analysis():
+            # This will be the same logic as the sync version but without the async/await
+            from tools.db_utils import get_postgres_connection
+            import psycopg2.extras
+            
+            connection = get_postgres_connection()
+            if not connection:
+                raise Exception("Database connection failed")
+            
+            cursor = connection.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            
+            # Get the metric details from the database
+            cursor.execute("""
+                SELECT 
+                    m.id,
+                    m.metric_name,
+                    m.metric_key,
+                    m.category,
+                    m.subcategory,
+                    m.endpoint,
+                    m.summary,
+                    m.definition,
+                    m.data_sf_url,
+                    m.ytd_query,
+                    m.metric_query,
+                    m.dataset_title,
+                    m.dataset_category,
+                    m.show_on_dash,
+                    m.item_noun,
+                    m.greendirection,
+                    m.location_fields,
+                    m.category_fields,
+                    m.metadata
+                FROM metrics m
+                WHERE m.id = %s AND m.is_active = true
+            """, (metric_id,))
+            
+            metric_row = cursor.fetchone()
+            cursor.close()
+            connection.close()
+            
+            if not metric_row:
+                raise Exception(f"Metric ID {metric_id} not found")
+            
+            # Build metric_info structure for the analysis functions
+            metric_info = {
+                'metric_id': str(metric_row['id']),
+                'query_name': metric_row['metric_name'],
+                'top_category': metric_row['category'],
+                'subcategory': metric_row['subcategory'],
+                'endpoint': metric_row['endpoint'],
+                'summary': metric_row['summary'],
+                'definition': metric_row['definition'],
+                'data_sf_url': metric_row['data_sf_url'],
+                'category_fields': metric_row['category_fields'] or [],
+                'location_fields': metric_row['location_fields'] or [],
+                'query_data': {
+                    'ytd_query': metric_row['ytd_query'],
+                    'metric_query': metric_row['metric_query'],
+                    'id': metric_row['id'],
+                    'endpoint': metric_row['endpoint']
+                }
+            }
+            
+            # Run the appropriate analysis based on period_type
+            if period_type == 'ytd':
+                from generate_dashboard_metrics import process_single_metric
+                if callable(process_single_metric):
+                    return process_single_metric(metric_id=metric_id, period_type=period_type)
+                else:
+                    from generate_dashboard_metrics import main as generate_all_metrics
+                    return generate_all_metrics()
+            elif period_type == 'week':
+                from tools.analysis.weekly import run_weekly_analysis
+                return run_weekly_analysis(
+                    metrics_list=[str(metric_id)],
+                    process_districts=(district_id == 0)
+                )
+            else:
+                from generate_metric_analysis import process_metric_analysis
+                return process_metric_analysis(
+                    metric_info=metric_info,
+                    period_type=period_type,
+                    process_districts=True
+                )
+        
+        # Start the job in the background
+        import asyncio
+        asyncio.create_task(job_manager.run_job(job_id, run_metric_analysis))
+        
+        return JSONResponse({
+            "status": "success",
+            "message": f"Started {period_type} analysis for metric {metric_id}",
+            "job_id": job_id
+        })
+        
+    except Exception as e:
+        logger.error(f"Error starting specific metric analysis: {str(e)}")
+        return JSONResponse({
+            "status": "error",
+            "message": f"Error starting metric analysis: {str(e)}"
         }, status_code=500)
 
 
@@ -1352,7 +1500,9 @@ async def backup_metrics_table_api():
             "message": "Metrics table backup created successfully",
             "backup_file": backup_file,
             "backup_size_bytes": file_size,
-            "old_backup_moved": old_backup_moved
+            "old_backup_moved": old_backup_moved,
+            "filename": "metrics_backup.sql",
+            "download_url": "/api/download-metrics-backup"
         }
         
         if old_backup_moved:
@@ -1366,6 +1516,35 @@ async def backup_metrics_table_api():
             "status": "error",
             "message": f"Error during backup: {str(e)}"
         }, status_code=500)
+
+
+@router.get("/api/download-metrics-backup")
+async def download_metrics_backup():
+    """Download the metrics backup file."""
+    logger.debug("Download metrics backup called")
+    
+    try:
+        # Get project root directory (3 levels up from this file)
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        project_root = os.path.dirname(script_dir)
+        
+        # Define backup file path
+        backup_file = os.path.join(project_root, 'metrics_backup.sql')
+        
+        if not os.path.exists(backup_file):
+            raise HTTPException(status_code=404, detail="Metrics backup file not found")
+        
+        return FileResponse(
+            backup_file,
+            media_type='application/octet-stream',
+            filename='metrics_backup.sql'
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error downloading metrics backup: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/api/metrics-with-order")

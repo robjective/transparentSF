@@ -12,7 +12,7 @@ try:
     from .db_utils import execute_with_connection
 except ImportError:
     # Try absolute import for testing
-    from db_utils import execute_with_connection
+    from .db_utils import execute_with_connection
 
 logger = logging.getLogger(__name__)
 

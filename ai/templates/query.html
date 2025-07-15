@@ -340,6 +340,78 @@
             position: relative;
             margin-bottom: 15px;
         }
+        
+        /* Column Selection Styles */
+        .column-selection-section {
+            margin-bottom: 20px;
+            padding: 15px;
+            background-color: #f8f9fa;
+            border-radius: 4px;
+            border: 1px solid #ddd;
+        }
+        .column-controls {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+            flex-wrap: wrap;
+        }
+        .btn-secondary {
+            background-color: #6c757d;
+            color: white;
+            padding: 8px 16px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        .btn-secondary:hover {
+            background-color: #5a6268;
+        }
+        .btn-primary {
+            background-color: #ad35fa;
+            color: white;
+            padding: 8px 16px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        .btn-primary:hover {
+            background-color: #9625e0;
+        }
+        .column-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 10px;
+            max-height: 300px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            padding: 15px;
+            background-color: white;
+            border-radius: 4px;
+        }
+        .column-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px;
+            border: 1px solid #e9ecef;
+            border-radius: 4px;
+            background-color: #f8f9fa;
+            transition: background-color 0.2s;
+        }
+        .column-item:hover {
+            background-color: #e9ecef;
+        }
+        .column-item input[type="checkbox"] {
+            margin: 0;
+        }
+        .column-item label {
+            margin: 0;
+            font-size: 14px;
+            cursor: pointer;
+            flex: 1;
+        }
     </style>
 </head>
 <body>
@@ -392,6 +464,20 @@
                 <div class="form-group">
                     <label for="query">Query:</label>
                     <textarea id="query" name="query" class="sql-editor" placeholder="Enter your query here..." required></textarea>
+                </div>
+                
+                <!-- Column Selection Section -->
+                <div class="form-group" id="columnSelectionSection" style="display: none;">
+                    <h3>Available Columns</h3>
+                    <p>Select columns to add to your SQL query:</p>
+                    <div class="column-controls">
+                        <button type="button" id="select-all-columns" class="btn-secondary">Select All</button>
+                        <button type="button" id="deselect-all-columns" class="btn-secondary">Deselect All</button>
+                        <button type="button" id="add-selected-columns" class="btn-primary">Add Selected to Query</button>
+                    </div>
+                    <div id="columnGrid" class="column-grid">
+                        <!-- Columns will be loaded here -->
+                    </div>
                 </div>
                 
                 <label for="format">Format:</label>
@@ -582,6 +668,9 @@
                         suggestionsContainer.style.display = 'none';
                         suggestionsContainer.innerHTML = '';
                         document.getElementById('query').focus();
+                        
+                        // Load columns for the selected endpoint
+                        loadColumnsForEndpoint(endpoint.endpoint);
                     });
                     item.addEventListener('mouseenter', () => {
                         setActiveSuggestion(index);
@@ -666,6 +755,9 @@
                             suggestionsContainer.style.display = 'none';
                             suggestionsContainer.innerHTML = '';
                             document.getElementById('query').focus();
+                            
+                            // Load columns for the selected endpoint
+                            loadColumnsForEndpoint(exactMatch.endpoint);
                         } else {
                            // If no exact match and no suggestion selected, let the form submit as is (or handle as error)
                            // For now, we let it proceed, the backend will handle if 'selectedEndpoint' is empty.
@@ -690,6 +782,8 @@
                     const exactMatch = allApiEndpoints.find(ep => ep.title.toLowerCase() === currentSearchValue);
                     if (exactMatch) {
                         document.getElementById('selectedEndpoint').value = exactMatch.endpoint;
+                        // Load columns for the selected endpoint
+                        loadColumnsForEndpoint(exactMatch.endpoint);
                     }
                  }
                  // Allow normal form submission to proceed
@@ -1020,6 +1114,143 @@
         
         // Load tables when page loads
         loadPostgresTables();
+        
+        // Column loading functionality for API queries
+        async function loadColumnsForEndpoint(endpoint) {
+            try {
+                console.log('Loading columns for endpoint:', endpoint);
+                
+                // Show loading state
+                const columnGrid = document.getElementById('columnGrid');
+                const columnSection = document.getElementById('columnSelectionSection');
+                columnSection.style.display = 'block';
+                columnGrid.innerHTML = '<div style="text-align: center; padding: 20px;">Loading columns...</div>';
+                
+                // Fetch available columns from the dataset
+                const response = await fetch(`/backend/get-endpoint-columns/${endpoint}`);
+                if (!response.ok) {
+                    throw new Error(`Failed to fetch columns: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                if (data.status !== 'success') {
+                    throw new Error(`API error: ${data.message}`);
+                }
+                
+                const availableColumns = data.columns || [];
+                console.log('Available columns:', availableColumns);
+                
+                // Create checkboxes for each column
+                let columnsHtml = '';
+                availableColumns.forEach(column => {
+                    columnsHtml += `
+                        <div class="column-item">
+                            <input type="checkbox" id="col-${column}" value="${column}">
+                            <label for="col-${column}">${column}</label>
+                        </div>
+                    `;
+                });
+                
+                columnGrid.innerHTML = columnsHtml;
+                
+                // Add event listeners for column control buttons
+                document.getElementById('select-all-columns').addEventListener('click', selectAllColumns);
+                document.getElementById('deselect-all-columns').addEventListener('click', deselectAllColumns);
+                document.getElementById('add-selected-columns').addEventListener('click', addSelectedColumnsToQuery);
+                
+                console.log('Columns loaded successfully');
+                
+            } catch (error) {
+                console.error('Error loading columns:', error);
+                const columnGrid = document.getElementById('columnGrid');
+                columnGrid.innerHTML = `<div style="color: #dc3545;">Error loading columns: ${error.message}</div>`;
+            }
+        }
+        
+        function selectAllColumns() {
+            const checkboxes = document.querySelectorAll('#columnGrid input[type="checkbox"]');
+            checkboxes.forEach(checkbox => {
+                checkbox.checked = true;
+            });
+        }
+        
+        function deselectAllColumns() {
+            const checkboxes = document.querySelectorAll('#columnGrid input[type="checkbox"]');
+            checkboxes.forEach(checkbox => {
+                checkbox.checked = false;
+            });
+        }
+        
+        function addSelectedColumnsToQuery() {
+            const checkboxes = document.querySelectorAll('#columnGrid input[type="checkbox"]:checked');
+            const selectedColumns = Array.from(checkboxes).map(checkbox => checkbox.value);
+            
+            if (selectedColumns.length === 0) {
+                alert('Please select at least one column to add to the query.');
+                return;
+            }
+            
+            const queryTextarea = document.getElementById('query');
+            const currentQuery = queryTextarea.value;
+            
+            // If the query is empty or just whitespace, create a basic SELECT statement
+            if (!currentQuery.trim()) {
+                const endpoint = document.getElementById('selectedEndpoint').value;
+                const columnsString = selectedColumns.join(', ');
+                queryTextarea.value = `SELECT ${columnsString} FROM ${endpoint} LIMIT 10;`;
+            } else {
+                // If there's already a query, try to insert columns into a SELECT statement
+                const lines = currentQuery.split('\n');
+                let modified = false;
+                
+                for (let i = 0; i < lines.length; i++) {
+                    const line = lines[i].trim();
+                    if (line.toUpperCase().startsWith('SELECT')) {
+                        // Find the FROM clause to see where to insert columns
+                        const fromIndex = currentQuery.toUpperCase().indexOf(' FROM ');
+                        if (fromIndex !== -1) {
+                            const beforeFrom = currentQuery.substring(0, fromIndex);
+                            const afterFrom = currentQuery.substring(fromIndex);
+                            
+                            // Check if there are already columns selected
+                            if (beforeFrom.toUpperCase().includes('SELECT *')) {
+                                // Replace SELECT * with selected columns
+                                const newQuery = `SELECT ${selectedColumns.join(', ')}${afterFrom}`;
+                                queryTextarea.value = newQuery;
+                            } else {
+                                // Add columns to existing SELECT
+                                const columnsString = selectedColumns.join(', ');
+                                const newQuery = `${beforeFrom}, ${columnsString}${afterFrom}`;
+                                queryTextarea.value = newQuery;
+                            }
+                        } else {
+                            // No FROM clause found, just add columns to SELECT
+                            const columnsString = selectedColumns.join(', ');
+                            lines[i] = line + ', ' + columnsString;
+                            queryTextarea.value = lines.join('\n');
+                        }
+                        modified = true;
+                        break;
+                    }
+                }
+                
+                if (!modified) {
+                    // No SELECT statement found, add a new one at the beginning
+                    const endpoint = document.getElementById('selectedEndpoint').value;
+                    const columnsString = selectedColumns.join(', ');
+                    queryTextarea.value = `SELECT ${columnsString} FROM ${endpoint};\n\n${currentQuery}`;
+                }
+            }
+            
+            // Focus on the query textarea
+            queryTextarea.focus();
+            
+            // Highlight the textarea briefly
+            queryTextarea.style.backgroundColor = '#f0f8ff';
+            setTimeout(() => {
+                queryTextarea.style.backgroundColor = '';
+            }, 1000);
+        }
     </script>
 
     <!-- Dark Mode JavaScript -->

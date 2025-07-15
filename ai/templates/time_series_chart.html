@@ -395,6 +395,53 @@
         .modebar {
             display: none !important;
         }
+        
+        /* Attribution line styling */
+        .chart-attribution {
+            transition: opacity 0.2s ease-in-out;
+        }
+        
+        .chart-attribution:hover {
+            opacity: 1;
+        }
+        
+        /* Responsive attribution for small screens */
+        @media (max-width: 450px) {
+            .chart-attribution {
+                font-size: 9px !important;
+                padding: 2px 6px !important;
+            }
+            
+            .chart-attribution a {
+                font-size: 9px !important;
+            }
+            
+            .chart-attribution i {
+                font-size: 7px !important;
+            }
+        }
+        
+        /* Dark mode support for attribution */
+        [data-theme="dark"] .chart-attribution {
+            background-color: rgba(30, 30, 30, 0.9) !important;
+            color: #cccccc !important;
+        }
+        
+        [data-theme="dark"] .chart-attribution a {
+            color: #cccccc !important;
+        }
+        
+        /* YTD Chart legend styling */
+        .ytd-legend {
+            font-family: 'IBM Plex Sans', Arial, sans-serif !important;
+        }
+        
+        /* Responsive legend for small screens */
+        @media (max-width: 450px) {
+            .ytd-legend {
+                font-size: 8px !important;
+            }
+        }
     </style>
 
     <!-- Dark Mode CSS -->
@@ -516,54 +563,7 @@
                 chartContainer.style.justifyContent = 'center';
                 chartContainer.style.alignItems = 'center';
                 
-                // Add permalink button to chart section
-                let permalinkBtn = document.getElementById('chart-section-permalink');
-                if (!permalinkBtn) {
-                    permalinkBtn = document.createElement('button');
-                    permalinkBtn.id = 'chart-section-permalink';
-                    permalinkBtn.className = 'btn btn-sm btn-link';
-                    permalinkBtn.style.position = 'absolute';
-                    permalinkBtn.style.bottom = '5px';
-                    permalinkBtn.style.right = '5px';
-                    permalinkBtn.style.zIndex = '1000';
-                    permalinkBtn.style.fontSize = '10px';
-                    permalinkBtn.style.color = '#888888';
-                    permalinkBtn.style.textDecoration = 'none';
-                    permalinkBtn.style.border = 'none';
-                    permalinkBtn.style.background = 'none';
-                    permalinkBtn.style.padding = '0';
-                    permalinkBtn.style.cursor = 'pointer';
-                    permalinkBtn.innerHTML = '<i class="fas fa-share-alt me-1"></i>Share';
-                    permalinkBtn.onclick = function() {
-                        const fullUrl = window.location.href.split('#')[0];
-                        copyToClipboard(fullUrl);
-                    };
-                    chartContainer.appendChild(permalinkBtn);
-                    
-                    // Add button to view full version
-                    const fullViewBtn = document.createElement('button');
-                    fullViewBtn.id = 'full-view-btn';
-                    fullViewBtn.className = 'btn btn-sm btn-link';
-                    fullViewBtn.style.position = 'absolute';
-                    fullViewBtn.style.bottom = '5px';
-                    fullViewBtn.style.left = '5px';
-                    fullViewBtn.style.zIndex = '1000';
-                    fullViewBtn.style.fontSize = '10px';
-                    fullViewBtn.style.color = '#888888';
-                    fullViewBtn.style.textDecoration = 'none';
-                    fullViewBtn.style.border = 'none';
-                    fullViewBtn.style.background = 'none';
-                    fullViewBtn.style.padding = '0';
-                    fullViewBtn.style.cursor = 'pointer';
-                    fullViewBtn.innerHTML = '<i class="fas fa-expand me-1"></i>Full View';
-                    fullViewBtn.onclick = function() {
-                        const baseUrl = window.location.href.split('#')[0]; // Get URL without hash
-                        const currentUrl = new URL(baseUrl);
-                        currentUrl.searchParams.set('full_view', 'true');
-                        window.open(currentUrl.toString(), '_blank');
-                    };
-                    chartContainer.appendChild(fullViewBtn);
-                }
+
             }
         }
         
@@ -679,9 +679,29 @@
                     Object.entries(groupedData).forEach(([year, yearItems]) => {
                         // Convert dates to day-of-year (1-365)
                         const dayOfYearData = yearItems.map(item => {
-                            const date = new Date(item.time_period);
+                            // More robust date parsing
+                            let date;
+                            const dateStr = item.time_period;
+                            
+                            // Handle different date formats
+                            if (dateStr.includes('T')) {
+                                // ISO format with time
+                                date = new Date(dateStr);
+                            } else if (dateStr.includes('-')) {
+                                // YYYY-MM-DD format
+                                const [year, month, day] = dateStr.split('-').map(Number);
+                                date = new Date(year, month - 1, day); // month is 0-indexed
+                            } else {
+                                // Fallback to default parsing
+                                date = new Date(dateStr);
+                            }
+                            
                             const startOfYear = new Date(date.getFullYear(), 0, 1);
                             const dayOfYear = Math.floor((date - startOfYear) / (1000 * 60 * 60 * 24)) + 1;
+                            
+                            // Debug logging
+                            console.log(`Date: ${item.time_period}, Parsed: ${date}, DayOfYear: ${dayOfYear}, Value: ${item.numeric_value}`);
+                            
                             return {
                                 dayOfYear: dayOfYear,
                                 value: item.numeric_value,
@@ -692,16 +712,23 @@
                         // Sort by day of year
                         dayOfYearData.sort((a, b) => a.dayOfYear - b.dayOfYear);
                         
-                        // Choose color based on year
+                        // Filter out any invalid day-of-year values
+                        const validDayOfYearData = dayOfYearData.filter(d => d.dayOfYear >= 1 && d.dayOfYear <= 366 && !isNaN(d.dayOfYear));
+                        
+                        // Debug: Log the sorted data
+                        console.log(`Valid dayOfYearData for ${year}:`, validDayOfYearData.map(d => ({ dayOfYear: d.dayOfYear, value: d.value, date: d.originalDate })));
+                        
+                        // Use the valid data
+                        const dailyX = validDayOfYearData.map(d => d.dayOfYear);
+                        const dailyY = validDayOfYearData.map(d => d.value);
+                        
+                        // Choose color based on year - use purple for current year, grey for previous
                         const isCurrentYear = year === new Date().getFullYear().toString();
-                        const lineColor = isCurrentYear ? '#1f77b4' : '#ff7f0e'; // Blue for current year, orange for previous
+                        const lineColor = isCurrentYear ? '#ad35fa' : '#888888'; // Primary purple for current year, grey for previous
                         
                         // -------------------------------------------------------------
                         // Add raw daily line (light opacity) and 7-day trailing average
                         // -------------------------------------------------------------
-
-                        const dailyX = dayOfYearData.map(d => d.dayOfYear);
-                        const dailyY = dayOfYearData.map(d => d.value);
 
                         // Compute 7-day trailing average
                         const avg7 = dailyY.map((_, idx) => {
@@ -717,10 +744,10 @@
                             y: dailyY,
                             type: 'scatter',
                             mode: 'lines',
-                            name: `${year} Daily`,
+                            name: `${year}`,
                             line: { color: lineColor, width: 1 },
                             opacity: 0.25,
-                            showlegend: fullView, // keep legend focused on averages
+                            showlegend: false, // Hide daily values from legend
                             hoverinfo: 'skip', // No hover labels for raw data
                             hoverlabel: {
                                 bgcolor: '#F6F1EA',
@@ -741,7 +768,7 @@
                             mode: 'lines',
                             name: `${year} 7-Day Avg`,
                             line: { color: lineColor, width: 3 },
-                            showlegend: fullView,
+                            showlegend: true, // Always show legend for YTD charts
                             hovertemplate: `${year} 7-Day Avg<br>%{customdata}<br>%{y}<extra></extra>`,
                             hoverlabel: {
                                 bgcolor: '#F6F1EA',
@@ -778,7 +805,7 @@
                     
                     // Define a color palette for groups
                     const colorPalette = [
-                        '#ad35fa', // Bright Blue
+                        '#ad35fa', // Primary Purple
                         '#FF6B5A', // Warm Coral
                         '#4A7463', // Spruce Green
                         '#71B2CA', // Sky Blue
@@ -991,8 +1018,8 @@
                     type: 'scatter',
                     mode: 'lines+markers',
                     name: itemNoun || 'Time Series',
-                    line: { color: '#ad35fa', width: 2 }, // Bright Blue
-                    marker: { color: '#ad35fa', size: 6 }, // Bright Blue
+                                                line: { color: '#ad35fa', width: 2 }, // Primary Purple
+                            marker: { color: '#ad35fa', size: 6 }, // Primary Purple
                     showlegend: fullView,
                     hovertemplate: isWeeklyData ? '%{x|%B %d, %Y}<br>%{y}<extra></extra>' : '%{x|%B %Y}<br>%{y}<extra></extra>', // Format based on period type
                     hoverlabel: {
@@ -1057,6 +1084,18 @@
             let layout;
             
             if (isYtdTrendChart) {
+                // Calculate the actual range from the data for YTD charts
+                const allDayOfYearValues = [];
+                timeSeriesData.forEach(item => {
+                    const date = new Date(item.time_period);
+                    const startOfYear = new Date(date.getFullYear(), 0, 1);
+                    const dayOfYear = Math.floor((date - startOfYear) / (1000 * 60 * 60 * 24)) + 1;
+                    allDayOfYearValues.push(dayOfYear);
+                });
+                
+                const minDay = Math.min(...allDayOfYearValues);
+                const maxDay = Math.max(...allDayOfYearValues);
+                
                 // Special layout for YTD trend charts
                 layout = {
                     title: {
@@ -1073,7 +1112,7 @@
                     },
                     xaxis: {
                         title: {
-                            text: 'Day of Year',
+                            text: '', // Remove "Day of Year" label
                             font: { 
                                 family: 'IBM Plex Sans, Arial, sans-serif',
                                 size: 10,
@@ -1091,7 +1130,7 @@
                         tickmode: 'array',
                         tickvals: [1, 32, 60, 91, 121, 152, 182, 213, 244, 274, 305, 335], // Approximate start of each month
                         ticktext: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'],
-                        range: [1, 365],
+                        range: [minDay, maxDay + 10], // Use actual data range with small padding
                         showline: true,
                         linecolor: '#e5e7eb',
                         linewidth: 1,
@@ -1122,15 +1161,20 @@
                     legend: {
                         orientation: 'h',
                         x: 0.5,
-                        y: -0.10,
+                        y: -0.02,
                         xanchor: 'center',
                         yanchor: 'top',
                         font: { 
                             family: 'IBM Plex Sans, Arial, sans-serif',
-                            size: 9,
+                            size: 8,
                             color: '#222222' 
                         },
-                        bgcolor: 'rgba(246, 241, 234, 0.7)'
+                        bgcolor: 'transparent',
+                        bordercolor: 'transparent',
+                        borderwidth: 0,
+                        class: 'ytd-legend',
+                        itemsizing: 'constant',
+                        itemwidth: 20
                     },
                     margin: { t: 40, b: 80, l: 50, r: 30 },
                     height: null,
@@ -1441,49 +1485,103 @@
             const oldAttributions = chartContainer.querySelectorAll('.chart-attribution, a[href*="datasf"], span[data-source-note]');
             oldAttributions.forEach(el => el.remove());
 
-            if (metadata['source-name'] && metadata['executed_query_url']) {
-                // Show DataSF as a link
-                const sourceLink = document.createElement('a');
-                sourceLink.href = metadata['executed_query_url'];
-                sourceLink.target = '_blank';
-                sourceLink.style.color = '#71B2CA';
-                sourceLink.style.textDecoration = 'none';
-                sourceLink.style.position = 'absolute';
-                sourceLink.style.bottom = '5px';
-                sourceLink.style.left = '10px';
-                sourceLink.style.fontSize = '11px';
-                sourceLink.style.zIndex = '1000';
-                sourceLink.style.backgroundColor = 'rgba(255, 255, 255, 0.9)';
-                sourceLink.style.padding = '3px 8px';
-                sourceLink.style.borderRadius = '4px';
-                sourceLink.className = 'chart-attribution';
-                sourceLink.innerHTML = `Source: ${metadata['source-name']} <i class="fas fa-external-link-alt"></i>`;
-                chartContainer.appendChild(sourceLink);
-            } else if (metadata['source-name']) {
-                // Show DataSF as plain text
-                const sourceNote = document.createElement('span');
-                sourceNote.style.color = '#999999';
-                sourceNote.style.fontSize = '12px';
-                sourceNote.style.position = 'absolute';
-                sourceNote.style.bottom = '10px';
-                sourceNote.style.left = '10px';
-                sourceNote.style.zIndex = '10';
-                sourceNote.className = 'chart-attribution';
-                sourceNote.textContent = `Source: ${metadata['source-name']}`;
-                chartContainer.appendChild(sourceNote);
-            }
-            if (metadata['byline']) {
-                // Show the chart byline (e.g., Chart: TransparentSF)
-                const bylineNote = document.createElement('span');
-                bylineNote.style.color = '#999999';
-                bylineNote.style.fontSize = '12px';
-                bylineNote.style.position = 'absolute';
-                bylineNote.style.bottom = '25px';
-                bylineNote.style.left = '10px';
-                bylineNote.style.zIndex = '10';
-                bylineNote.className = 'chart-attribution';
-                bylineNote.textContent = metadata['byline'];
-                chartContainer.appendChild(bylineNote);
+            // Create consolidated attribution line at bottom of chart
+            // Only show in embedded mode (not full view mode)
+            if (!fullView) {
+                const attributionContainer = document.createElement('div');
+                attributionContainer.style.position = 'absolute';
+                attributionContainer.style.bottom = '5px';
+                attributionContainer.style.left = '10px';
+                attributionContainer.style.right = '10px';
+                attributionContainer.style.zIndex = '1000';
+                attributionContainer.style.fontSize = '10px';
+                attributionContainer.style.color = '#999999';
+                attributionContainer.style.backgroundColor = 'rgba(255, 255, 255, 0.9)';
+                attributionContainer.style.padding = '3px 8px';
+                attributionContainer.style.borderRadius = '4px';
+                attributionContainer.style.display = 'flex';
+                attributionContainer.style.justifyContent = 'space-between';
+                attributionContainer.style.alignItems = 'center';
+                attributionContainer.style.fontFamily = 'Arial, sans-serif';
+                attributionContainer.className = 'chart-attribution';
+                
+                // Left side: Chart attribution and source
+                const leftSide = document.createElement('div');
+                leftSide.style.display = 'flex';
+                leftSide.style.alignItems = 'center';
+                leftSide.style.gap = '8px';
+                
+                // Chart attribution
+                const chartAttribution = document.createElement('span');
+                chartAttribution.textContent = 'Chart: TransparentSF';
+                leftSide.appendChild(chartAttribution);
+                
+                // Source attribution
+                if (metadata['source-name'] && metadata['executed_query_url']) {
+                    const sourceLink = document.createElement('a');
+                    sourceLink.href = metadata['executed_query_url'];
+                    sourceLink.target = '_blank';
+                    sourceLink.style.color = '#999999';
+                    sourceLink.style.textDecoration = 'none';
+                    sourceLink.innerHTML = `Source: ${metadata['source-name']} <i class="fas fa-external-link-alt" style="font-size: 8px;"></i>`;
+                    leftSide.appendChild(sourceLink);
+                } else if (metadata['source-name']) {
+                    const sourceText = document.createElement('span');
+                    sourceText.textContent = `Source: ${metadata['source-name']}`;
+                    leftSide.appendChild(sourceText);
+                }
+                
+                // Right side: Share and Full View links
+                const rightSide = document.createElement('div');
+                rightSide.style.display = 'flex';
+                rightSide.style.alignItems = 'center';
+                rightSide.style.gap = '8px';
+                
+                // Share link
+                const shareLink = document.createElement('a');
+                shareLink.href = '#';
+                shareLink.style.color = '#999999';
+                shareLink.style.textDecoration = 'none';
+                shareLink.style.cursor = 'pointer';
+                shareLink.innerHTML = '<i class="fas fa-share-alt" style="font-size: 8px;"></i> Share';
+                shareLink.onclick = function(e) {
+                    e.preventDefault();
+                    const fullUrl = window.location.href.split('#')[0];
+                    if (navigator.share) {
+                        navigator.share({
+                            title: 'TransparentSF Chart',
+                            text: 'Check out this chart from TransparentSF',
+                            url: fullUrl
+                        }).catch(err => {
+                            console.error('Error sharing:', err);
+                            copyToClipboard(fullUrl);
+                        });
+                    } else {
+                        copyToClipboard(fullUrl);
+                    }
+                };
+                rightSide.appendChild(shareLink);
+                
+                // Full View link
+                const fullViewLink = document.createElement('a');
+                fullViewLink.href = '#';
+                fullViewLink.style.color = '#999999';
+                fullViewLink.style.textDecoration = 'none';
+                fullViewLink.style.cursor = 'pointer';
+                fullViewLink.innerHTML = '<i class="fas fa-expand" style="font-size: 8px;"></i> Full View';
+                fullViewLink.onclick = function(e) {
+                    e.preventDefault();
+                    const baseUrl = window.location.href.split('#')[0];
+                    const currentUrl = new URL(baseUrl);
+                    currentUrl.searchParams.set('full_view', 'true');
+                    window.open(currentUrl.toString(), '_blank');
+                };
+                rightSide.appendChild(fullViewLink);
+                
+                // Assemble the attribution container
+                attributionContainer.appendChild(leftSide);
+                attributionContainer.appendChild(rightSide);
+                chartContainer.appendChild(attributionContainer);
             }
             
 
@@ -1988,70 +2086,7 @@
                     chartContainer.style.justifyContent = 'center';
                     chartContainer.style.alignItems = 'center';
                     
-                    // Add permalink button to chart section
-                    let permalinkBtn = document.getElementById('chart-section-permalink');
-                    if (!permalinkBtn) {
-                        permalinkBtn = document.createElement('button');
-                        permalinkBtn.id = 'chart-section-permalink';
-                        permalinkBtn.className = 'btn btn-sm btn-link';
-                        permalinkBtn.style.position = 'absolute';
-                        permalinkBtn.style.bottom = '5px';
-                        permalinkBtn.style.right = '5px';
-                        permalinkBtn.style.zIndex = '1000';
-                        permalinkBtn.style.fontSize = '10px';
-                        permalinkBtn.style.color = '#888888';
-                        permalinkBtn.style.textDecoration = 'none';
-                        permalinkBtn.style.border = 'none';
-                        permalinkBtn.style.background = 'none';
-                        permalinkBtn.style.padding = '0';
-                        permalinkBtn.style.cursor = 'pointer';
-                        permalinkBtn.innerHTML = '<i class="fas fa-share-alt me-1"></i>Share';
-                        permalinkBtn.onclick = function() {
-                            const fullUrl = window.location.href.split('#')[0];
-                            if (navigator.share) {
-                                navigator.share({
-                                    title: 'TransparentSF Chart',
-                                    text: 'Check out this chart from TransparentSF',
-                                    url: fullUrl
-                                }).catch(err => {
-                                    console.error('Error sharing:', err);
-                                    // Fallback to copying to clipboard
-                                    copyToClipboard(fullUrl);
-                                });
-                            } else {
-                                // Fallback to copying to clipboard
-                                copyToClipboard(fullUrl);
-                            }
-                        };
-                        chartContainer.appendChild(permalinkBtn);
-                    }
-                    
-                    // Add full view button if it doesn't exist
-                    let fullViewBtn = document.getElementById('full-view-btn');
-                    if (!fullViewBtn) {
-                        fullViewBtn = document.createElement('button');
-                        fullViewBtn.id = 'full-view-btn';
-                        fullViewBtn.className = 'btn btn-sm btn-link';
-                        fullViewBtn.style.position = 'absolute';
-                        fullViewBtn.style.bottom = '5px';
-                        fullViewBtn.style.left = '5px';
-                        fullViewBtn.style.zIndex = '1000';
-                        fullViewBtn.style.fontSize = '10px';
-                        fullViewBtn.style.color = '#888888';
-                        fullViewBtn.style.textDecoration = 'none';
-                        fullViewBtn.style.border = 'none';
-                        fullViewBtn.style.background = 'none';
-                        fullViewBtn.style.padding = '0';
-                        fullViewBtn.style.cursor = 'pointer';
-                        fullViewBtn.innerHTML = '<i class="fas fa-expand me-1"></i>Full View';
-                        fullViewBtn.onclick = function() {
-                            const baseUrl = window.location.href.split('#')[0]; // Get URL without hash
-                            const currentUrl = new URL(baseUrl);
-                            currentUrl.searchParams.set('full_view', 'true');
-                            window.open(currentUrl.toString(), '_blank');
-                        };
-                        chartContainer.appendChild(fullViewBtn);
-                    }
+
                 }
                 
                 // Hide the chart caption
@@ -2098,17 +2133,7 @@
                 if (embedBtn) embedBtn.style.display = 'block';
                 if (backButton) backButton.style.display = 'block';
                 
-                // Remove permalink button if it exists
-                const permalinkBtn = document.getElementById('chart-section-permalink');
-                if (permalinkBtn) {
-                    permalinkBtn.remove();
-                }
-                
-                // Remove full view button if it exists
-                const fullViewBtn = document.getElementById('full-view-btn');
-                if (fullViewBtn) {
-                    fullViewBtn.remove();
-                }
+
                 
                 // Show the chart caption
                 const chartCaption = document.querySelector('.chart-caption');
@@ -2239,14 +2264,8 @@
         // Function to copy text to clipboard
         function copyToClipboard(text) {
             navigator.clipboard.writeText(text).then(() => {
-                const permalinkBtn = document.getElementById('chart-section-permalink');
-                if (permalinkBtn) {
-                    const originalHtml = permalinkBtn.innerHTML;
-                    permalinkBtn.innerHTML = '<i class="fas fa-check me-1"></i>Copied!';
-                    setTimeout(() => {
-                        permalinkBtn.innerHTML = originalHtml;
-                    }, 2000);
-                }
+                // Show a brief success message in the console or could add a toast notification
+                console.log('Copied to clipboard:', text);
             }).catch(err => {
                 console.error('Failed to copy: ', err);
             });

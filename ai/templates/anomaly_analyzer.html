@@ -293,6 +293,14 @@
         
         /* Make the metric name column wider */
         th:first-child, td:first-child {
+            min-width: 40px;
+            max-width: 40px;
+            text-align: center;
+            padding: 8px 4px;
+        }
+        
+        /* Make the second column (metric name) wider */
+        th:nth-child(2), td:nth-child(2) {
             min-width: 250px;
             max-width: 400px;
             word-wrap: break-word;
@@ -347,6 +355,99 @@
             font-weight: 500;
         }
         
+        /* Stale data warning styles */
+        .stale-data-warning {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            background-color: #fff3cd;
+            color: #856404;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 500;
+            margin-left: 8px;
+            border: 1px solid #ffeaa7;
+            position: relative;
+        }
+        
+        .stale-data-warning i {
+            font-size: 10px;
+        }
+        
+        [data-theme="dark"] .stale-data-warning {
+            background-color: #2d1b69;
+            color: #f39c12;
+            border-color: #8e44ad;
+        }
+        
+        /* Enhanced tooltip for stale data warning */
+        .stale-data-warning:hover {
+            cursor: help;
+            background-color: #ffeaa7;
+            border-color: #fdcb6e;
+        }
+        
+        [data-theme="dark"] .stale-data-warning:hover {
+            background-color: #3d2b79;
+            border-color: #9b59b6;
+        }
+        
+        /* Custom tooltip styling */
+        .stale-data-warning[title]:hover::after {
+            content: attr(title);
+            position: absolute;
+            background: #333;
+            color: white;
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            white-space: nowrap;
+            z-index: 1000;
+            margin-top: -40px;
+            margin-left: 10px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+            pointer-events: none;
+        }
+        
+        [data-theme="dark"] .stale-data-warning[title]:hover::after {
+            background: #1a1a1a;
+            border: 1px solid #444;
+        }
+        
+        /* Stale data summary styles */
+        .stale-data-summary {
+            background-color: #fff3cd;
+            border-left: 4px solid #f39c12;
+        }
+        
+        .stale-data-summary-content {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 0;
+            color: #856404;
+            font-weight: 500;
+        }
+        
+        .stale-data-summary-content i {
+            color: #f39c12;
+            font-size: 14px;
+        }
+        
+        [data-theme="dark"] .stale-data-summary {
+            background-color: #2d1b69;
+            border-left-color: #f39c12;
+        }
+        
+        [data-theme="dark"] .stale-data-summary-content {
+            color: #f39c12;
+        }
+        
+        [data-theme="dark"] .stale-data-summary-content i {
+            color: #f39c12;
+        }
+        
         .selected-row {
             background-color: var(--civic-blue-lighter) !important;
             border-left: 4px solid var(--civic-blue);
@@ -381,6 +482,86 @@
         [data-theme="dark"] .action-button:hover {
             background-color: var(--bg-tertiary);
             border-color: #d966ff;
+        }
+        
+        .add-to-report-btn {
+            background-color: var(--bg-secondary);
+            color: #ad35fa;
+            border: 1px solid #ad35fa;
+            border-radius: 4px;
+            padding: 4px 6px;
+            font-size: 11px;
+            cursor: pointer;
+            transition: all 0.2s;
+            width: 24px;
+            height: 24px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 24px;
+        }
+        
+        .add-to-report-btn:hover {
+            background-color: var(--bg-tertiary);
+        }
+        
+        .add-to-report-btn:disabled {
+            background-color: var(--bg-secondary);
+            color: #6c757d;
+            border-color: #6c757d;
+            cursor: not-allowed;
+        }
+        
+        [data-theme="dark"] .add-to-report-btn {
+            background-color: var(--bg-secondary);
+            color: #c44dff;
+            border: 1px solid #c44dff;
+        }
+        
+        [data-theme="dark"] .add-to-report-btn:hover {
+            background-color: var(--bg-tertiary);
+            border-color: #d966ff;
+        }
+        
+        [data-theme="dark"] .add-to-report-btn:disabled {
+            background-color: var(--bg-secondary);
+            color: #6c757d;
+            border-color: #6c757d;
+        }
+        
+        .add-to-report-btn.added {
+            background-color: #28a745 !important;
+            color: white !important;
+            border-color: #28a745 !important;
+            cursor: default;
+        }
+        
+        .add-to-report-btn.added:hover {
+            background-color: #28a745 !important;
+            color: white !important;
+            border-color: #28a745 !important;
+        }
+        
+        .add-to-report-btn.added {
+            animation: addedPulse 0.5s ease-in-out;
+        }
+        
+        @keyframes addedPulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+            100% { transform: scale(1); }
+        }
+        
+        [data-theme="dark"] .add-to-report-btn.added {
+            background-color: #28a745 !important;
+            color: white !important;
+            border-color: #28a745 !important;
+        }
+        
+        [data-theme="dark"] .add-to-report-btn.added:hover {
+            background-color: #28a745 !important;
+            color: white !important;
+            border-color: #28a745 !important;
         }
         
         #analysis-modal,
@@ -827,6 +1008,7 @@
                     <table class="table table-striped table-hover" id="metrics-table">
                     <thead>
                         <tr id="table-headers">
+                            <th style="width: 40px; text-align: center;" title="Add to Monthly Report">+</th>
                             <th>Metric Name</th>
                             <th>District</th>
                             <th id="previous-header">Previous</th>
@@ -1061,6 +1243,7 @@
                         return {
                             positive_changes: data.positive_changes || [],
                             negative_changes: data.negative_changes || [],
+                            stale_data_warnings: data.stale_data_warnings || 0,
                             periods: data.positive_changes && data.positive_changes.length > 0 ? 
                                 data.positive_changes[0] : 
                                 (data.negative_changes && data.negative_changes.length > 0 ? data.negative_changes[0] : null)
@@ -1083,6 +1266,19 @@
             // Update table headers with actual period values
             updateTableHeaders(metricData);
             
+            // Display stale data warning summary if any
+            if (metricData.stale_data_warnings && metricData.stale_data_warnings > 0) {
+                const staleDataHeader = document.createElement('tr');
+                staleDataHeader.className = 'stale-data-summary';
+                staleDataHeader.innerHTML = `<td colspan="8">
+                    <div class="stale-data-summary-content">
+                        <i class="fas fa-exclamation-triangle"></i>
+                        <span>⚠️ ${metricData.stale_data_warnings} metric${metricData.stale_data_warnings > 1 ? 's' : ''} with stale data detected. Hover over the warning icons for details.</span>
+                    </div>
+                </td>`;
+                metricsTbody.appendChild(staleDataHeader);
+            }
+            
             // Check if we have any data at all
             const hasMetricData = (metricData.positive_changes && metricData.positive_changes.length > 0) || 
                                  (metricData.negative_changes && metricData.negative_changes.length > 0);
@@ -1100,7 +1296,7 @@
                 // Add section header for positive metric changes
                 const positiveMetricHeader = document.createElement('tr');
                 positiveMetricHeader.className = 'section-header';
-                positiveMetricHeader.innerHTML = `<td colspan="7">📊 Positive Metric Changes</td>`;
+                positiveMetricHeader.innerHTML = `<td colspan="8">📊 Positive Metric Changes</td>`;
                 metricsTbody.appendChild(positiveMetricHeader);
                 
                 metricData.positive_changes.forEach(metric => appendMetricRow(metric));
@@ -1111,7 +1307,7 @@
                 // Add section header for positive anomalies
                 const positiveAnomalyHeader = document.createElement('tr');
                 positiveAnomalyHeader.className = 'section-header';
-                positiveAnomalyHeader.innerHTML = `<td colspan="7">🚨 Positive Statistical Anomalies</td>`;
+                positiveAnomalyHeader.innerHTML = `<td colspan="8">🚨 Positive Statistical Anomalies</td>`;
                 metricsTbody.appendChild(positiveAnomalyHeader);
                 
                 anomalyData.positive_anomalies.forEach(anomaly => appendAnomalyRow(anomaly));
@@ -1122,7 +1318,7 @@
                 // Add section header for negative metric changes
                 const negativeMetricHeader = document.createElement('tr');
                 negativeMetricHeader.className = 'section-header';
-                negativeMetricHeader.innerHTML = `<td colspan="7">📊 Negative Metric Changes</td>`;
+                negativeMetricHeader.innerHTML = `<td colspan="8">📊 Negative Metric Changes</td>`;
                 metricsTbody.appendChild(negativeMetricHeader);
                 
                 metricData.negative_changes.forEach(metric => appendMetricRow(metric));
@@ -1133,7 +1329,7 @@
                 // Add section header for negative anomalies
                 const negativeAnomalyHeader = document.createElement('tr');
                 negativeAnomalyHeader.className = 'section-header';
-                negativeAnomalyHeader.innerHTML = `<td colspan="7">🚨 Negative Statistical Anomalies</td>`;
+                negativeAnomalyHeader.innerHTML = `<td colspan="8">🚨 Negative Statistical Anomalies</td>`;
                 metricsTbody.appendChild(negativeAnomalyHeader);
                 
                 anomalyData.negative_anomalies.forEach(anomaly => appendAnomalyRow(anomaly));
@@ -1337,9 +1533,52 @@
             const rowId = 'metric-row-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
             row.id = rowId;
             
+            // Add stale data warning indicator
+            let staleDataIndicator = '';
+            if (metric.stale_data_warning) {
+                staleDataIndicator = `
+                    <div class="stale-data-warning" title="${metric.stale_data_warning}">
+                        <i class="fas fa-exclamation-triangle" title="${metric.stale_data_warning}"></i>
+                        <span>Stale Data</span>
+                    </div>
+                `;
+            }
+            
+            // Create item data for the button
+            const itemData = {
+                type: 'metric',
+                id: metric.object_id,
+                object_name: metric.object_name,
+                group_name: metric.group_name,
+                group_value: metric.group_value,
+                district: metric.district,
+                previous_value: metric.previous_value,
+                recent_value: metric.recent_value,
+                delta: metric.delta,
+                percent_change: metric.percent_change,
+                previous_period: metric.previous_period,
+                recent_period: metric.recent_period,
+                period_type: metric.period_type
+            };
+            
+            // Check if item is already added
+            const isAdded = isItemAddedToReport(itemData);
+            const buttonClass = isAdded ? 'add-to-report-btn added' : 'add-to-report-btn';
+            const buttonText = isAdded ? '✓' : '+';
+            const buttonDisabled = isAdded ? 'disabled' : '';
+            const buttonTitle = isAdded ? 'Added to monthly report' : 'Add to Monthly Report';
+            
             // Create row HTML
             row.innerHTML = `
-                <td>${metric.object_name}</td>
+                <td style="text-align: center; width: 60px;">
+                    <button class="${buttonClass}" onclick="addToMonthlyReport(${JSON.stringify(itemData).replace(/"/g, '&quot;')})" title="${buttonTitle}" ${buttonDisabled}>
+                        ${buttonText}
+                    </button>
+                </td>
+                <td>
+                    ${metric.object_name}
+                    ${staleDataIndicator}
+                </td>
                 <td>${districtDisplay}</td>
                 <td>${formatValue(metric.previous_value)}</td>
                 <td>${formatValue(metric.recent_value)}</td>
@@ -1429,8 +1668,38 @@
                 metricName = `${anomaly.metric_name} (${anomaly.group_value})`;
             }
             
+            // Create item data for the button
+            const itemData = {
+                type: 'anomaly',
+                id: anomaly.id,
+                object_name: anomaly.metric_name,
+                group_name: anomaly.group_field_name,
+                group_value: anomaly.group_value,
+                district: anomaly.district,
+                previous_value: anomaly.comparison_mean,
+                recent_value: anomaly.recent_mean,
+                delta: anomaly.difference || (anomaly.recent_mean - anomaly.comparison_mean),
+                percent_change: anomaly.percent_change,
+                previous_period: anomaly.period_date,
+                recent_period: anomaly.period_date,
+                period_type: anomaly.period_type,
+                anomaly_id: anomaly.id
+            };
+            
+            // Check if item is already added
+            const isAdded = isItemAddedToReport(itemData);
+            const buttonClass = isAdded ? 'add-to-report-btn added' : 'add-to-report-btn';
+            const buttonText = isAdded ? '✓' : '+';
+            const buttonDisabled = isAdded ? 'disabled' : '';
+            const buttonTitle = isAdded ? 'Added to monthly report' : 'Add to Monthly Report';
+            
             // Create row HTML
             row.innerHTML = `
+                <td style="text-align: center; width: 60px;">
+                    <button class="${buttonClass}" onclick="addToMonthlyReport(${JSON.stringify(itemData).replace(/"/g, '&quot;')})" title="${buttonTitle}" ${buttonDisabled}>
+                        ${buttonText}
+                    </button>
+                </td>
                 <td>${metricName}</td>
                 <td>${districtDisplay}</td>
                 <td>${formatValue(anomaly.comparison_mean)}</td>
@@ -1971,6 +2240,138 @@ Can you help me understand:
                 }
             }, 10000); // 10 second timeout
         }
+        
+        // Function to add items to monthly report
+        async function addToMonthlyReport(itemData) {
+            try {
+                console.log('Adding item to monthly report:', itemData);
+                
+                // Disable the button to prevent multiple clicks
+                const button = event.target.closest('.add-to-report-btn');
+                if (button) {
+                    button.disabled = true;
+                    button.innerHTML = '...';
+                }
+                
+                // Get current month name for the report title
+                const now = new Date();
+                const monthName = now.toLocaleString('default', { month: 'long' });
+                const reportTitle = `${monthName} Analysis Report`;
+                
+                // Prepare the data for the API
+                const requestData = {
+                    item_data: itemData,
+                    report_title: reportTitle,
+                    district: itemData.district || '0',
+                    period_type: itemData.period_type || 'month'
+                };
+                
+                console.log('Sending request data:', requestData);
+                
+                // Make API call to add item to monthly report
+                const response = await fetch('/anomaly-analyzer/api/add-to-monthly-report', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(requestData)
+                });
+                
+                console.log('Response status:', response.status);
+                const result = await response.json();
+                console.log('Response result:', result);
+                
+                if (result.status === 'success') {
+                    // Show success message
+                    alert(`Successfully added "${itemData.object_name}" to ${reportTitle}`);
+                    
+                    // Permanently mark the button as added
+                    if (button) {
+                        button.innerHTML = '✓';
+                        button.classList.add('added');
+                        button.disabled = true;
+                        button.title = 'Added to monthly report';
+                        
+                        // Store the added item in localStorage for persistence
+                        const addedItems = JSON.parse(localStorage.getItem('addedToMonthlyReport') || '[]');
+                        const itemKey = `${itemData.object_name}_${itemData.district}_${itemData.period_type}`;
+                        if (!addedItems.includes(itemKey)) {
+                            addedItems.push(itemKey);
+                            localStorage.setItem('addedToMonthlyReport', JSON.stringify(addedItems));
+                        }
+                        
+                        // Store the current date
+                        localStorage.setItem('lastAddedDate', new Date().toDateString());
+                    }
+                } else {
+                    throw new Error(result.message || 'Failed to add item to monthly report');
+                }
+                
+            } catch (error) {
+                console.error('Error adding item to monthly report:', error);
+                alert(`Error: ${error.message}`);
+                
+                // Reset button state
+                if (button) {
+                    button.innerHTML = '+';
+                    button.disabled = false;
+                }
+            }
+        }
+        
+        // Function to check if an item has been added to monthly report
+        function isItemAddedToReport(itemData) {
+            const addedItems = JSON.parse(localStorage.getItem('addedToMonthlyReport') || '[]');
+            const itemKey = `${itemData.object_name}_${itemData.district}_${itemData.period_type}`;
+            return addedItems.includes(itemKey);
+        }
+        
+        // Function to mark button as added (for items already in reports)
+        function markButtonAsAdded(button, itemData) {
+            if (isItemAddedToReport(itemData)) {
+                button.innerHTML = '✓';
+                button.classList.add('added');
+                button.disabled = true;
+                button.title = 'Added to monthly report';
+            }
+        }
+        
+        // Function to clear added items (useful for new month or reset)
+        function clearAddedItems() {
+            localStorage.removeItem('addedToMonthlyReport');
+            // Refresh the page to update all buttons
+            location.reload();
+        }
+        
+        // Function to check if we should clear added items (e.g., new month)
+        function checkAndClearAddedItems() {
+            const addedItems = JSON.parse(localStorage.getItem('addedToMonthlyReport') || '[]');
+            if (addedItems.length > 0) {
+                const lastAddedDate = localStorage.getItem('lastAddedDate');
+                const currentDate = new Date().toDateString();
+                
+                if (lastAddedDate !== currentDate) {
+                    // Check if it's a new month
+                    const lastDate = new Date(lastAddedDate || 0);
+                    const currentMonth = new Date().getMonth();
+                    const lastMonth = lastDate.getMonth();
+                    
+                    if (currentMonth !== lastMonth) {
+                        // New month, clear the added items
+                        clearAddedItems();
+                        return;
+                    }
+                }
+            }
+        }
+        
+        // Check for new month on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            checkAndClearAddedItems();
+        });
+        
+        // Make clearAddedItems available globally for debugging
+        window.clearAddedItems = clearAddedItems;
         
 
     </script>

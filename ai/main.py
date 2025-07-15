@@ -1026,6 +1026,10 @@ async def cleanup_logs():
 
 @app.on_event("startup")
 async def startup_event():
+    # Start background job cleanup task
+    from background_jobs import start_cleanup_task
+    start_cleanup_task()
+    
     # Existing startup code
     routes = []
     for route in app.routes:

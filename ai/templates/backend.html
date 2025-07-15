@@ -1298,6 +1298,7 @@
             </div>
             <!-- Analysis Buttons - Main blue -->
             <button id="analyze-ytd-btn" class="analysis-btn">Run Dashboard Metrics</button>
+            <button id="active-jobs-btn" class="management-btn" style="display: none;">See Active Jobs</button>
             <button id="reload-sfpublic-metadata-btn" class="management-btn">Reload SF Public Metadata</button>
             
             <div class="nav-section">
@@ -2467,24 +2468,71 @@ Can you help me understand:
 
             // Dashboard metrics button handler
             document.getElementById('analyze-ytd-btn').addEventListener('click', async () => {
-                showLoading('Generating dashboard metrics...');
+                showLoading('Starting dashboard metrics generation...');
                 
                 try {
-                    const response = await fetch('/backend/generate_ytd_metrics');
+                    // Start the async job
+                    const response = await fetch('/backend/generate_ytd_metrics_async', {
+                        method: 'POST'
+                    });
                     const data = await response.json();
                     
                     if (data.status === 'success') {
-                        // Show success message
+                        const jobId = data.job_id;
                         const operationElement = document.getElementById('loading-operation-text');
-                        operationElement.textContent = 'Dashboard metrics generated successfully!';
                         
-                        // Wait a moment to show the success message
-                        await new Promise(resolve => setTimeout(resolve, 2000));
+                        // Update active jobs button since a new job started
+                        checkActiveJobs();
                         
-                        // Reload the dashboard to show updated metrics
-                        document.getElementById('content-frame').src = '/backend/dashboard';
+                        // Poll for job status
+                        const pollInterval = setInterval(async () => {
+                            try {
+                                const statusResponse = await fetch(`/backend/jobs/${jobId}`);
+                                const statusData = await statusResponse.json();
+                                
+                                if (statusData.status === 'success') {
+                                    const job = statusData.job;
+                                    
+                                    if (job.status === 'running') {
+                                        operationElement.textContent = `Generating dashboard metrics... (${job.progress}%)`;
+                                    } else if (job.status === 'completed') {
+                                        clearInterval(pollInterval);
+                                        operationElement.textContent = 'Dashboard metrics generated successfully!';
+                                        
+                                        // Wait a moment to show the success message
+                                        await new Promise(resolve => setTimeout(resolve, 2000));
+                                        
+                                        // Reload the dashboard to show updated metrics
+                                        document.getElementById('content-frame').src = '/backend/dashboard';
+                                        hideLoading();
+                                        
+                                        // Update active jobs button
+                                        checkActiveJobs();
+                                    } else if (job.status === 'failed') {
+                                        clearInterval(pollInterval);
+                                        hideLoading();
+                                        checkActiveJobs();
+                                        throw new Error(job.error || 'Job failed');
+                                    }
+                                } else {
+                                    clearInterval(pollInterval);
+                                    throw new Error('Failed to get job status');
+                                }
+                            } catch (error) {
+                                clearInterval(pollInterval);
+                                throw error;
+                            }
+                        }, 2000); // Poll every 2 seconds
+                        
+                        // Set a timeout to stop polling after 10 minutes
+                        setTimeout(() => {
+                            clearInterval(pollInterval);
+                            operationElement.textContent = 'Operation timed out. Check logs for details.';
+                            hideLoading();
+                        }, 600000);
+                        
                     } else {
-                        throw new Error(data.message || 'Failed to generate dashboard metrics');
+                        throw new Error(data.message || 'Failed to start dashboard metrics generation');
                     }
                 } catch (error) {
                     console.error('Error generating dashboard metrics:', error);
@@ -2493,8 +2541,182 @@ Can you help me understand:
                     
                     // Wait a moment to show the error message
                     await new Promise(resolve => setTimeout(resolve, 3000));
-                } finally {
                     hideLoading();
+                }
+            });
+
+            // Function to check for active jobs and update button visibility
+            async function checkActiveJobs() {
+                try {
+                    const response = await fetch('/backend/jobs');
+                    const data = await response.json();
+                    
+                    if (data.status === 'success') {
+                        const activeJobs = data.jobs.filter(job => job.status === 'running' || job.status === 'pending');
+                        const activeJobsBtn = document.getElementById('active-jobs-btn');
+                        
+                        if (activeJobs.length > 0) {
+                            activeJobsBtn.style.display = 'block';
+                            activeJobsBtn.textContent = `See Active Jobs (${activeJobs.length})`;
+                        } else {
+                            activeJobsBtn.style.display = 'none';
+                        }
+                    }
+                } catch (error) {
+                    console.error('Error checking active jobs:', error);
+                }
+            }
+            
+            // Check for active jobs on page load
+            checkActiveJobs();
+            
+            // Check for active jobs every 30 seconds
+            setInterval(checkActiveJobs, 30000);
+            
+            // Active jobs button handler
+            document.getElementById('active-jobs-btn').addEventListener('click', async () => {
+                try {
+                    const response = await fetch('/backend/jobs');
+                    const data = await response.json();
+                    
+                    if (data.status === 'success') {
+                        const activeJobs = data.jobs.filter(job => job.status === 'running' || job.status === 'pending');
+                        
+                        if (activeJobs.length > 0) {
+                            // Create a modal or iframe content to show active jobs
+                            const htmlContent = `
+                                <html>
+                                    <head>
+                                        <style>
+                                            body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; padding: 20px; }
+                                            .job-card { 
+                                                background: #f8f9fa; 
+                                                border: 1px solid #dee2e6; 
+                                                border-radius: 8px; 
+                                                padding: 15px; 
+                                                margin-bottom: 15px; 
+                                            }
+                                            .job-header { 
+                                                display: flex; 
+                                                justify-content: space-between; 
+                                                align-items: center; 
+                                                margin-bottom: 10px; 
+                                            }
+                                            .job-title { 
+                                                font-weight: bold; 
+                                                font-size: 16px; 
+                                            }
+                                            .job-status { 
+                                                padding: 4px 8px; 
+                                                border-radius: 4px; 
+                                                font-size: 12px; 
+                                                font-weight: bold; 
+                                            }
+                                            .status-running { 
+                                                background: #d1ecf1; 
+                                                color: #0c5460; 
+                                            }
+                                            .status-pending { 
+                                                background: #fff3cd; 
+                                                color: #856404; 
+                                            }
+                                            .job-details { 
+                                                font-size: 14px; 
+                                                color: #6c757d; 
+                                            }
+                                            .progress-bar { 
+                                                width: 100%; 
+                                                height: 8px; 
+                                                background: #e9ecef; 
+                                                border-radius: 4px; 
+                                                overflow: hidden; 
+                                                margin-top: 10px; 
+                                            }
+                                            .progress-fill { 
+                                                height: 100%; 
+                                                background: #007bff; 
+                                                transition: width 0.3s ease; 
+                                            }
+                                            .no-jobs { 
+                                                text-align: center; 
+                                                color: #6c757d; 
+                                                font-style: italic; 
+                                            }
+                                        </style>
+                                    </head>
+                                    <body>
+                                        <h2>Active Background Jobs</h2>
+                                        ${activeJobs.length > 0 ? activeJobs.map(job => `
+                                            <div class="job-card">
+                                                <div class="job-header">
+                                                    <div class="job-title">${job.description}</div>
+                                                    <span class="job-status status-${job.status}">${job.status.toUpperCase()}</span>
+                                                </div>
+                                                <div class="job-details">
+                                                    <div>Job ID: ${job.job_id}</div>
+                                                    <div>Type: ${job.job_type}</div>
+                                                    <div>Started: ${new Date(job.start_time || job.created_at).toLocaleString()}</div>
+                                                    ${job.progress !== undefined ? `
+                                                        <div>Progress: ${job.progress}%</div>
+                                                        <div class="progress-bar">
+                                                            <div class="progress-fill" style="width: ${job.progress}%"></div>
+                                                        </div>
+                                                    ` : ''}
+                                                </div>
+                                            </div>
+                                        `).join('') : '<div class="no-jobs">No active jobs found</div>'}
+                                    </body>
+                                </html>
+                            `;
+                            
+                            const blob = new Blob([htmlContent], { type: 'text/html' });
+                            const url = URL.createObjectURL(blob);
+                            document.getElementById('content-frame').src = url;
+                        } else {
+                            // Show message that no active jobs were found
+                            const htmlContent = `
+                                <html>
+                                    <head>
+                                        <style>
+                                            body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; padding: 20px; text-align: center; }
+                                            .no-jobs { color: #6c757d; font-style: italic; }
+                                        </style>
+                                    </head>
+                                    <body>
+                                        <h2>Active Background Jobs</h2>
+                                        <div class="no-jobs">No active jobs found</div>
+                                    </body>
+                                </html>
+                            `;
+                            
+                            const blob = new Blob([htmlContent], { type: 'text/html' });
+                            const url = URL.createObjectURL(blob);
+                            document.getElementById('content-frame').src = url;
+                        }
+                    } else {
+                        throw new Error(data.message || 'Failed to fetch jobs');
+                    }
+                } catch (error) {
+                    console.error('Error fetching active jobs:', error);
+                    // Show error in iframe
+                    const htmlContent = `
+                        <html>
+                            <head>
+                                <style>
+                                    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; padding: 20px; }
+                                    .error { color: #dc3545; font-weight: bold; }
+                                </style>
+                            </head>
+                            <body>
+                                <h2>Active Background Jobs</h2>
+                                <div class="error">Error: ${error.message}</div>
+                            </body>
+                        </html>
+                    `;
+                    
+                    const blob = new Blob([htmlContent], { type: 'text/html' });
+                    const url = URL.createObjectURL(blob);
+                    document.getElementById('content-frame').src = url;
                 }
             });
 

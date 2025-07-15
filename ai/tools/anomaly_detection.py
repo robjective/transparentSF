@@ -2,14 +2,27 @@ import datetime
 from datetime import date
 import logging
 import pandas as pd
-from .generateAnomalyCharts import generate_anomalies_summary_with_charts 
-from dateutil import parser  # Import this library for robust date parsing
+import sys
 import os
+
+# Add current directory to path for direct script execution
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
+# Handle imports for both direct execution and package import
+try:
+    # Try relative imports first (for package import)
+    from .generateAnomalyCharts import generate_anomalies_summary_with_charts 
+    from .store_anomalies import store_anomaly_data, CustomJSONEncoder
+except ImportError:
+    # Fall back to absolute imports (for direct script execution)
+    from generateAnomalyCharts import generate_anomalies_summary_with_charts 
+    from store_anomalies import store_anomaly_data, CustomJSONEncoder
+
+from dateutil import parser  # Import this library for robust date parsing
 import psycopg2
 from psycopg2.extras import Json
 import json
 import numpy as np
-from .store_anomalies import store_anomaly_data, CustomJSONEncoder  # Import the store_anomalies module
 
 # set logging level to INFO
 logging.basicConfig(level=logging.INFO)
