@@ -683,10 +683,24 @@ def process_query_for_district(query, endpoint, date_ranges, query_name=None):
                 monthly_ranges = get_monthly_date_ranges(max_date)
             
             if has_district:
-                is_response_time = query_name and ('response time' in query_name.lower() or 'response (minutes)' in query_name.lower())
-                logger.info(f"Processing as response time metric: {is_response_time}")
+                # Check if this is an average metric by looking for AVG() in the query
+                def detect_avg_aggregation(query):
+                    """Detect if a query uses an AVG() aggregation function."""
+                    if not query:
+                        return False
+                    import re
+                    avg_pattern = r'AVG\s*\(([^)]+)\)'
+                    avg_matches = re.findall(avg_pattern, query, re.IGNORECASE)
+                    return len(avg_matches) > 0
                 
-                if is_response_time:
+                is_response_time = query_name and ('response time' in query_name.lower() or 'response (minutes)' in query_name.lower())
+                is_avg_metric = detect_avg_aggregation(query)
+                is_average_metric = is_response_time or is_avg_metric
+                logger.info(f"Processing as response time metric: {is_response_time}")
+                logger.info(f"Processing as average metric (AVG detected): {is_avg_metric}")
+                logger.info(f"Processing as average metric (combined): {is_average_metric}")
+                
+                if is_average_metric:
                     if 'this_year' not in df.columns or 'last_year' not in df.columns:
                         logger.error(f"Required columns not found in dataset. Available columns: {df.columns.tolist()}")
                         return None
@@ -863,11 +877,22 @@ def process_monthly_query(query, endpoint, monthly_ranges, query_name=None, dist
             if not df.empty and 'this_month' in df.columns and 'last_month' in df.columns:
                 df[['this_month', 'last_month']] = df[['this_month', 'last_month']].apply(pd.to_numeric, errors='coerce')
                 
-                # Check if this is a response time metric
-                is_response_time = query_name and ('response time' in query_name.lower() or 'response (minutes)' in query_name.lower())
+                # Check if this is an average metric by looking for AVG() in the query
+                def detect_avg_aggregation(query):
+                    """Detect if a query uses an AVG() aggregation function."""
+                    if not query:
+                        return False
+                    import re
+                    avg_pattern = r'AVG\s*\(([^)]+)\)'
+                    avg_matches = re.findall(avg_pattern, query, re.IGNORECASE)
+                    return len(avg_matches) > 0
                 
-                if is_response_time:
-                    # Use mean for response time metrics
+                is_response_time = query_name and ('response time' in query_name.lower() or 'response (minutes)' in query_name.lower())
+                is_avg_metric = detect_avg_aggregation(query)
+                is_average_metric = is_response_time or is_avg_metric
+                
+                if is_average_metric:
+                    # Use mean for average metrics
                     this_month_value = int(df['this_month'].mean()) if pd.notnull(df['this_month'].mean()) else 0
                     last_month_value = int(df['last_month'].mean()) if pd.notnull(df['last_month'].mean()) else 0
                 else:
