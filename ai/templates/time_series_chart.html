@@ -27,12 +27,21 @@
             font-size: 14px;
         }
         
+        [data-theme="dark"] body {
+            background-color: #1a1a1a;
+            color: #ffffff;
+        }
+        
         .chart-container {
             background-color: white;
             border-radius: 8px;
             padding: 10px;
             margin: 0 auto;
             box-shadow: none;
+        }
+        
+        [data-theme="dark"] .chart-container {
+            background-color: #1a1a1a;
             overflow: visible;
             position: relative;
             display: flex;
@@ -71,6 +80,17 @@
             border-bottom-left-radius: 8px;
             display: block;
             pointer-events: none;
+        }
+
+        /* Dark mode corner frames */
+        [data-theme="dark"] .chart-container::before {
+            border-top: 2px solid rgba(255, 255, 255, 0.3);
+            border-right: 2px solid rgba(255, 255, 255, 0.3);
+        }
+
+        [data-theme="dark"] .chart-container::after {
+            border-bottom: 2px solid rgba(255, 255, 255, 0.3);
+            border-left: 2px solid rgba(255, 255, 255, 0.3);
         }
         
         .header {
@@ -444,8 +464,47 @@
         }
     </style>
 
-    <!-- Dark Mode CSS -->
-    <link rel="stylesheet" href="/static/css/darkmode.css">
+    <!-- Dark Mode CSS - embedded for reliability -->
+    <style>
+        /* Core dark mode variables and styles embedded for reliability */
+        :root {
+            --text-primary: #222222;
+            --text-secondary: #666666;
+            --bg-primary: #ffffff;
+            --bg-secondary: #f8f9fa;
+            --border-primary: #e5e7eb;
+            --bright-purple: #ad35fa;
+        }
+        
+        [data-theme="dark"] {
+            --text-primary: #ffffff;
+            --text-secondary: #cccccc;
+            --bg-primary: #1a1a1a;
+            --bg-secondary: #2d2d2d;
+            --border-primary: #404040;
+        }
+        
+        /* Additional dark mode styles for charts */
+        [data-theme="dark"] .metadata {
+            background-color: rgba(45, 45, 45, 0.8) !important;
+            color: #ffffff !important;
+        }
+        
+        [data-theme="dark"] .group-filter-container {
+            background: linear-gradient(135deg, rgba(45, 45, 45, 0.8) 0%, rgba(60, 60, 60, 0.9) 100%) !important;
+            border: 1px solid rgba(74, 116, 99, 0.4) !important;
+            color: #ffffff !important;
+        }
+        
+        [data-theme="dark"] .alert-warning {
+            background-color: rgba(255, 193, 7, 0.2) !important;
+            border-color: #ffc107 !important;
+            color: #ffffff !important;
+        }
+    </style>
+    
+    <!-- Fallback: load external CSS if available -->
+    <link rel="stylesheet" href="/static/darkmode.css">
 </head>
 <body>
     <div class="container">
@@ -615,7 +674,7 @@
             }
             
             // Determine period type early so it can be used throughout the function
-            const isYearlyData = metadata.period_type === 'yearly' || metadata.period_type === 'year' || periodType === 'year';
+            const isYearlyData = metadata.period_type === 'yearly' || metadata.period_type === 'year' || metadata.period_type === 'annual' || periodType === 'year';
             const isWeeklyData = metadata.period_type === 'weekly' || metadata.period_type === 'week' || periodType === 'week';
             
             // Check if we have grouped data
@@ -861,7 +920,9 @@
                             line: { color: colorPalette[colorIndex % colorPalette.length], width: 2 },
                             marker: { color: colorPalette[colorIndex % colorPalette.length], size: 6 },
                             showlegend: fullView,
-                            hovertemplate: isWeeklyData ? 
+                            hovertemplate: isYearlyData ? 
+                                `${groupValue}<br>%{x|%Y}<br>%{y}<extra></extra>` :
+                                isWeeklyData ? 
                                 `${groupValue}<br>%{x|%B %d, %Y}<br>%{y}<extra></extra>` : 
                                 `${groupValue}<br>%{x|%B %Y}<br>%{y}<extra></extra>`,
                             hoverlabel: {
@@ -1021,7 +1082,7 @@
                                                 line: { color: '#ad35fa', width: 2 }, // Primary Purple
                             marker: { color: '#ad35fa', size: 6 }, // Primary Purple
                     showlegend: fullView,
-                    hovertemplate: isWeeklyData ? '%{x|%B %d, %Y}<br>%{y}<extra></extra>' : '%{x|%B %Y}<br>%{y}<extra></extra>', // Format based on period type
+                    hovertemplate: isYearlyData ? '%{x|%Y}<br>%{y}<extra></extra>' : isWeeklyData ? '%{x|%B %d, %Y}<br>%{y}<extra></extra>' : '%{x|%B %Y}<br>%{y}<extra></extra>', // Format based on period type
                     hoverlabel: {
                         bgcolor: '#F6F1EA', // Soft Sand
                         bordercolor: '#4A7463', // Spruce Green
@@ -1052,11 +1113,11 @@
                 // Only add subtitle if district is specified and not citywide (0)
                 const districtName = `District ${district}`;
                 subtitleText = `${districtName} - ${metadata.period_type || periodType} Data${itemNoun ? ' · ' + itemNoun : ''}`;
-                combinedTitleText = `${objectName}<br><span style="font-size: 0.8em;">${subtitleText}</span>`; // Combine with smaller subtitle
+                combinedTitleText = `${objectName}<br><span style="font-size: 0.7em;">${subtitleText}</span>`; // Combine with smaller subtitle
             } else {
                 // Optional: If district is 0 (Citywide), you could add a generic subtitle if desired
                 subtitleText = `Citywide - ${metadata.period_type || periodType} Data${itemNoun ? ' · ' + itemNoun : ''}`;
-                combinedTitleText = `${objectName}<br><span style="font-size: 0.8em;">${subtitleText}</span>`; // Combine with smaller subtitle
+                combinedTitleText = `${objectName}<br><span style="font-size: 0.7em;">${subtitleText}</span>`; // Combine with smaller subtitle
             }
             // --- END RE-ADD SUBTITLE LOGIC ---
             
@@ -1102,7 +1163,7 @@
                         text: combinedTitleText,
                         font: {
                             family: 'Inter, Arial, sans-serif',
-                            size: 16, 
+                            size: 20, 
                             color: '#222222' 
                         },
                         y: 0.98, 
@@ -1176,13 +1237,14 @@
                         itemsizing: 'constant',
                         itemwidth: 20
                     },
-                    margin: { t: 40, b: 80, l: 50, r: 30 },
+                    margin: { t: 55, b: 80, l: 50, r: 30 },
                     height: null,
                     width: null,
                     autosize: true,
-                    paper_bgcolor: 'rgba(255, 255, 255, 0.9)',
-                    plot_bgcolor: 'rgba(255, 255, 255, 0.9)',
+                    paper_bgcolor: 'transparent',
+                    plot_bgcolor: 'transparent',
                     hovermode: 'closest',
+                    dragmode: fullView ? 'zoom' : false, // Enable drag zoom only in full view mode
                     responsive: true,
                     hoverlabel: {
                         bgcolor: '#F6F1EA',
@@ -1201,7 +1263,7 @@
                         text: combinedTitleText, // Use objectName or combined text
                         font: {
                             family: 'Inter, Arial, sans-serif',
-                            size: 16, 
+                            size: 20, 
                             color: '#222222' 
                         },
                         y: 0.98, 
@@ -1236,6 +1298,11 @@
                             const month = d.getMonth();
                             const year = d.getFullYear();
                             const day = d.getDate();
+                            
+                            // Safety check: if this is somehow yearly data that got here, just show the year
+                            if (metadata.period_type === 'yearly' || metadata.period_type === 'year' || metadata.period_type === 'annual' || periodType === 'year') {
+                                return year.toString();
+                            }
                             
                             if (isWeeklyData) {
                                 // For weekly data, show month and day (e.g., "Jan 15")
@@ -1320,13 +1387,14 @@
                         },
                         bgcolor: 'rgba(246, 241, 234, 0.7)' // Soft Sand with transparency
                     },
-                    margin: { t: 40, b: 100, l: 50, r: 30 }, // Increased bottom margin from 30 to 60
+                    margin: { t: 55, b: 100, l: 50, r: 30 }, // Increased top margin for subtitle space
                     height: null, // Remove fixed height
                     width: null, // Remove fixed width
                     autosize: true, // Enable autosize
-                    paper_bgcolor: 'rgba(255, 255, 255, 0.9)', // Slightly transparent white
-                    plot_bgcolor: 'rgba(255, 255, 255, 0.9)', // Slightly transparent white
+                    paper_bgcolor: 'transparent', // Will be set by theme
+                    plot_bgcolor: 'transparent', // Will be set by theme
                     hovermode: 'closest',
+                    dragmode: fullView ? 'zoom' : false, // Enable drag zoom only in full view mode
                     responsive: true, // Ensure the chart is responsive
                     hoverlabel: {
                         bgcolor: '#F6F1EA', // Soft Sand
@@ -1496,7 +1564,9 @@
                 attributionContainer.style.zIndex = '1000';
                 attributionContainer.style.fontSize = '10px';
                 attributionContainer.style.color = '#999999';
-                attributionContainer.style.backgroundColor = 'rgba(255, 255, 255, 0.9)';
+                // Set attribution background based on current theme
+                const currentTheme = document.documentElement.getAttribute('data-theme') || 'light';
+                attributionContainer.style.backgroundColor = currentTheme === 'dark' ? 'rgba(26, 26, 26, 0.9)' : 'rgba(255, 255, 255, 0.9)';
                 attributionContainer.style.padding = '3px 8px';
                 attributionContainer.style.borderRadius = '4px';
                 attributionContainer.style.display = 'flex';
@@ -1547,6 +1617,8 @@
                 shareLink.onclick = function(e) {
                     e.preventDefault();
                     const fullUrl = window.location.href.split('#')[0];
+                    const originalText = shareLink.innerHTML;
+                    
                     if (navigator.share) {
                         navigator.share({
                             title: 'TransparentSF Chart',
@@ -1554,10 +1626,130 @@
                             url: fullUrl
                         }).catch(err => {
                             console.error('Error sharing:', err);
-                            copyToClipboard(fullUrl);
+                            // Show visual feedback for copy fallback
+                            const tryClipboardCopy = () => {
+                                if (navigator.clipboard && navigator.clipboard.writeText) {
+                                    return navigator.clipboard.writeText(fullUrl);
+                                } else {
+                                    // Fallback for older browsers or insecure contexts
+                                    return new Promise((resolve, reject) => {
+                                        const textArea = document.createElement('textarea');
+                                        textArea.value = fullUrl;
+                                        textArea.style.position = 'fixed';
+                                        textArea.style.left = '-999999px';
+                                        textArea.style.top = '-999999px';
+                                        document.body.appendChild(textArea);
+                                        textArea.focus();
+                                        textArea.select();
+                                        try {
+                                            const result = document.execCommand('copy');
+                                            document.body.removeChild(textArea);
+                                            if (result) {
+                                                resolve();
+                                            } else {
+                                                reject(new Error('execCommand failed'));
+                                            }
+                                        } catch (err) {
+                                            document.body.removeChild(textArea);
+                                            reject(err);
+                                        }
+                                    });
+                                }
+                            };
+                            
+                            tryClipboardCopy().then(() => {
+                                shareLink.innerHTML = '<i class="fas fa-check" style="font-size: 8px;"></i> Copied!';
+                                const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+                                shareLink.style.color = isDark ? '#81C784' : '#4CAF50'; // Light green for dark mode, regular green for light
+                                setTimeout(() => {
+                                    shareLink.innerHTML = originalText;
+                                    shareLink.style.color = '#999999';
+                                }, 2000);
+                            }).catch(copyErr => {
+                                console.error('Failed to copy:', copyErr);
+                                // Show the URL in a prompt as final fallback
+                                shareLink.innerHTML = '<i class="fas fa-link" style="font-size: 8px;"></i> Copy URL';
+                                const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+                                shareLink.style.color = isDark ? '#90CAF9' : '#2196F3'; // Blue color to indicate action needed
+                                
+                                // Add click handler to show URL in prompt
+                                const showUrlHandler = function() {
+                                    prompt('Copy this URL:', fullUrl);
+                                    shareLink.innerHTML = originalText;
+                                    shareLink.style.color = '#999999';
+                                    shareLink.removeEventListener('click', showUrlHandler);
+                                };
+                                shareLink.addEventListener('click', showUrlHandler);
+                                
+                                setTimeout(() => {
+                                    shareLink.innerHTML = originalText;
+                                    shareLink.style.color = '#999999';
+                                    shareLink.removeEventListener('click', showUrlHandler);
+                                }, 10000); // Give more time for manual copy
+                            });
                         });
                     } else {
-                        copyToClipboard(fullUrl);
+                        // Show visual feedback for copy
+                        const tryClipboardCopy = () => {
+                            if (navigator.clipboard && navigator.clipboard.writeText) {
+                                return navigator.clipboard.writeText(fullUrl);
+                            } else {
+                                // Fallback for older browsers or insecure contexts
+                                return new Promise((resolve, reject) => {
+                                    const textArea = document.createElement('textarea');
+                                    textArea.value = fullUrl;
+                                    textArea.style.position = 'fixed';
+                                    textArea.style.left = '-999999px';
+                                    textArea.style.top = '-999999px';
+                                    document.body.appendChild(textArea);
+                                    textArea.focus();
+                                    textArea.select();
+                                    try {
+                                        const result = document.execCommand('copy');
+                                        document.body.removeChild(textArea);
+                                        if (result) {
+                                            resolve();
+                                        } else {
+                                            reject(new Error('execCommand failed'));
+                                        }
+                                    } catch (err) {
+                                        document.body.removeChild(textArea);
+                                        reject(err);
+                                    }
+                                });
+                            }
+                        };
+                        
+                        tryClipboardCopy().then(() => {
+                            shareLink.innerHTML = '<i class="fas fa-check" style="font-size: 8px;"></i> Copied!';
+                            const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+                            shareLink.style.color = isDark ? '#81C784' : '#4CAF50'; // Light green for dark mode, regular green for light
+                            setTimeout(() => {
+                                shareLink.innerHTML = originalText;
+                                shareLink.style.color = '#999999';
+                            }, 2000);
+                        }).catch(err => {
+                            console.error('Failed to copy:', err);
+                            // Show the URL in a prompt as final fallback
+                            shareLink.innerHTML = '<i class="fas fa-link" style="font-size: 8px;"></i> Copy URL';
+                            const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+                            shareLink.style.color = isDark ? '#90CAF9' : '#2196F3'; // Blue color to indicate action needed
+                            
+                            // Add click handler to show URL in prompt
+                            const showUrlHandler = function() {
+                                prompt('Copy this URL:', fullUrl);
+                                shareLink.innerHTML = originalText;
+                                shareLink.style.color = '#999999';
+                                shareLink.removeEventListener('click', showUrlHandler);
+                            };
+                            shareLink.addEventListener('click', showUrlHandler);
+                            
+                            setTimeout(() => {
+                                shareLink.innerHTML = originalText;
+                                shareLink.style.color = '#999999';
+                                shareLink.removeEventListener('click', showUrlHandler);
+                            }, 10000); // Give more time for manual copy
+                        });
                     }
                 };
                 rightSide.appendChild(shareLink);
@@ -1588,8 +1780,10 @@
             
             const config = {
                 responsive: true,
-                displayModeBar: false, // Hide the Plotly modebar (menu) completely for cleaner embedded views
-                modeBarButtonsToRemove: ['toImage', 'pan2d', 'zoom2d', 'zoomIn2d', 'zoomOut2d', 'autoScale2d', 'resetScale2d', 'hoverClosestCartesian', 'hoverCompareCartesian', 'lasso2d', 'select2d'], // Ensure all buttons are removed
+                displayModeBar: fullView, // Show modebar only in full view mode
+                scrollZoom: fullView, // Enable scroll zoom only in full view mode
+                doubleClick: fullView ? 'reset' : false, // Enable double-click reset only in full view mode
+                modeBarButtonsToRemove: fullView ? [] : ['toImage', 'pan2d', 'zoom2d', 'zoomIn2d', 'zoomOut2d', 'autoScale2d', 'resetScale2d', 'hoverClosestCartesian', 'hoverCompareCartesian', 'lasso2d', 'select2d'], // Remove all buttons except in full view
                 toImageButtonOptions: {
                     format: 'png',
                     filename: 'time_series_chart',
@@ -1610,7 +1804,7 @@
                 
                 // Adjust title font size based on chart width (subtitle is part of title)
                 let update = {
-                    'title.font.size': Math.max(10, Math.min(14, chartWidth / 30)), // Adjusted for 4:3 ratio
+                    'title.font.size': Math.max(14, Math.min(20, chartWidth / 25)), // Adjusted for larger base size
                     'legend.font.size': Math.max(7, Math.min(9, chartWidth / 50))
                 };
                 
@@ -1619,17 +1813,17 @@
                     update['title.y'] = 0.98;
                     update['legend.y'] = -0.12;        // Move legend up more for shorter charts
                     update['margin.b'] = 80;          // Increase bottom margin for x-axis labels
-                    update['margin.t'] = 40;          // Reduce top margin
+                    update['margin.t'] = 50;          // Maintain space for subtitle
                     update['margin.l'] = 45;          // Reduce left margin
                     update['margin.r'] = 25;          // Reduce right margin
                 }
                 
                 // For extremely small windows (like 437x437)
                 if (chartWidth < 300) {
-                    update['title.font.size'] = Math.max(8, chartWidth / 35);
+                    update['title.font.size'] = Math.max(12, chartWidth / 30);
                     update['legend.font.size'] = Math.max(6, chartWidth / 60);
                     update['margin.b'] = 70;
-                    update['margin.t'] = 35;
+                    update['margin.t'] = 45;
                     update['margin.l'] = 40;
                     update['margin.r'] = 20;
                 }
@@ -2161,10 +2355,40 @@
         // Function to copy the current URL to clipboard
         function copyShareLink() {
             const url = window.location.href;
-            navigator.clipboard.writeText(url).then(() => {
-                const shareBtn = document.getElementById('share-btn');
-                const originalText = shareBtn.innerHTML;
-                
+            const shareBtn = document.getElementById('share-btn');
+            const originalText = shareBtn.innerHTML;
+            
+            const tryClipboardCopy = () => {
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    return navigator.clipboard.writeText(url);
+                } else {
+                    // Fallback for older browsers or insecure contexts
+                    return new Promise((resolve, reject) => {
+                        const textArea = document.createElement('textarea');
+                        textArea.value = url;
+                        textArea.style.position = 'fixed';
+                        textArea.style.left = '-999999px';
+                        textArea.style.top = '-999999px';
+                        document.body.appendChild(textArea);
+                        textArea.focus();
+                        textArea.select();
+                        try {
+                            const result = document.execCommand('copy');
+                            document.body.removeChild(textArea);
+                            if (result) {
+                                resolve();
+                            } else {
+                                reject(new Error('execCommand failed'));
+                            }
+                        } catch (err) {
+                            document.body.removeChild(textArea);
+                            reject(err);
+                        }
+                    });
+                }
+            };
+            
+            tryClipboardCopy().then(() => {
                 // Change button text to indicate success
                 shareBtn.innerHTML = '<i class="fas fa-check me-1"></i> Copied!';
                 shareBtn.classList.remove('btn-outline-success');
@@ -2178,7 +2402,20 @@
                 }, 2000);
             }).catch(err => {
                 console.error('Failed to copy: ', err);
-                alert('Failed to copy the link. Please try again.');
+                // Show URL in prompt as fallback
+                const userUrl = prompt('Copy this URL:', url);
+                if (userUrl !== null) {
+                    // User interacted with the prompt, show temporary feedback
+                    shareBtn.innerHTML = '<i class="fas fa-link me-1"></i> URL Shown';
+                    shareBtn.classList.remove('btn-outline-success');
+                    shareBtn.classList.add('btn-info');
+                    
+                    setTimeout(() => {
+                        shareBtn.innerHTML = originalText;
+                        shareBtn.classList.remove('btn-info');
+                        shareBtn.classList.add('btn-outline-success');
+                    }, 2000);
+                }
             });
         }
         
@@ -2239,18 +2476,50 @@
         
         // Function to copy the embed code to clipboard
         function copyEmbedCode() {
-            const embedCode = document.getElementById('embedCode');
-            embedCode.select();
-            document.execCommand('copy');
-            
-            // Show a brief success message
+            const embedCodeElement = document.getElementById('embedCode');
+            const embedCodeText = embedCodeElement.value;
             const copyBtn = document.querySelector('#embedModal .btn-outline-primary');
             const originalHtml = copyBtn.innerHTML;
-            copyBtn.innerHTML = '<i class="fas fa-check"></i>';
             
-            setTimeout(() => {
-                copyBtn.innerHTML = originalHtml;
-            }, 2000);
+            const tryClipboardCopy = () => {
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    return navigator.clipboard.writeText(embedCodeText);
+                } else {
+                    // Fallback to execCommand for older browsers
+                    return new Promise((resolve, reject) => {
+                        try {
+                            embedCodeElement.select();
+                            const result = document.execCommand('copy');
+                            if (result) {
+                                resolve();
+                            } else {
+                                reject(new Error('execCommand failed'));
+                            }
+                        } catch (err) {
+                            reject(err);
+                        }
+                    });
+                }
+            };
+            
+            tryClipboardCopy().then(() => {
+                // Show a brief success message
+                copyBtn.innerHTML = '<i class="fas fa-check"></i>';
+                
+                setTimeout(() => {
+                    copyBtn.innerHTML = originalHtml;
+                }, 2000);
+            }).catch(err => {
+                console.error('Failed to copy embed code:', err);
+                // Show URL in prompt as fallback
+                prompt('Copy this embed code:', embedCodeText);
+                
+                // Still show feedback even if copy failed
+                copyBtn.innerHTML = '<i class="fas fa-link"></i>';
+                setTimeout(() => {
+                    copyBtn.innerHTML = originalHtml;
+                }, 2000);
+            });
         }
         
         // Add event listener to handle modal closing
@@ -2263,11 +2532,42 @@
 
         // Function to copy text to clipboard
         function copyToClipboard(text) {
-            navigator.clipboard.writeText(text).then(() => {
-                // Show a brief success message in the console or could add a toast notification
+            const tryClipboardCopy = () => {
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    return navigator.clipboard.writeText(text);
+                } else {
+                    // Fallback for older browsers or insecure contexts
+                    return new Promise((resolve, reject) => {
+                        const textArea = document.createElement('textarea');
+                        textArea.value = text;
+                        textArea.style.position = 'fixed';
+                        textArea.style.left = '-999999px';
+                        textArea.style.top = '-999999px';
+                        document.body.appendChild(textArea);
+                        textArea.focus();
+                        textArea.select();
+                        try {
+                            const result = document.execCommand('copy');
+                            document.body.removeChild(textArea);
+                            if (result) {
+                                resolve();
+                            } else {
+                                reject(new Error('execCommand failed'));
+                            }
+                        } catch (err) {
+                            document.body.removeChild(textArea);
+                            reject(err);
+                        }
+                    });
+                }
+            };
+            
+            tryClipboardCopy().then(() => {
                 console.log('Copied to clipboard:', text);
             }).catch(err => {
                 console.error('Failed to copy: ', err);
+                // Show URL in prompt as fallback
+                prompt('Copy this text:', text);
             });
         }
 
@@ -2278,7 +2578,10 @@
             const textColor = styles.getPropertyValue('--text-primary').trim() || (isDark ? '#ffffff' : '#222222');
             const gridColor = isDark ? 'rgba(60,60,60,0.5)' : 'rgba(232, 233, 235, 0.5)';
             const borderColor = styles.getPropertyValue('--border-primary').trim() || gridColor;
-            const paperBg = styles.getPropertyValue('--bg-primary').trim() || (isDark ? '#121212' : '#ffffff');
+            
+            // Use fully opaque backgrounds to prevent white bleeding through
+            const paperBg = isDark ? '#1a1a1a' : '#ffffff';
+            const plotBg = isDark ? '#1a1a1a' : '#ffffff';
 
             Plotly.relayout('time-series-plot', {
                 'font.color': textColor,
@@ -2290,7 +2593,7 @@
                 'legend.font.color': textColor,
                 'title.font.color': textColor,
                 'paper_bgcolor': paperBg,
-                'plot_bgcolor': paperBg
+                'plot_bgcolor': plotBg
             });
         }
 
@@ -2298,12 +2601,147 @@
         window.addEventListener('themeChanged', (e) => {
             if (e && e.detail && e.detail.theme) {
                 applyThemeToPlot(e.detail.theme);
+                
+                // Update attribution container background if it exists
+                const attributionContainer = document.querySelector('.chart-attribution');
+                if (attributionContainer) {
+                    attributionContainer.style.backgroundColor = e.detail.theme === 'dark' ? 'rgba(26, 26, 26, 0.9)' : 'rgba(255, 255, 255, 0.9)';
+                }
             }
         });
     </script>
 
     <!-- Dark Mode JavaScript -->
-    <script src="/static/js/darkmode.js"></script>
-    <script src="/static/js/iframe-darkmode.js"></script>
+    <script>
+        // Embedded chart dark mode handler - always include for charts
+        (function() {
+            'use strict';
+            
+            let currentTheme = null;
+            let systemListener = null;
+            
+            // Function to apply theme
+            function applyTheme(theme) {
+                if (currentTheme === theme) return;
+                
+                currentTheme = theme;
+                document.documentElement.setAttribute('data-theme', theme);
+                
+                // Update any toggle buttons if they exist
+                const toggles = document.querySelectorAll('.dark-mode-toggle');
+                toggles.forEach(toggle => {
+                    const icon = toggle.querySelector('.icon');
+                    if (icon) {
+                        icon.textContent = theme === 'light' ? '🌙' : '☀️';
+                    }
+                });
+                
+                // Update logo based on theme
+                const logoImages = document.querySelectorAll('#wordmark-logo, img[src*="wordmark.png"]');
+                logoImages.forEach(img => {
+                    if (theme === 'dark') {
+                        img.src = '/static/darkwordmark.png';
+                    } else {
+                        img.src = '/static/wordmark.png';
+                    }
+                });
+                
+                // Dispatch theme change event for chart updates
+                window.dispatchEvent(new CustomEvent('themeChanged', { detail: { theme } }));
+                
+                console.log('Chart dark mode: Applied theme:', theme);
+            }
+            
+            // Get current theme preference
+            function getCurrentTheme() {
+                // Always check system preference first for charts
+                const systemPrefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+                console.log('Chart dark mode: System prefers dark:', systemPrefersDark);
+                
+                // Check stored preference
+                let stored = null;
+                try {
+                    stored = localStorage.getItem('theme');
+                    console.log('Chart dark mode: Stored theme:', stored);
+                } catch (e) {
+                    console.log('Chart dark mode: localStorage not available');
+                }
+                
+                // For embedded charts, always use system preference unless explicitly overridden
+                const isEmbedded = window.location !== window.parent.location;
+                if (isEmbedded || !stored) {
+                    const theme = systemPrefersDark ? 'dark' : 'light';
+                    console.log('Chart dark mode: Using system theme for embedded/new chart:', theme);
+                    try {
+                        localStorage.setItem('theme', theme);
+                    } catch (e) {}
+                    return theme;
+                }
+                
+                console.log('Chart dark mode: Using stored theme:', stored);
+                return stored;
+            }
+            
+            // Add system theme change listener
+            function addSystemListener() {
+                if (systemListener || !window.matchMedia) return;
+                
+                const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+                
+                systemListener = function(e) {
+                    console.log('Chart dark mode: System theme changed to:', e.matches ? 'dark' : 'light');
+                    const newTheme = e.matches ? 'dark' : 'light';
+                    
+                    if (currentTheme !== newTheme) {
+                        applyTheme(newTheme);
+                        try {
+                            localStorage.setItem('theme', newTheme);
+                        } catch (e) {}
+                    }
+                };
+                
+                // Add listener with both modern and legacy methods
+                if (mediaQuery.addEventListener) {
+                    mediaQuery.addEventListener('change', systemListener);
+                } else {
+                    mediaQuery.addListener(systemListener);
+                }
+                
+                console.log('Chart dark mode: System theme listener added');
+            }
+            
+            // Initialize dark mode
+            function initDarkMode() {
+                console.log('Chart dark mode: Initializing...');
+                
+                // Apply current theme
+                const theme = getCurrentTheme();
+                applyTheme(theme);
+                
+                // Add system listener
+                addSystemListener();
+                
+                console.log('Chart dark mode: Initialization complete with theme:', theme);
+            }
+            
+            // Initialize when DOM is ready
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', initDarkMode);
+            } else {
+                initDarkMode();
+            }
+            
+        })();
+    </script>
+    
+    <!-- Load main dark mode script only for non-embedded contexts -->
+    <script>
+        if (window.location === window.parent.location) {
+            // Not in iframe, load main dark mode script
+            const script = document.createElement('script');
+            script.src = '/static/js/darkmode.js';
+            document.head.appendChild(script);
+        }
+    </script>
 </body>
 </html> 

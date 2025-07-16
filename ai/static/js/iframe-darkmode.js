@@ -1,14 +1,27 @@
-// Dark Mode for iframe content
-// This script automatically applies dark mode to iframe content
+// Dark Mode for all chart content
+// This script applies dark mode based on CLIENT preference only
+// (same behavior regardless of embedding context or domain)
 
 (function() {
     'use strict';
     
-    // Check if we're in an iframe
-    const isInIframe = window.parent !== window;
+    // Prevent conflicts with main darkmode.js if both are loaded
+    if (window.darkModeManager && window.location === window.parent.location) {
+        // We're in the main window with darkmode.js loaded, let it handle everything
+        console.log('iframe-darkmode.js: Main darkmode.js detected, deferring to it');
+        return;
+    }
+    
+    let isSystemThemeListenerAdded = false;
+    let currentTheme = null;
     
     // Function to apply theme
     function applyTheme(theme) {
+        if (currentTheme === theme) {
+            return; // Already applied, avoid unnecessary updates
+        }
+        
+        currentTheme = theme;
         document.documentElement.setAttribute('data-theme', theme);
         
         // Update any toggle buttons if they exist
@@ -32,7 +45,10 @@
             }
         });
         
-        console.log('Theme applied to iframe:', theme);
+        // Dispatch theme change event for other scripts (like chart updates)
+        window.dispatchEvent(new CustomEvent('themeChanged', { detail: { theme } }));
+        
+        console.log('iframe-darkmode.js: Theme applied:', theme);
     }
     
     // Function to load dark mode CSS and JS
@@ -45,63 +61,117 @@
             document.head.appendChild(cssLink);
         }
         
-        // Load JS if not already loaded
-        if (!window.darkModeManager) {
+        // Only load main darkmode.js if we're not in an iframe and it's not already loaded
+        if (window.location === window.parent.location && !window.darkModeManager) {
             const jsScript = document.createElement('script');
             jsScript.src = '/static/js/darkmode.js';
             document.head.appendChild(jsScript);
         }
     }
     
-    // Listen for theme changes from parent window
-    window.addEventListener('message', (e) => {
-        if (e.data && e.data.type === 'themeChange') {
-            console.log('Received theme change from parent:', e.data.theme);
-            applyTheme(e.data.theme);
-        }
-    });
-    
-    // Request current theme from parent
-    if (isInIframe) {
-        // Request theme immediately
+    // Get client's theme preference - always check system first for embedded content
+    function getClientTheme() {
+        // For embedded content, always check system preference first
+        const systemPrefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+        
+        // Check stored theme preference
+        let stored = null;
         try {
-            window.parent.postMessage({
-                type: 'requestTheme'
-            }, '*');
+            stored = localStorage.getItem('theme');
         } catch (e) {
-            // Ignore cross-origin errors
+            // localStorage might not be available in some embedding contexts
+            console.log('iframe-darkmode.js: localStorage not available, using system preference');
         }
         
-        // Also request after a delay to ensure parent is ready
-        setTimeout(() => {
+        // If no theme is stored, use system preference
+        if (!stored) {
+            const defaultTheme = systemPrefersDark ? 'dark' : 'light';
             try {
-                window.parent.postMessage({
-                    type: 'requestTheme'
-                }, '*');
+                localStorage.setItem('theme', defaultTheme);
             } catch (e) {
-                // Ignore cross-origin errors
+                // Ignore if localStorage is not available
             }
-        }, 100);
+            return defaultTheme;
+        }
         
-        // And again after a longer delay
-        setTimeout(() => {
-            try {
-                window.parent.postMessage({
-                    type: 'requestTheme'
-                }, '*');
-            } catch (e) {
-                // Ignore cross-origin errors
-            }
-        }, 500);
+        return stored;
     }
     
-    // Load dark mode resources
-    loadDarkMode();
+    // Function to add system theme change listener
+    function addSystemThemeListener() {
+        if (isSystemThemeListenerAdded) {
+            return; // Already added
+        }
+        
+        if (window.matchMedia) {
+            const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+            
+            const handleSystemThemeChange = (e) => {
+                console.log('iframe-darkmode.js: System theme change detected:', e.matches ? 'dark' : 'light');
+                
+                // Always follow system changes for embedded content
+                const newTheme = e.matches ? 'dark' : 'light';
+                
+                // Only update if the theme actually changed
+                if (currentTheme !== newTheme) {
+                    applyTheme(newTheme);
+                    try {
+                        localStorage.setItem('theme', newTheme);
+                    } catch (e) {
+                        // Ignore if localStorage is not available
+                    }
+                    console.log('iframe-darkmode.js: Chart updated to system theme:', newTheme);
+                }
+            };
+            
+            // Add the listener
+            if (mediaQuery.addEventListener) {
+                mediaQuery.addEventListener('change', handleSystemThemeChange);
+                console.log('iframe-darkmode.js: System theme change listener added (modern)');
+            } else {
+                // Fallback for older browsers
+                mediaQuery.addListener(handleSystemThemeChange);
+                console.log('iframe-darkmode.js: System theme change listener added (legacy)');
+            }
+            
+            isSystemThemeListenerAdded = true;
+            
+            // Test the current system preference
+            console.log('iframe-darkmode.js: Current system prefers dark:', mediaQuery.matches);
+        } else {
+            console.log('iframe-darkmode.js: matchMedia not supported');
+        }
+    }
     
-    // Apply theme based on localStorage (fallback)
-    const storedTheme = localStorage.getItem('theme') || 'light';
-    applyTheme(storedTheme);
+    // Initialize dark mode
+    function initializeDarkMode() {
+        // Load dark mode resources
+        loadDarkMode();
+        
+        // Get and apply client's theme preference
+        const clientTheme = getClientTheme();
+        applyTheme(clientTheme);
+        console.log('iframe-darkmode.js: Applied initial client theme:', clientTheme);
+        
+        // Add system theme change listener
+        addSystemThemeListener();
+        
+        console.log('iframe-darkmode.js: Initialization complete');
+    }
     
-    console.log('Iframe dark mode initialized');
+    // Wait for DOM to be ready, then initialize
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initializeDarkMode);
+    } else {
+        // DOM is already ready
+        initializeDarkMode();
+    }
+    
+    // Also initialize immediately if we're in an embedded context and DOM is ready
+    if (window.location !== window.parent.location && document.readyState !== 'loading') {
+        initializeDarkMode();
+    }
+    
+    console.log('iframe-darkmode.js: Script loaded and ready');
     
 })(); 

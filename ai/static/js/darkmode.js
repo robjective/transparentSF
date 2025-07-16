@@ -157,6 +157,9 @@ class DarkModeManager {
                     this.setTheme(e.data.theme, false); // Don't notify back to prevent loops
                 }
             }
+            
+            // Charts are independent - no longer respond to theme requests
+            // (removed requestTheme handler)
         });
 
         // Listen for storage changes (for cross-tab synchronization)
