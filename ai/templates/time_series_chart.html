@@ -23,7 +23,7 @@
             font-family: 'IBM Plex Sans', Arial, sans-serif;
             color: var(--ink-black);
             background-color: white;
-            padding: 15px;
+            padding: 0; /* Remove default padding to allow full width */
             font-size: 14px;
         }
         
@@ -36,7 +36,7 @@
             background-color: white;
             border-radius: 8px;
             padding: 10px;
-            margin: 0 auto;
+            margin: 0; /* Remove auto centering */
             box-shadow: none;
         }
         
@@ -45,10 +45,10 @@
             overflow: visible;
             position: relative;
             display: flex;
-            justify-content: center;
+            justify-content: flex-start; /* Left justify instead of center */
             align-items: center;
             width: 100%;
-            max-width: 600px; /* Cap at 600px */
+            max-width: none; /* Remove 600px constraint */
             border: none;
             box-sizing: border-box;
         }
@@ -402,6 +402,13 @@
             width: 100%;
             max-width: none;
             height: auto;
+        }
+        
+        /* Remove Bootstrap container constraints for all modes to allow full width */
+        .container {
+            max-width: none !important;
+            padding-left: 0 !important;
+            padding-right: 0 !important;
         }
         
         body.chart-section-mode .row,
@@ -1851,12 +1858,12 @@
                 
                 // For embedded mode (chart-section-mode)
                 if (document.body.classList.contains('chart-section-mode')) {
-                    // Style container for embedded view
-                    chartContainer.style.maxWidth = '600px';
-                    chartContainer.style.margin = '0 auto';
+                    // Style container for embedded view - remove width restrictions and centering
+                    chartContainer.style.maxWidth = 'none'; // Remove 600px constraint
+                    chartContainer.style.margin = '0'; // Remove auto centering
                     
-                    // Use responsive sizing based on window dimensions
-                    const containerWidth = Math.min(window.innerWidth, 600);
+                    // Use full available width without artificial constraints
+                    const containerWidth = window.innerWidth;
                     
                     // Adjust aspect ratio based on window size
                     let aspectRatio = 0.75; // Default 4:3
@@ -1868,24 +1875,25 @@
                     
                     const containerHeight = Math.min(window.innerHeight, containerWidth * aspectRatio);
                     
-                    chartContainer.style.width = containerWidth + 'px';
+                    chartContainer.style.width = '100%'; // Use full width
                     chartContainer.style.height = containerHeight + 'px';
 
                     // Adjust the parent Bootstrap container
                     const bootstrapContainer = chartContainer.closest('.container');
                     if (bootstrapContainer) {
                         bootstrapContainer.style.height = containerHeight + 'px';
+                        bootstrapContainer.style.maxWidth = 'none'; // Remove Bootstrap container constraints
+                        bootstrapContainer.style.padding = '0'; // Remove Bootstrap container padding
                     }
                 } else {
-                    // For full view mode
-                    // Calculate available width up to 600px maximum
-                    const availableWidth = Math.min(chartContainer.parentElement.clientWidth, 600);
+                    // For full view mode - allow bigger charts and remove width restrictions
+                    const availableWidth = chartContainer.parentElement.clientWidth; // Use full available width
                     const availableHeight = availableWidth * 0.75; // 4:3 aspect ratio
                     
-                    chartContainer.style.width = availableWidth + 'px';
+                    chartContainer.style.width = '100%'; // Use full available width
                     chartContainer.style.height = availableHeight + 'px';
-                    chartContainer.style.maxWidth = '600px';
-                    chartContainer.style.maxHeight = '450px'; // 600 * 0.75
+                    chartContainer.style.maxWidth = 'none'; // Remove 600px constraint
+                    chartContainer.style.maxHeight = 'none'; // Remove height constraint
                 }
                 
                 // Make sure the plot fills its container
@@ -2273,11 +2281,11 @@
                 // Set chart container to maintain aspect ratio
                 const chartContainer = document.getElementById('chart-section');
                 if (chartContainer) {
-                    chartContainer.style.margin = '0 auto';
-                    chartContainer.style.maxWidth = '100%'; // Changed from 600px to 100%
+                    chartContainer.style.margin = '0'; // Remove auto centering
+                    chartContainer.style.maxWidth = 'none'; // Remove width constraint
                     chartContainer.style.width = '100%';
                     chartContainer.style.display = 'flex';
-                    chartContainer.style.justifyContent = 'center';
+                    chartContainer.style.justifyContent = 'flex-start'; // Left justify instead of center
                     chartContainer.style.alignItems = 'center';
                     
 
