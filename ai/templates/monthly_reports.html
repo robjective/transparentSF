@@ -1275,10 +1275,8 @@
                             const option = document.createElement('option');
                             // Use the original_filename as the value
                             option.value = report.original_filename;
-                            // Format the display text with district name and date
-                            const reportDate = new Date(report.report_date);
-                            const formattedDate = reportDate.toLocaleDateString();
-                            option.textContent = `${report.district_name} - ${formattedDate}`;
+                            // Show the original filename as the display text
+                            option.textContent = report.original_filename;
                             // Store revised filename as a data attribute
                             option.dataset.revisedFilename = report.revised_filename || ''; 
                             reportSelect.appendChild(option);
@@ -1444,17 +1442,6 @@
                     // Show loading state
                     reportMetrics.innerHTML = '<p>Loading newsletter details...</p>';
                     reportDetails.style.display = 'block';
-                    
-                    // Extract the report ID from the filename
-                    // The filename format is monthly_report_{district}_{date}.html
-                    const parts = filename.split('_');
-                    if (parts.length < 3) {
-                        throw new Error("Invalid filename format");
-                    }
-                    
-                    // Get the district and date from the filename
-                    const district = parts[2];
-                    const date = parts[3].split('.')[0]; // Remove .html extension
                     
                     // Find the report ID from the reports list
                     const reportsResponse = await fetch('/backend/get_monthly_reports');

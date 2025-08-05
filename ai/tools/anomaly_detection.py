@@ -401,70 +401,35 @@ def filter_data_by_date_and_conditions(data, filter_conditions, start_date=None,
 
             # Update item with original date value
             item[date_field] = original_date
-
-            # Convert date_field value to datetime.date if necessary
-            if isinstance(date_value, str):
-                item_date = custom_parse_date(date_value, period_type)
-            elif isinstance(date_value, pd.Timestamp):
-                item_date = date_value.date()
-            elif isinstance(date_value, (datetime.date, datetime.datetime)):
-                item_date = date_value.date() if isinstance(date_value, datetime.datetime) else date_value
-            elif isinstance(date_value, (int, float)):
+            
+            # Check if the date is within the specified range
+            if isinstance(item_date, str):
+                # For string dates, try to parse and compare
                 try:
-                    date_str = str(int(date_value))
-                    item_date = datetime.datetime.strptime(date_str, "%Y%m%d").date()
+                    if period_type == 'year':
+                        # Extract year from string
+                        if '-' in item_date:
+                            item_year = int(item_date.split('-')[0])
+                        else:
+                            item_year = int(item_date)
+                        if not (start_date.year <= item_year <= end_date.year):
+                            continue
+                    else:
+                        # For other period types, parse the full date
+                        parsed_item_date = custom_parse_date(item_date, period_type)
+                        if not (start_date <= parsed_item_date <= end_date):
+                            continue
                 except (ValueError, TypeError):
-                    error_counts['invalid_numeric_date'] += 1
+                    error_counts['invalid_date_format'] += 1
+                    continue
+            elif isinstance(item_date, (datetime.date, datetime.datetime)):
+                # For datetime objects, compare directly
+                if not (start_date <= item_date <= end_date):
                     continue
             else:
                 error_counts['unrecognized_date_type'] += 1
                 continue
 
-            if item_date is None:
-                error_counts['invalid_date_format'] += 1
-                continue
-            
-            # Convert start_date and end_date to first/last day of month if they're year-month dates
-            if isinstance(start_date, str) and len(start_date.split('-')) == 2:
-                start_date = datetime.datetime.strptime(f"{start_date}-01", "%Y-%m-%d").date()
-            if isinstance(end_date, str) and len(end_date.split('-')) == 2:
-                # Set to last day of month
-                next_month = datetime.datetime.strptime(f"{end_date}-01", "%Y-%m-%d").date().replace(day=28) + datetime.timedelta(days=4)
-                end_date = next_month - datetime.timedelta(days=next_month.day)
-
-            # Ensure item_date is a datetime.date object for comparison
-            if isinstance(item_date, str):
-                if period_type == 'year':
-                    try:
-                        item_date = datetime.datetime.strptime(item_date, "%Y").date()
-                    except ValueError:
-                        error_counts['invalid_date_format'] += 1
-                        continue
-                elif period_type == 'month':
-                    try:
-                        item_date = datetime.datetime.strptime(f"{item_date}-01", "%Y-%m-%d").date()
-                    except ValueError:
-                        error_counts['invalid_date_format'] += 1
-                        continue
-                else:  # day
-                    try:
-                        item_date = datetime.datetime.strptime(item_date, "%Y-%m-%d").date()
-                    except ValueError:
-                        error_counts['invalid_date_format'] += 1
-                        continue
-
-            # Perform date filtering based on actual date objects
-            try:
-                if not (start_date <= item_date <= end_date):
-                    error_counts['date_outside_range'] += 1
-                    continue  # Skip this record
-            except TypeError:
-                error_counts['comparison_error'] += 1
-                continue
-
-            # Update item with formatted date string based on period_type
-            item[date_field] = format_date(item_date, period_type)
-        
         # Now, check the filter_conditions
         for condition in filter_conditions:
             field = condition['field']
@@ -485,29 +450,26 @@ def filter_data_by_date_and_conditions(data, filter_conditions, start_date=None,
                 error_counts['missing_value'] += 1
                 break
 
+            # Handle datetime objects in item_value for string comparisons
+            if isinstance(item_value, (datetime.date, datetime.datetime)) and isinstance(value, str):
+                # Convert datetime to string for comparison
+                if period_type == 'year':
+                    item_value_str = str(item_value.year)
+                elif period_type == 'month':
+                    item_value_str = item_value.strftime("%Y-%m")
+                else:
+                    item_value_str = item_value.strftime("%Y-%m-%d")
+                item_value = item_value_str
+
             # Parse item_value if condition value is a date
             if is_date:
                 if isinstance(item_value, str):
-                    item_value = custom_parse_date(item_value, period_type)
-                elif isinstance(item_value, (datetime.date, datetime.datetime)):
-                    item_value = item_value.date() if isinstance(item_value, datetime.datetime) else item_value
-                elif isinstance(item_value, (int, float)):
                     try:
-                        date_str = str(int(item_value))
-                        item_value = datetime.datetime.strptime(date_str, "%Y%m%d").date()
+                        item_value = custom_parse_date(item_value, period_type)
                     except (ValueError, TypeError):
                         meets_conditions = False
-                        error_counts['invalid_numeric_date'] += 1
+                        error_counts['invalid_date_format'] += 1
                         break
-                else:
-                    meets_conditions = False
-                    error_counts['unrecognized_date_type'] += 1
-                    break
-
-                if item_value is None:
-                    meets_conditions = False
-                    error_counts['invalid_date_format'] += 1
-                    break
 
                 # Perform date comparison
                 try:
@@ -566,22 +528,45 @@ def filter_data_by_date_and_conditions(data, filter_conditions, start_date=None,
                         if not meets_conditions:
                             break
                     elif operator in ['<', '<=', '>', '>=']:
-                        if not is_numeric:
+                        # For year comparisons, handle string year values
+                        if field == 'year_period' and period_type == 'year':
+                            # Extract year from item_value if it's a datetime string
+                            if isinstance(item_value, str) and 'T' in item_value:
+                                # Extract year from datetime string like "2018-01-01T00:00:00.000"
+                                item_year = int(item_value.split('-')[0])
+                            else:
+                                item_year = int(item_value)
+                            value_year = int(value)
+                            
+                            if operator == '<' and not (item_year < value_year):
+                                meets_conditions = False
+                                break
+                            elif operator == '<=' and not (item_year <= value_year):
+                                meets_conditions = False
+                                break
+                            elif operator == '>' and not (item_year > value_year):
+                                meets_conditions = False
+                                break
+                            elif operator == '>=' and not (item_year >= value_year):
+                                meets_conditions = False
+                                break
+                        elif not is_numeric:
                             meets_conditions = False
                             error_counts['non_numeric_comparison'] += 1
                             break
-                        if operator == '<' and not (item_value_float < value_float):
-                            meets_conditions = False
-                            break
-                        elif operator == '<=' and not (item_value_float <= value_float):
-                            meets_conditions = False
-                            break
-                        elif operator == '>' and not (item_value_float > value_float):
-                            meets_conditions = False
-                            break
-                        elif operator == '>=' and not (item_value_float >= value_float):
-                            meets_conditions = False
-                            break
+                        else:
+                            if operator == '<' and not (item_value_float < value_float):
+                                meets_conditions = False
+                                break
+                            elif operator == '<=' and not (item_value_float <= value_float):
+                                meets_conditions = False
+                                break
+                            elif operator == '>' and not (item_value_float > value_float):
+                                meets_conditions = False
+                                break
+                            elif operator == '>=' and not (item_value_float >= value_float):
+                                meets_conditions = False
+                                break
                 except Exception:
                     meets_conditions = False
                     error_counts['comparison_error'] += 1
@@ -607,16 +592,17 @@ def filter_data_by_date_and_conditions(data, filter_conditions, start_date=None,
     
     # Log error counts
     if sum(error_counts.values()) > 0:
-        logging.info("Error count summary:")
+        logging.info(f"Error count summary:")
         for error_type, count in error_counts.items():
             if count > 0:
                 logging.info(f"  {error_type}: {count}")
         
-        # Log sample errors if there are any
+        # Log sample errors for debugging
         if error_counts['non_numeric_comparison'] > 0:
-            logging.info("Sample non-numeric comparison errors may be caused by:")
+            logging.info(f"Sample non-numeric comparison errors may be caused by:")
             for condition in filter_conditions:
-                logging.info(f"  Condition: {condition['field']} {condition['operator']} {condition['value']}")
+                if condition.get('is_date', False) == False:
+                    logging.info(f"  Condition: {condition['field']} {condition['operator']} {condition['value']}")
 
     return filtered_data
 

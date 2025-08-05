@@ -1,9 +1,10 @@
 # Force modern numpy to avoid pip backtracking issues
 numpy==1.26.4
+pytz==2024.1
 
 # Core project dependencies
-openai==1.71.0
-python-dotenv==1.1.0
+openai==1.86.0
+python-dotenv==1.0.0
 chardet==5.2.0
 qdrant-client==1.13.3
 fastapi==0.115.12
@@ -26,3 +27,14 @@ Pillow==10.2.0
 
 # Git dependency
 git+https://github.com/openai/swarm.git@0c82d7d868bb8e2d380dfd2a319b5c3a1f4c0cb9
+
+# LangChain packages (latest versions)
+langchain-community>=0.3.0
+langchain-core>=0.3.0
+langchain-google-genai>=2.1.0
+langchain-openai>=0.2.0
+langchain-anthropic>=0.2.0
+
+# Google AI packages
+google-ai-generativelanguage>=0.6.0
+google-generativeai>=0.8.0

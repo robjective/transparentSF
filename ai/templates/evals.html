@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Agent Evals Interface</title>
+    <title>Evaluation System - TransparentSF</title>
     <!-- Dark Mode CSS -->
     <link rel="stylesheet" href="/static/css/darkmode.css">
     <style>
@@ -28,45 +28,144 @@
             gap: 20px;
         }
         
-        .eval-form {
-            background: #f8f8f8;
-            padding: 20px;
-            border-radius: 5px;
-            border: 1px solid #ddd;
+
+        
+        .tabs {
+            display: flex;
+            border-bottom: 1px solid #ddd;
             margin-bottom: 20px;
         }
         
-        .input-group {
-            margin-bottom: 15px;
+        .tab {
+            padding: 10px 20px;
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+            transition: all 0.2s;
         }
         
-        label {
-            display: block;
-            margin-bottom: 5px;
+        .tab:hover {
+            background-color: #f0f0f0;
+        }
+        
+        .tab-active {
+            border-bottom-color: #ad35fa;
+            color: #ad35fa;
             font-weight: 500;
         }
         
-        select, input[type="text"], textarea {
-            width: 100%;
-            padding: 10px;
+        .tab-content {
+            display: none;
+        }
+        
+        .tab-content-active {
+            display: block;
+        }
+        
+        .eval-groups {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 20px;
+        }
+        
+        .eval-group-card {
+            background: white;
             border: 1px solid #ddd;
-            border-radius: 4px;
-            font-family: inherit;
-            font-size: 14px;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }
         
-        textarea {
-            min-height: 100px;
-            resize: vertical;
-        }
-        
-        .button-container {
+        .eval-group-header {
             display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+        
+        .eval-group-title {
+            font-size: 1.2rem;
+            font-weight: 600;
+            color: #333;
+        }
+        
+        .eval-group-category {
+            background: #e9ecef;
+            color: #495057;
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 0.8rem;
+            font-weight: 500;
+        }
+        
+        .eval-group-description {
+            color: #666;
+            margin-bottom: 15px;
+        }
+        
+        .eval-list {
+            display: flex;
+            flex-direction: column;
             gap: 10px;
         }
         
+        .eval-item {
+            background: #f8f9fa;
+            border: 1px solid #e9ecef;
+            border-radius: 6px;
+            padding: 12px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .eval-item:hover {
+            background: #e9ecef;
+            border-color: #ad35fa;
+        }
+        
+        .eval-item-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+        
+        .eval-name {
+            font-weight: 500;
+            color: #333;
+        }
+        
+        .eval-difficulty {
+            font-size: 0.8rem;
+            padding: 2px 6px;
+            border-radius: 8px;
+            font-weight: 500;
+        }
+        
+        .eval-difficulty.easy { background: #d4edda; color: #155724; }
+        .eval-difficulty.medium { background: #fff3cd; color: #856404; }
+        .eval-difficulty.hard { background: #f8d7da; color: #721c24; }
+        
+        .eval-description {
+            font-size: 0.9rem;
+            color: #666;
+            margin-bottom: 8px;
+        }
+        
+        .eval-meta {
+            display: flex;
+            gap: 15px;
+            font-size: 0.8rem;
+            color: #888;
+        }
+        
+        .eval-actions {
+            display: flex;
+            gap: 8px;
+            margin-top: 10px;
+        }
+        
         button {
-            padding: 10px 15px;
+            padding: 8px 12px;
             background-color: #ad35fa;
             color: white;
             border: none;
@@ -74,6 +173,7 @@
             cursor: pointer;
             font-weight: 500;
             transition: background-color 0.2s;
+            font-size: 0.9rem;
         }
         
         button:hover {
@@ -85,34 +185,25 @@
             cursor: not-allowed;
         }
         
-        .predefined-queries {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 10px;
-            margin-top: 10px;
+        .btn-secondary {
+            background-color: #6c757d;
         }
         
-        .predefined-query {
-            background: #f0f0f0;
-            padding: 8px 12px;
-            border-radius: 4px;
-            font-size: 12px;
-            cursor: pointer;
-            border: 1px solid #ddd;
-            transition: all 0.2s;
+        .btn-secondary:hover {
+            background-color: #545b62;
         }
         
-        .predefined-query:hover {
-            background: #e0e0e0;
-            border-color: #bbb;
+        .btn-success {
+            background-color: #28a745;
         }
         
-        .results-container {
-            background: #f8f8f8;
-            padding: 20px;
-            border-radius: 5px;
-            border: 1px solid #ddd;
-            margin-top: 20px;
+        .btn-success:hover {
+            background-color: #1e7e34;
+        }
+        
+        .btn-small {
+            padding: 4px 8px;
+            font-size: 0.8rem;
         }
         
         .loading {
@@ -137,6 +228,59 @@
             100% { transform: rotate(360deg); }
         }
         
+        /* Loading indicator overlay */
+        .loading-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(255, 255, 255, 0.9);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .loading-container {
+            background: #ffffff;
+            padding: 25px 40px;
+            border-radius: 10px;
+            border: 1px solid #ddd;
+            text-align: center;
+            max-width: 80%;
+        }
+        
+        .loading-spinner {
+            display: inline-block;
+            width: 50px;
+            height: 50px;
+            border: 4px solid #ddd;
+            border-radius: 50%;
+            border-top-color: #ad35fa;
+            animation: spinner-rotate 1s linear infinite;
+            margin-bottom: 15px;
+        }
+        
+        .loading-text {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            font-weight: 600;
+            font-size: 18px;
+            color: #333;
+            margin-bottom: 8px;
+        }
+        
+        .loading-subtext {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            font-size: 14px;
+            color: #666;
+        }
+        
+        @keyframes spinner-rotate {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
         .error {
             background-color: #ffeaea;
             border: 1px solid #ffb0b0;
@@ -155,644 +299,1374 @@
             border-radius: 4px;
         }
         
-        .logs-list {
-            margin-top: 20px;
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.5);
         }
         
-        .log-item {
-            background: white;
-            padding: 10px 15px;
-            margin-bottom: 8px;
-            border-radius: 4px;
-            border: 1px solid #ddd;
-            cursor: pointer;
-            transition: background-color 0.2s;
+        .modal-content {
+            background-color: white;
+            margin: 5% auto;
+            padding: 20px;
+            border-radius: 8px;
+            width: 80%;
+            max-width: 600px;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+        
+        .modal-header {
             display: flex;
             justify-content: space-between;
             align-items: center;
-        }
-        
-        .log-item:hover {
-            background-color: #f0f0f0;
-        }
-        
-        .log-date {
-            font-size: 12px;
-            color: #666;
-        }
-        
-        .log-content {
-            background: white;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-            padding: 15px;
-            margin-top: 10px;
-            max-height: 500px;
-            overflow-y: auto;
-            white-space: pre-wrap;
-            font-family: monospace;
-            font-size: 12px;
-        }
-        
-        .log-item-active {
-            background-color: #e6f3ff;
-            border-color: #a9d2ff;
-        }
-        
-        .tabs {
-            display: flex;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
             border-bottom: 1px solid #ddd;
+        }
+        
+        .modal-title {
+            font-size: 1.3rem;
+            font-weight: 600;
+            color: #333;
+        }
+        
+        .close {
+            color: #aaa;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        
+        .close:hover {
+            color: #000;
+        }
+        
+        .form-group {
             margin-bottom: 15px;
         }
         
-        .tab {
-            padding: 10px 15px;
-            cursor: pointer;
-            background-color: #f0f0f0;
-            margin-right: 5px;
-            border-radius: 4px 4px 0 0;
-            border: 1px solid #ddd;
-            border-bottom: none;
-        }
-        
-        .tab-active {
-            background-color: white;
-            border-bottom: 1px solid white;
-            margin-bottom: -1px;
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
             font-weight: 500;
+            color: #333;
         }
         
-        .tab-content {
+        .form-group input,
+        .form-group select,
+        .form-group textarea {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-family: inherit;
+            font-size: 14px;
+            box-sizing: border-box;
+        }
+        
+        .form-group textarea {
+            min-height: 100px;
+            resize: vertical;
+        }
+        
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+        }
+        
+        .results-section {
+            margin-top: 20px;
+        }
+        
+        .result-item {
+            background: white;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            margin-bottom: 10px;
+            overflow: hidden;
+        }
+        
+        .result-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15px;
+            cursor: pointer;
+            background: #f8f9fa;
+            border-bottom: 1px solid #ddd;
+            transition: background-color 0.2s;
+        }
+        
+        .result-header:hover {
+            background: #e9ecef;
+        }
+        
+        .result-header-content {
+            flex: 1;
+        }
+        
+        .result-title {
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 5px;
+        }
+        
+        .result-subtitle {
+            font-size: 0.9rem;
+            color: #666;
+            margin-bottom: 5px;
+        }
+        
+        .result-meta {
+            display: flex;
+            gap: 15px;
+            font-size: 0.8rem;
+            color: #888;
+            flex-wrap: wrap;
+        }
+        
+        .result-meta span {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+        
+        .tool-call-stats {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+        
+        .tool-call-count {
+            background: #e3f2fd;
+            color: #1976d2;
+            padding: 2px 6px;
+            border-radius: 12px;
+            font-size: 0.7rem;
+            font-weight: 500;
+            border: 1px solid #bbdefb;
+        }
+        
+        .tool-call-failed {
+            background: #ffebee;
+            color: #d32f2f;
+            padding: 2px 6px;
+            border-radius: 12px;
+            font-size: 0.7rem;
+            font-weight: 500;
+            border: 1px solid #ffcdd2;
+        }
+        
+        .execution-time {
+            background: #f3e5f5;
+            color: #7b1fa2;
+            padding: 2px 6px;
+            border-radius: 12px;
+            font-size: 0.7rem;
+            font-weight: 500;
+            border: 1px solid #e1bee7;
+        }
+        
+        .tool-call-zero {
+            background: #f5f5f5;
+            color: #666;
+            padding: 2px 6px;
+            border-radius: 12px;
+            font-size: 0.7rem;
+            font-weight: 500;
+            border: 1px solid #ddd;
+        }
+        
+        .result-score {
+            font-weight: bold;
+            font-size: 1.1rem;
+            padding: 8px 12px;
+            border-radius: 4px;
+            background: white;
+        }
+        
+        .result-score.high { color: #28a745; }
+        .result-score.medium { color: #ffc107; }
+        .result-score.low { color: #dc3545; }
+        
+        .result-details {
             display: none;
+            padding: 15px;
+            background: white;
+            border-top: 1px solid #ddd;
         }
         
-        .tab-content-active {
+        .result-details.show {
             display: block;
         }
         
-        .json-formatter {
-            margin-top: 10px;
-            position: relative;
-            font-family: monospace;
-        }
-        
-        .json-formatter pre {
-            background-color: #f5f5f5;
-            padding: 15px;
-            border-radius: 4px;
-            overflow-x: auto;
-            max-height: 500px;
-            white-space: pre-wrap;
-            font-size: 13px;
-        }
-        
-        .tool-call {
-            margin-bottom: 20px;
-            padding: 10px;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-            background-color: #f8f8f8;
-        }
-        
-        .tool-call-header {
-            font-weight: bold;
-            margin-bottom: 5px;
-            display: flex;
-            justify-content: space-between;
-        }
-        
-        .tool-call-name {
-            color: #0066cc;
-        }
-        
-        .tool-call-timestamp {
-            font-size: 12px;
+        .result-details-content {
+            font-size: 0.9rem;
             color: #666;
         }
         
-        .tool-call-arguments {
-            background-color: #f0f0f0;
-            padding: 10px;
-            border-radius: 4px;
-            margin-top: 5px;
-            font-family: monospace;
-            font-size: 12px;
-            overflow-x: auto;
+        .result-details-section {
+            margin-bottom: 15px;
         }
         
-        .tool-call-response {
-            background-color: #e6f7ff;
+        .result-details-section h4 {
+            margin: 0 0 8px 0;
+            color: #333;
+            font-size: 1rem;
+        }
+        
+        .tool-calls-list {
+            background: #f8f9fa;
             padding: 10px;
             border-radius: 4px;
-            margin-top: 10px;
+            margin-top: 8px;
+        }
+        
+        .tool-call-item {
+            background: white;
+            padding: 8px;
+            margin-bottom: 8px;
+            border-radius: 4px;
+            border-left: 3px solid #ad35fa;
+        }
+        
+        .tool-call-function {
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 4px;
+        }
+        
+        .tool-call-args {
             font-family: monospace;
-            font-size: 12px;
+            font-size: 0.8rem;
+            color: #666;
+            background: #f1f3f4;
+            padding: 4px;
+            border-radius: 2px;
+        }
+        
+        .tool-call-output {
+            margin-top: 8px;
+        }
+        
+        .tool-call-output pre {
+            font-family: monospace;
+            font-size: 0.8rem;
+            background: #f8f9fa;
+            padding: 8px;
+            border-radius: 4px;
+            border-left: 3px solid #007bff;
             overflow-x: auto;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+        
+        .tool-call-error {
+            color: #dc3545;
+            font-weight: bold;
+            margin-top: 4px;
+        }
+        
+        .tool-call-success {
+            color: #28a745;
+            font-weight: bold;
+            margin-top: 4px;
+        }
+        
+        .conversation-history {
+            background: #f8f9fa;
+            padding: 10px;
+            border-radius: 4px;
+            margin-top: 8px;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        
+        .conversation-message {
+            margin-bottom: 15px;
+            padding: 10px;
+            border-radius: 4px;
+            border-left: 3px solid #ddd;
+        }
+        
+        .conversation-message.user {
+            background: #e3f2fd;
+            border-left-color: #2196f3;
+        }
+        
+        .conversation-message.assistant {
+            background: #f3e5f5;
+            border-left-color: #9c27b0;
+        }
+        
+        .message-role {
+            font-weight: 600;
+            font-size: 0.8rem;
+            color: #666;
+            margin-bottom: 5px;
+        }
+        
+        .message-content {
+            font-size: 0.9rem;
+            line-height: 1.4;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+        
+        .execution-trace {
+            margin-top: 10px;
+        }
+        
+        .execution-step {
+            margin-bottom: 15px;
+            padding: 12px;
+            border-radius: 8px;
+            border: 1px solid #ddd;
+            background-color: #f8f9fa;
+        }
+        
+        .execution-step.tool_call {
+            border-left: 4px solid #007bff;
+            background-color: #f0f8ff;
+        }
+        
+        .execution-step.chain_step {
+            border-left: 4px solid #28a745;
+            background-color: #f0fff0;
+        }
+        
+        .execution-step.failed {
+            border-left: 4px solid #dc3545;
+            background-color: #fff5f5;
+        }
+        
+        .step-status {
+            font-size: 0.8em;
+            font-weight: bold;
+            padding: 2px 6px;
+            border-radius: 3px;
+        }
+        
+        .step-status.success {
+            color: #28a745;
+            background-color: #d4edda;
+        }
+        
+        .step-status.failed {
+            color: #dc3545;
+            background-color: #f8d7da;
+        }
+        
+        .step-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 8px;
+            font-weight: 500;
+        }
+        
+        .step-type {
+            font-size: 0.9em;
+            color: #666;
+        }
+        
+        .step-name {
+            font-weight: bold;
+            color: #333;
+        }
+        
+        .step-duration {
+            font-size: 0.8em;
+            color: #666;
+            font-style: italic;
+        }
+        
+        .step-input, .step-output {
+            margin-top: 8px;
+        }
+        
+        .step-input pre, .step-output pre {
+            background-color: #f1f1f1;
+            padding: 8px;
+            border-radius: 4px;
+            font-size: 0.85em;
+            overflow-x: auto;
+            white-space: pre-wrap;
+        }
+        
+        .result-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        
+        .result-title {
+            font-weight: 600;
+            color: #333;
+        }
+        
+        .result-score {
+            font-weight: bold;
+            font-size: 1.1rem;
+        }
+        
+        .result-score.high { color: #28a745; }
+        .result-score.medium { color: #ffc107; }
+        .result-score.low { color: #dc3545; }
+        
+        .result-details {
+            font-size: 0.9rem;
+            color: #666;
+        }
+        
+        .filters {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+        
+        .filter-group {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+        
+        .filter-group label {
+            font-size: 0.9rem;
+            margin-bottom: 0;
+        }
+        
+        .filter-group select {
+            padding: 6px 10px;
+            font-size: 0.9rem;
+        }
+        
+        @media (max-width: 768px) {
+            .eval-groups {
+                grid-template-columns: 1fr;
+            }
+            
+            .form-row {
+                grid-template-columns: 1fr;
+            }
+            
+            .filters {
+                flex-direction: column;
+            }
+            
+            .modal-content {
+                width: 95%;
+                margin: 10% auto;
+            }
+            
+            .result-meta {
+                flex-direction: column;
+                gap: 8px;
+            }
+            
+            .tool-call-stats {
+                justify-content: flex-start;
+            }
+            
+            .result-header {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 10px;
+            }
+            
+            .result-score {
+                align-self: flex-end;
+            }
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>Agent Evals Interface</h1>
+        <h1>Evaluation System</h1>
         
-        <div class="eval-form">
-            <h2>Run Eval</h2>
-            <div class="input-group">
-                <label for="query">Test Query:</label>
-                <textarea id="query" placeholder="Enter your query to test the agent..."></textarea>
-            </div>
-            
-            <div class="input-group">
-                <label>Predefined Test Queries:</label>
-                <div class="predefined-queries">
-                    <div class="predefined-query">Please search for a dataset about Police Misconduct</div>
-                    <div class="predefined-query">What are the names of the last 5 Retail businesses locations registered in SF?</div>
-                    <div class="predefined-query">Show me information about property assessments in SF</div>
-                    <div class="predefined-query">Hi, who is the mayor of SF?</div>
-                    <div class="predefined-query">What is happening with the weather in SF?</div>
+        <!-- Main Tabs -->
+        <div class="tabs">
+            <div class="tab tab-active" onclick="showTab('groups')">Eval Groups</div>
+            <div class="tab" onclick="showTab('results')">Results</div>
+            <div class="tab" onclick="showTab('create')">Create New</div>
+        </div>
+        
+        <!-- Eval Groups Tab -->
+        <div id="groups-tab" class="tab-content tab-content-active">
+            <div class="filters">
+                <div class="filter-group">
+                    <label for="category-filter">Category:</label>
+                    <select id="category-filter" onchange="filterGroups()">
+                        <option value="">All Categories</option>
+                    </select>
                 </div>
+                <div class="filter-group">
+                    <label for="model-select">Model:</label>
+                <select id="model-select">
+                    <!-- OpenAI Models -->
+                    <option value="gpt-4o">GPT-4o (OpenAI)</option>
+                    <option value="gpt-4">GPT-4 (OpenAI)</option>
+                    <option value="gpt-4-turbo">GPT-4 Turbo (OpenAI)</option>
+                    <option value="gpt-3.5-turbo">GPT-3.5 Turbo (OpenAI)</option>
+                    <option value="gpt-3.5-turbo-16k">GPT-3.5 Turbo 16k (OpenAI)</option>
+                    
+                    <!-- Anthropic Models -->
+                    <option value="claude-opus-4">Claude Opus 4 (Anthropic)</option>
+                    <option value="claude-sonnet-4">Claude Sonnet 4 (Anthropic)</option>
+                    <option value="claude-3-7-sonnet">Claude 3.7 Sonnet (Anthropic)</option>
+                    <option value="claude-3-5-sonnet">Claude 3.5 Sonnet (Anthropic)</option>
+                    <option value="claude-3-5-haiku">Claude 3.5 Haiku (Anthropic)</option>
+                    <option value="claude-3-haiku">Claude 3 Haiku (Anthropic)</option>
+                    
+                    <!-- Google Models -->
+                    <option value="gemini-1.5-pro">Gemini 1.5 Pro (Google)</option>
+                    <option value="gemini-1.5-flash">Gemini 1.5 Flash (Google)</option>
+                </select>
             </div>
-            
-            <div class="button-container">
-                <button id="run-eval-btn">Run Eval</button>
-                <button id="run-all-evals-btn">Run All Evals</button>
-                <button id="clear-results-btn">Clear Results</button>
             </div>
-        </div>
-        
-        <div id="eval-summary" class="results-container" style="display: none;">
-            <h2>Latest Eval Run Summary</h2>
-            <div id="summary-content"></div>
-        </div>
-        
-        <div id="results-section" class="results-container" style="display: none;">
-            <h2>Current Eval Results</h2>
-            
-            <div class="tabs">
-                <div class="tab tab-active" data-tab="summary">Summary</div>
-                <div class="tab" data-tab="raw-log">Raw Log</div>
-            </div>
-            
-            <div id="summary-tab" class="tab-content tab-content-active">
-                <div id="eval-status"></div>
-                <div id="tool-calls-summary"></div>
-            </div>
-            
-            <div id="raw-log-tab" class="tab-content">
-                <div id="raw-log-content" class="log-content"></div>
-            </div>
-        </div>
-        
-        <div id="past-evals-section">
-            <h2>Past Evals</h2>
-            <button id="refresh-logs-btn">Refresh Logs</button>
-            <div id="logs-list" class="logs-list">
+
+            <div id="eval-groups-container" class="eval-groups">
                 <div class="loading">
                     <div class="spinner"></div>
-                    <span>Loading logs...</span>
+                    <span>Loading eval groups...</span>
                 </div>
+            </div>
+            </div>
+            
+        <!-- Results Tab -->
+        <div id="results-tab" class="tab-content">
+            <div class="filters">
+                <div class="filter-group">
+                    <label for="eval-filter">Eval:</label>
+                    <select id="eval-filter" onchange="filterResults()">
+                        <option value="">All Evals</option>
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <label for="model-filter">Model:</label>
+                    <select id="model-filter" onchange="filterResults()">
+                        <option value="">All Models</option>
+                    </select>
+            </div>
+        </div>
+
+            <div id="results-container">
+                <div class="loading">
+                <div class="spinner"></div>
+                    <span>Loading results...</span>
+            </div>
+            </div>
+        </div>
+
+        <!-- Create New Tab -->
+        <div id="create-tab" class="tab-content">
+            <div style="display: flex; gap: 15px; margin-bottom: 20px;">
+                <button onclick="showCreateGroupModal()" class="btn-secondary">Create Eval Group</button>
+                <button onclick="showCreateEvalModal()" class="btn-secondary">Create Eval</button>
+            </div>
+            
+            <div style="background: #f8f9fa; padding: 20px; border-radius: 8px;">
+                <h3>Creating Evaluations</h3>
+                <p>Use the buttons above to create new eval groups and individual evals. Eval groups help organize related tests, while individual evals define specific test cases.</p>
+                
+                <h4>Eval Groups</h4>
+                <ul>
+                    <li><strong>Name:</strong> A descriptive name for the group</li>
+                    <li><strong>Category:</strong> The type of functionality being tested (metrics, system, features)</li>
+                    <li><strong>Description:</strong> Detailed description of what the group tests</li>
+                </ul>
+                
+                <h4>Evals</h4>
+                <ul>
+                    <li><strong>Prompt:</strong> The test prompt to send to the AI</li>
+                    <li><strong>Success Criteria:</strong> How to determine if the test passed</li>
+                    <li><strong>Success Type:</strong> binary (pass/fail), scored (0-1), or multi_step</li>
+                    <li><strong>Expected Tool Calls:</strong> Which functions the AI should call</li>
+                </ul>
+            </div>
+            </div>
+        </div>
+
+    <!-- Create Group Modal -->
+    <div id="create-group-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div class="modal-title">Create Eval Group</div>
+                <span class="close" onclick="closeModal('create-group-modal')">&times;</span>
+            </div>
+            <form id="create-group-form">
+                <div class="form-group">
+                    <label for="group-name">Group Name *</label>
+                    <input type="text" id="group-name" required>
+                </div>
+                <div class="form-group">
+                    <label for="group-category">Category *</label>
+                    <select id="group-category" required>
+                        <option value="">Select Category</option>
+                        <option value="metrics">Metrics</option>
+                        <option value="system">System</option>
+                        <option value="features">Features</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="group-description">Description</label>
+                    <textarea id="group-description" placeholder="Describe what this group tests..."></textarea>
+                </div>
+                <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                    <button type="button" onclick="closeModal('create-group-modal')" class="btn-secondary">Cancel</button>
+                    <button type="submit" class="btn-success">Create Group</button>
+                </div>
+            </form>
+        </div>
+    </div>
+    
+    <!-- Create Eval Modal -->
+    <div id="create-eval-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div class="modal-title">Create Eval</div>
+                <span class="close" onclick="closeModal('create-eval-modal')">&times;</span>
+            </div>
+            <form id="create-eval-form">
+                <div class="form-group">
+                    <label for="eval-group">Eval Group *</label>
+                    <select id="eval-group" required>
+                        <option value="">Select Group</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="eval-name">Eval Name *</label>
+                    <input type="text" id="eval-name" required>
+                </div>
+                <div class="form-group">
+                    <label for="eval-description">Description</label>
+                    <textarea id="eval-description" placeholder="Describe what this eval tests..."></textarea>
+                </div>
+                <div class="form-group">
+                    <label for="eval-prompt">Prompt *</label>
+                    <textarea id="eval-prompt" required placeholder="Enter the test prompt..."></textarea>
+                </div>
+                <div class="form-group">
+                    <label for="eval-success-criteria">Success Criteria *</label>
+                    <textarea id="eval-success-criteria" required placeholder="Describe how to determine success..."></textarea>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="eval-success-type">Success Type</label>
+                        <select id="eval-success-type">
+                            <option value="binary">Binary (Pass/Fail)</option>
+                            <option value="scored">Scored (0-1)</option>
+                            <option value="multi_step">Multi-Step</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="eval-difficulty">Difficulty</label>
+                        <select id="eval-difficulty">
+                            <option value="easy">Easy</option>
+                            <option value="medium" selected>Medium</option>
+                            <option value="hard">Hard</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="eval-expected-tool-calls">Expected Tool Calls (JSON)</label>
+                    <textarea id="eval-expected-tool-calls" placeholder='[{"function": "create_new_metric", "required": true}]'></textarea>
+                </div>
+                <div class="form-group">
+                    <label for="eval-time">Estimated Time (minutes)</label>
+                    <input type="number" id="eval-time" value="5" min="1" max="60">
+                </div>
+                <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                    <button type="button" onclick="closeModal('create-eval-modal')" class="btn-secondary">Cancel</button>
+                    <button type="submit" class="btn-success">Create Eval</button>
+                </div>
+            </form>
+        </div>
+    </div>
+    
+    <!-- Results Modal -->
+    <div id="results-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div class="modal-title">Eval Results</div>
+                <span class="close" onclick="closeModal('results-modal')">&times;</span>
+            </div>
+            <div id="results-modal-content">
+                <!-- Results will be populated here -->
             </div>
         </div>
     </div>
     
+    <!-- Loading overlay -->
+    <div id="loading-overlay" class="loading-overlay">
+        <div class="loading-container">
+            <div class="loading-spinner"></div>
+            <div class="loading-text">Processing...</div>
+            <div class="loading-subtext" id="loading-operation-text">Running evaluation</div>
+        </div>
+    </div>
+
     <script>
+        // Global state
+        let evalGroups = [];
+        let evals = [];
+        let results = [];
+        
+        // Initialize the page
         document.addEventListener('DOMContentLoaded', function() {
-            // Get DOM elements
-            const queryInput = document.getElementById('query');
-            const runEvalBtn = document.getElementById('run-eval-btn');
-            const runAllEvalsBtn = document.getElementById('run-all-evals-btn');
-            const clearResultsBtn = document.getElementById('clear-results-btn');
-            const refreshLogsBtn = document.getElementById('refresh-logs-btn');
-            const resultsSection = document.getElementById('results-section');
-            const evalStatus = document.getElementById('eval-status');
-            const toolCallsSummary = document.getElementById('tool-calls-summary');
-            const rawLogContent = document.getElementById('raw-log-content');
-            const logsList = document.getElementById('logs-list');
-            const tabs = document.querySelectorAll('.tab');
-            
-            // Initialize evals
-            loadEvalLogs();
-            loadLatestEvalSummary();
-            
-            // Event listeners
-            runEvalBtn.addEventListener('click', runEval);
-            runAllEvalsBtn.addEventListener('click', runAllEvals);
-            clearResultsBtn.addEventListener('click', clearResults);
-            refreshLogsBtn.addEventListener('click', loadEvalLogs);
-            
-            // Tab switching
-            tabs.forEach(tab => {
-                tab.addEventListener('click', function() {
-                    // Remove active class from all tabs
-                    tabs.forEach(t => t.classList.remove('tab-active'));
-                    document.querySelectorAll('.tab-content').forEach(content => {
-                        content.classList.remove('tab-content-active');
-                    });
-                    
-                    // Add active class to clicked tab
-                    this.classList.add('tab-active');
-                    const tabContentId = this.getAttribute('data-tab') + '-tab';
-                    document.getElementById(tabContentId).classList.add('tab-content-active');
-                });
+            loadEvalGroups();
+            loadResults();
+        });
+        
+        // Tab functionality
+        function showTab(tabName) {
+            // Hide all tab content
+            document.querySelectorAll('.tab-content').forEach(content => {
+                content.classList.remove('tab-content-active');
             });
-            
-            // Event listeners for predefined queries
-            document.querySelectorAll('.predefined-query').forEach(query => {
-                query.addEventListener('click', function() {
-                    queryInput.value = this.textContent;
-                });
+            // Deactivate all tabs
+            document.querySelectorAll('.tab').forEach(tab => {
+                tab.classList.remove('tab-active');
             });
-            
-            async function runEval() {
-                const query = queryInput.value.trim();
-                if (!query) {
-                    alert('Please enter a query');
-                    return;
-                }
-                
-                // Disable button and show loading
-                runEvalBtn.disabled = true;
-                runEvalBtn.textContent = 'Running...';
-                resultsSection.style.display = 'block';
-                evalStatus.innerHTML = `
-                    <div class="loading">
-                        <div class="spinner"></div>
-                        <span>Running eval for: "${query}"</span>
-                    </div>
-                `;
-                toolCallsSummary.innerHTML = '';
-                rawLogContent.innerHTML = '';
-                
-                try {
-                    const response = await fetch(`/backend/run-evals?query=${encodeURIComponent(query)}`);
+
+            // Show the selected tab content and activate the tab
+            document.getElementById(tabName + '-tab').classList.add('tab-content-active');
+            event.currentTarget.classList.add('tab-active');
+        }
+        
+        function getSuccessRateClass(rate) {
+            if (rate >= 0.8) return 'high';
+            if (rate >= 0.6) return 'medium';
+            return 'low';
+        }
+        
+        // Load eval groups
+        async function loadEvalGroups() {
+            try {
+                const response = await fetch('/backend/api/eval-groups');
                     const data = await response.json();
-                    
-                    if (data.status === 'success') {
-                        evalStatus.innerHTML = `
-                            <div class="success">
-                                <strong>Success!</strong> ${data.message}
-                            </div>
-                        `;
-                        
-                        // Process and format the log content
-                        processLogContent(data.log_content);
-                        
-                        // Show raw log
-                        rawLogContent.textContent = data.log_content;
-                        
-                        // Refresh logs list to include the new log
-                        loadEvalLogs();
-                    } else {
-                        evalStatus.innerHTML = `
-                            <div class="error">
-                                <strong>Error:</strong> ${data.message}
-                            </div>
-                        `;
-                    }
-                } catch (error) {
-                    evalStatus.innerHTML = `
-                        <div class="error">
-                            <strong>Error:</strong> ${error.message}
-                        </div>
-                    `;
-                } finally {
-                    // Re-enable button
-                    runEvalBtn.disabled = false;
-                    runEvalBtn.textContent = 'Run Eval';
+
+                if (data.status === 'success') {
+                    evalGroups = data.groups;
+                    updateEvalGroupsDisplay();
+                    updateCategoryFilter();
+                    updateEvalGroupSelect();
                 }
+            } catch (error) {
+                console.error('Error loading eval groups:', error);
+            }
+        }
+        
+        // Update eval groups display
+        function updateEvalGroupsDisplay() {
+            const container = document.getElementById('eval-groups-container');
+            const selectedCategory = document.getElementById('category-filter').value;
+            
+            const filteredGroups = selectedCategory 
+                ? evalGroups.filter(group => group.category === selectedCategory)
+                : evalGroups;
+            
+            if (filteredGroups.length === 0) {
+                container.innerHTML = '<p>No eval groups found.</p>';
+                return;
             }
             
-            async function runAllEvals() {
-                // Disable button and show loading
-                runAllEvalsBtn.disabled = true;
-                runAllEvalsBtn.textContent = 'Running All Evals...';
-                
-                // Show and clear the summary section
-                const evalSummary = document.getElementById('eval-summary');
-                const summaryContent = document.getElementById('summary-content');
-                evalSummary.style.display = 'block';
-                summaryContent.innerHTML = `
-                    <div class="loading">
-                        <div class="spinner"></div>
-                        <span>Running all eval test cases...</span>
-                    </div>
-                `;
-                
-                try {
-                    const response = await fetch('/backend/run-all-evals');
+            const groupsHtml = filteredGroups.map(group => `
+                <div class="eval-group-card">
+                    <div class="eval-group-header">
+                        <div class="eval-group-title">${group.name}</div>
+                        <div class="eval-group-category">${group.category}</div>
+                            </div>
+                    <div class="eval-group-description">${group.description || 'No description provided.'}</div>
+                    <div class="eval-list" id="evals-${group.id}">
+                        <div class="loading">
+                            <div class="spinner"></div>
+                            <span>Loading evals...</span>
+                            </div>
+                            </div>
+                        </div>
+            `).join('');
+            
+            container.innerHTML = groupsHtml;
+            
+            // Load evals for each group
+            filteredGroups.forEach(group => loadEvalsForGroup(group.id));
+        }
+        
+                // Load evals for a specific group
+        async function loadEvalsForGroup(groupId) {
+            try {
+                const response = await fetch(`/backend/api/evals?group_id=${groupId}`);
                     const data = await response.json();
+
+                if (data.status === 'success') {
+                    const groupEvals = data.evals;
+                    const container = document.getElementById(`evals-${groupId}`);
                     
-                    if (data.status === 'success') {
-                        const results = data.results;
-                        const successRate = results.total > 0 ? 
-                            Math.round((results.successful / results.total) * 100) : 0;
-                        
-                        // Display the summary
-                        summaryContent.innerHTML = `
-                            <div class="${results.failed === 0 ? 'success' : 'error'}">
-                                <h3>Eval Run Complete</h3>
-                                <p><strong>${results.successful}/${results.total}</strong> tests passed (${successRate}%)</p>
-                                ${results.failed > 0 ? `<p><strong>${results.failed}</strong> tests failed</p>` : ''}
+                    if (groupEvals.length === 0) {
+                        container.innerHTML = '<p>No evals in this group.</p>';
+                        return;
+                    }
+                    
+                    const evalsHtml = groupEvals.map(eval => `
+                        <div class="eval-item">
+                            <div class="eval-item-header">
+                                <div class="eval-name">${eval.name}</div>
+                                <div class="eval-difficulty ${eval.difficulty_level}">${eval.difficulty_level}</div>
+                                </div>
+                            <div class="eval-description">${eval.description || 'No description provided.'}</div>
+                            <div class="eval-meta">
+                                <span>Type: ${eval.success_type}</span>
+                                <span>Est. Time: ${eval.estimated_time_minutes}m</span>
+                                </div>
+                            <div class="eval-actions">
+                                <button onclick="runEval(${eval.id})" class="btn-small">Run</button>
+                                <button onclick="runGroup(${eval.group_id})" class="btn-small btn-secondary">Run Group</button>
+                                <button onclick="viewEvalDetails(${eval.id})" class="btn-small btn-secondary">Details</button>
+                                <button onclick="editEval(${eval.id})" class="btn-small btn-secondary">Edit</button>
+                                <button onclick="deleteEval(${eval.id})" class="btn-small" style="background-color: #dc3545;">Delete</button>
+                            </div>
+                        </div>
+                    `).join('');
+                    
+                    container.innerHTML = evalsHtml;
+                    }
+                } catch (error) {
+                console.error(`Error loading evals for group ${groupId}:`, error);
+            }
+        }
+        
+        // Update category filter
+        function updateCategoryFilter() {
+            const categories = [...new Set(evalGroups.map(group => group.category))];
+            const filter = document.getElementById('category-filter');
+            
+            categories.forEach(category => {
+                const option = document.createElement('option');
+                option.value = category;
+                option.textContent = category.charAt(0).toUpperCase() + category.slice(1);
+                filter.appendChild(option);
+            });
+        }
+        
+        // Filter groups by category
+        function filterGroups() {
+            updateEvalGroupsDisplay();
+        }
+        
+        // Load results
+        async function loadResults() {
+            try {
+                const response = await fetch('/backend/api/eval-results?limit=50');
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    results = data.results;
+                    updateResultsDisplay();
+                    updateResultsFilters();
+                }
+            } catch (error) {
+                console.error('Error loading results:', error);
+            }
+        }
+        
+        // Update results display
+        function updateResultsDisplay() {
+            const container = document.getElementById('results-container');
+            const selectedEval = document.getElementById('eval-filter').value;
+            const selectedModel = document.getElementById('model-filter').value;
+            
+            let filteredResults = results;
+            
+            if (selectedEval) {
+                filteredResults = filteredResults.filter(r => r.eval_id.toString() === selectedEval);
+            }
+            
+            if (selectedModel) {
+                filteredResults = filteredResults.filter(r => r.model_name === selectedModel);
+            }
+            
+            if (filteredResults.length === 0) {
+                container.innerHTML = '<p>No results found.</p>';
+                return;
+            }
+            
+            const resultsHtml = filteredResults.map(result => `
+                <div class="result-item">
+                    <div class="result-header" onclick="toggleResultDetails(${result.id})">
+                        <div class="result-header-content">
+                            <div class="result-title">${result.eval_name}</div>
+                            <div class="result-subtitle">${result.group_name} • ${result.model_name}</div>
+                            <div class="result-meta">
+                                <span class="execution-time">⏱️ ${result.execution_time_seconds ? result.execution_time_seconds.toFixed(1) + 's' : 'N/A'}</span>
+                                <span>${new Date(result.created_at).toLocaleString()}</span>
+                                <span>${result.status}</span>
+                                ${result.tool_calls_made && Array.isArray(result.tool_calls_made) && result.tool_calls_made.length > 0 ? `
+                                    <div class="tool-call-stats">
+                                        <span class="tool-call-count">🔧 ${result.tool_calls_made.length}</span>
+                                        <span class="tool-call-failed">❌ ${result.tool_calls_made.filter(call => call.successful === false).length}</span>
+                                    </div>
+                                ` : result.tool_calls_made && Array.isArray(result.tool_calls_made) && result.tool_calls_made.length === 0 ? `
+                                    <div class="tool-call-stats">
+                                        <span class="tool-call-zero">🔧 0</span>
+                                    </div>
+                                ` : ''}
+                            </div>
+                        </div>
+                        <div class="result-score ${getSuccessRateClass(result.success_score)}">
+                            ${(result.success_score * 100).toFixed(1)}%
+                        </div>
+                    </div>
+                    <div class="result-details" id="result-details-${result.id}">
+                        <div class="result-details-content">
+                            <div class="result-details-section">
+                                <h4>Prompt Used</h4>
+                                <p>${result.prompt_used || 'N/A'}</p>
                             </div>
                             
-                            <h3>Test Results:</h3>
-                            <table style="width: 100%; border-collapse: collapse; margin-top: 10px;">
-                                <thead>
-                                    <tr style="background-color: #f0f0f0;">
-                                        <th style="padding: 8px; text-align: left; border: 1px solid #ddd;">Test Name</th>
-                                        <th style="padding: 8px; text-align: left; border: 1px solid #ddd;">Query</th>
-                                        <th style="padding: 8px; text-align: center; border: 1px solid #ddd;">Status</th>
-                                        <th style="padding: 8px; text-align: left; border: 1px solid #ddd;">Error</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    ${results.test_results.map(test => `
-                                        <tr>
-                                            <td style="padding: 8px; border: 1px solid #ddd;">${test.test_name}</td>
-                                            <td style="padding: 8px; border: 1px solid #ddd; font-size: 12px;">${test.query}</td>
-                                            <td style="padding: 8px; text-align: center; border: 1px solid #ddd;">
-                                                <span style="color: ${test.status === 'success' ? 'green' : 'red'}; font-weight: bold;">
-                                                    ${test.status === 'success' ? '✓' : '✗'}
-                                                </span>
-                                            </td>
-                                            <td style="padding: 8px; border: 1px solid #ddd; font-size: 12px; color: red;">
-                                                ${test.error_message || '-'}
-                                            </td>
-                                        </tr>
-                                    `).join('')}
-                                </tbody>
-                            </table>
-                            
-                            ${results.summary_log_filename ? `
-                                <p style="margin-top: 15px;">
-                                    <small>Full log: ${results.summary_log_filename}</small>
-                                </p>
+                            <div class="result-details-section">
+                                <h4>Response Received</h4>
+                                <p>${result.response_received || 'N/A'}</p>
+                            </div>
+
+                            ${result.tool_calls_made && result.tool_calls_made.length > 0 ? `
+                                <div class="result-details-section">
+                                    <h4>Tool Calls Made</h4>
+                                    <div class="tool-calls-list">
+                                        ${result.tool_calls_made.map(call => `
+                                            <div class="tool-call-item">
+                                                <div class="tool-call-function">${call.function}</div>
+                                                <div class="tool-call-args">${JSON.stringify(call.arguments, null, 2)}</div>
+                                                ${call.output ? `
+                                                    <div class="tool-call-output">
+                                                        <strong>Response:</strong>
+                                                        <pre>${typeof call.output === 'string' ? call.output : JSON.stringify(call.output, null, 2)}</pre>
+                                                    </div>
+                                                ` : ''}
+                                                ${call.successful === false ? 
+                                                    `<div class="tool-call-error">❌ Failed${call.output && typeof call.output === 'object' && call.output.error_type ? ` (${call.output.error_type})` : ''}</div>` : 
+                                                    call.successful === true ? '<div class="tool-call-success">✅ Success</div>' : ''}
+                                            </div>
+                                        `).join('')}
+                                    </div>
+                                </div>
                             ` : ''}
-                        `;
-                        
-                        // Refresh logs list to include the new summary log
-                        loadEvalLogs();
-                    } else {
-                        summaryContent.innerHTML = `
-                            <div class="error">
-                                <strong>Error:</strong> ${data.message}
-                            </div>
-                        `;
-                    }
-                } catch (error) {
-                    summaryContent.innerHTML = `
-                        <div class="error">
-                            <strong>Error:</strong> ${error.message}
-                        </div>
-                    `;
-                } finally {
-                    // Re-enable button
-                    runAllEvalsBtn.disabled = false;
-                    runAllEvalsBtn.textContent = 'Run All Evals';
-                }
-            }
-            
-            function clearResults() {
-                resultsSection.style.display = 'none';
-                evalStatus.innerHTML = '';
-                toolCallsSummary.innerHTML = '';
-                rawLogContent.innerHTML = '';
-            }
-            
-            async function loadEvalLogs() {
-                try {
-                    logsList.innerHTML = `
-                        <div class="loading">
-                            <div class="spinner"></div>
-                            <span>Loading logs...</span>
-                        </div>
-                    `;
-                    
-                    const response = await fetch('/backend/list-eval-logs');
-                    const data = await response.json();
-                    
-                    if (data.status === 'success') {
-                        if (data.files.length === 0) {
-                            logsList.innerHTML = '<p>No eval logs found.</p>';
-                            return;
-                        }
-                        
-                        let logsHtml = '';
-                        data.files.forEach(file => {
-                            const date = new Date(file.modified);
-                            const formattedDate = date.toLocaleString();
                             
-                            logsHtml += `
-                                <div class="log-item" data-filename="${file.name}">
-                                    <span>${file.name}</span>
-                                    <span class="log-date">${formattedDate}</span>
+                                                        ${result.success_details && Object.keys(result.success_details).length > 0 ? `
+                                <div class="result-details-section">
+                                    <h4>Success Details</h4>
+                                    <pre>${JSON.stringify(result.success_details, null, 2)}</pre>
+                            </div>
+                            ` : ''}
+                            
+                            ${result.conversation_history && result.conversation_history.length > 0 ? `
+                                <div class="result-details-section">
+                                    <h4>Conversation History</h4>
+                                    <div class="conversation-history">
+                                        ${result.conversation_history.map((msg, index) => `
+                                            <div class="conversation-message ${msg.role}">
+                                                <div class="message-role">${msg.role === 'user' ? '👤 User' : '🤖 Assistant'}</div>
+                                                <div class="message-content">${msg.content || 'No content'}</div>
+                            </div>
+                                        `).join('')}
+                        </div>
                                 </div>
-                            `;
-                        });
-                        
-                        logsList.innerHTML = logsHtml;
-                        
-                        // Add event listeners to log items
-                        document.querySelectorAll('.log-item').forEach(item => {
-                            item.addEventListener('click', async function() {
-                                const filename = this.getAttribute('data-filename');
-                                await loadLogContent(filename);
-                                
-                                // Mark this item as active
-                                document.querySelectorAll('.log-item').forEach(i => {
-                                    i.classList.remove('log-item-active');
-                                });
-                                this.classList.add('log-item-active');
-                            });
-                        });
-                    } else {
-                        logsList.innerHTML = `<div class="error">${data.message}</div>`;
-                    }
-                } catch (error) {
-                    logsList.innerHTML = `<div class="error">${error.message}</div>`;
-                }
-            }
-            
-            async function loadLogContent(filename) {
-                try {
-                    resultsSection.style.display = 'block';
-                    evalStatus.innerHTML = `
-                        <div class="loading">
-                            <div class="spinner"></div>
-                            <span>Loading log: ${filename}</span>
-                        </div>
-                    `;
-                    toolCallsSummary.innerHTML = '';
-                    rawLogContent.innerHTML = '';
-                    
-                    const response = await fetch(`/backend/eval-log/${filename}`);
-                    const data = await response.json();
-                    
-                    if (data.status === 'success') {
-                        evalStatus.innerHTML = `
-                            <div class="success">
-                                <strong>Log:</strong> ${filename}
-                            </div>
-                        `;
-                        
-                        // Process and format the log content
-                        processLogContent(data.content);
-                        
-                        // Show raw log
-                        rawLogContent.textContent = data.content;
-                        
-                        // Switch to the summary tab
-                        document.querySelector('.tab[data-tab="summary"]').click();
-                    } else {
-                        evalStatus.innerHTML = `
-                            <div class="error">
-                                <strong>Error:</strong> ${data.message}
-                            </div>
-                        `;
-                    }
-                } catch (error) {
-                    evalStatus.innerHTML = `
-                        <div class="error">
-                            <strong>Error:</strong> ${error.message}
-                        </div>
-                    `;
-                }
-            }
-            
-            function processLogContent(content) {
-                try {
-                    // Split by double newlines as each log entry is separated by them
-                    const logEntries = content.split('\n\n').filter(entry => entry.trim());
-                    
-                    let html = '';
-                    let query = '';
-                    let toolCalls = [];
-                    let toolResponses = {};
-                    let assistantMessages = [];
-                    
-                    // First, parse all entries
-                    logEntries.forEach(entry => {
-                        try {
-                            const logEntry = JSON.parse(entry);
+                            ` : ''}
                             
-                            if (logEntry.type === 'user_query') {
-                                query = logEntry.content;
-                            } else if (logEntry.type === 'tool_call') {
-                                toolCalls.push({
-                                    timestamp: logEntry.timestamp,
-                                    function: logEntry.function,
-                                    arguments: logEntry.arguments
-                                });
-                            } else if (logEntry.type === 'tool_response') {
-                                toolResponses[logEntry.function] = logEntry.content;
-                            } else if (logEntry.type === 'assistant_message') {
-                                assistantMessages.push({
-                                    timestamp: logEntry.timestamp,
-                                    content: logEntry.content
-                                });
-                            }
-                        } catch (e) {
-                            console.error('Error parsing log entry:', e, entry);
-                        }
-                    });
-                    
-                    // Create the summary HTML
-                    html += `<h3>Query</h3>
-                    <div class="tool-call">
-                        <div class="tool-call-arguments">${query}</div>
-                    </div>`;
-                    
-                    if (assistantMessages.length > 0) {
-                        html += `<h3>Assistant Messages (${assistantMessages.length})</h3>`;
-                        assistantMessages.forEach(msg => {
-                            const date = new Date(msg.timestamp);
-                            html += `
-                            <div class="tool-call">
-                                <div class="tool-call-header">
-                                    <span class="tool-call-name">Message</span>
-                                    <span class="tool-call-timestamp">${date.toLocaleString()}</span>
+                            ${result.execution_trace && result.execution_trace.length > 0 ? `
+                                <div class="result-details-section">
+                                    <h4>Execution Trace</h4>
+                                    <div class="execution-trace">
+                                        ${result.execution_trace.map((step, index) => `
+                                            <div class="execution-step ${step.type} ${step.successful === false ? 'failed' : ''}">
+                                                <div class="step-header">
+                                                    <span class="step-type">${step.type === 'tool_call' ? '🔧 Tool Call' : '⚙️ Chain Step'}</span>
+                                                    <span class="step-name">${step.tool || step.chain}</span>
+                                                    ${step.duration ? `<span class="step-duration">(${step.duration.toFixed(2)}s)</span>` : ''}
+                                                    ${step.successful === false ? '<span class="step-status failed">❌ Failed</span>' : step.successful === true ? '<span class="step-status success">✅ Success</span>' : ''}
+                                                </div>
+                                                ${step.input ? `<div class="step-input"><strong>Input:</strong> <pre>${JSON.stringify(step.input, null, 2)}</pre></div>` : ''}
+                                                ${step.output ? `<div class="step-output"><strong>Output:</strong> <pre>${JSON.stringify(step.output, null, 2)}</pre></div>` : ''}
+                                            </div>
+                                        `).join('')}
+                                    </div>
                                 </div>
-                                <div class="tool-call-arguments">${msg.content}</div>
-                            </div>`;
-                        });
-                    }
+                            ` : ''}
+                            
+                            ${result.error_message ? `
+                                <div class="result-details-section">
+                                    <h4>Error Message</h4>
+                                    <p style="color: #dc3545;">${result.error_message}</p>
+                            </div>
+                            ` : ''}
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+            
+            container.innerHTML = resultsHtml;
+        }
+        
+        // Update results filters
+        function updateResultsFilters() {
+            const evalFilter = document.getElementById('eval-filter');
+            const modelFilter = document.getElementById('model-filter');
+            
+            const evalIds = [...new Set(results.map(r => r.eval_id))];
+            const modelNames = [...new Set(results.map(r => r.model_name))];
+            
+            // Clear existing options
+            evalFilter.innerHTML = '<option value="">All Evals</option>';
+            modelFilter.innerHTML = '<option value="">All Models</option>';
+            
+            // Add eval options
+            evalIds.forEach(evalId => {
+                const result = results.find(r => r.eval_id === evalId);
+                const option = document.createElement('option');
+                option.value = evalId;
+                option.textContent = result.eval_name;
+                evalFilter.appendChild(option);
+            });
+
+            // Add model options
+            modelNames.forEach(modelName => {
+                const option = document.createElement('option');
+                option.value = modelName;
+                option.textContent = modelName;
+                modelFilter.appendChild(option);
+            });
+        }
+        
+        // Filter results
+        function filterResults() {
+            updateResultsDisplay();
+        }
+        
+        // Toggle result details
+        function toggleResultDetails(resultId) {
+            const detailsElement = document.getElementById(`result-details-${resultId}`);
+            if (detailsElement) {
+                detailsElement.classList.toggle('show');
+            }
+        }
+        
+                // Edit eval
+        async function editEval(evalId) {
+            console.log('Editing eval with ID:', evalId);
+            try {
+                const response = await fetch(`/backend/api/evals/${evalId}`);
+                    const data = await response.json();
+                console.log('API response:', data);
+                
+                if (data.status === 'success') {
+                    const eval = data.eval;
                     
-                    if (toolCalls.length > 0) {
-                        html += `<h3>Tool Calls (${toolCalls.length})</h3>`;
-                        toolCalls.forEach(call => {
-                            const date = new Date(call.timestamp);
-                            let argText = '';
-                            try {
-                                const argObj = JSON.parse(call.arguments);
-                                argText = JSON.stringify(argObj, null, 2);
-                            } catch (e) {
-                                argText = call.arguments;
-                            }
-                            
-                            let responseHtml = '';
-                            if (toolResponses[call.function]) {
-                                responseHtml = `
-                                <div class="tool-call-response">
-                                    ${toolResponses[call.function]}
-                                </div>`;
-                            }
-                            
-                            html += `
-                            <div class="tool-call">
-                                <div class="tool-call-header">
-                                    <span class="tool-call-name">${call.function}</span>
-                                    <span class="tool-call-timestamp">${date.toLocaleString()}</span>
-                                </div>
-                                <div class="tool-call-arguments">${argText}</div>
-                                ${responseHtml}
-                            </div>`;
-                        });
+                    // Populate the create eval form with existing data
+                    const groupSelect = document.getElementById('eval-group');
+                    const nameInput = document.getElementById('eval-name');
+                    const descInput = document.getElementById('eval-description');
+                    const promptInput = document.getElementById('eval-prompt');
+                    const criteriaInput = document.getElementById('eval-success-criteria');
+                    const typeSelect = document.getElementById('eval-success-type');
+                    const difficultySelect = document.getElementById('eval-difficulty');
+                    const timeInput = document.getElementById('eval-time');
+                    const toolCallsInput = document.getElementById('eval-expected-tool-calls');
+                    
+                    // Check if all elements exist before setting values
+                    if (groupSelect) groupSelect.value = eval.group_id;
+                    if (nameInput) nameInput.value = eval.name;
+                    if (descInput) descInput.value = eval.description || '';
+                    if (promptInput) promptInput.value = eval.prompt;
+                    if (criteriaInput) criteriaInput.value = eval.success_criteria;
+                    if (typeSelect) typeSelect.value = eval.success_type;
+                    if (difficultySelect) difficultySelect.value = eval.difficulty_level;
+                    if (timeInput) timeInput.value = eval.estimated_time_minutes;
+                    if (toolCallsInput) toolCallsInput.value = JSON.stringify(eval.expected_tool_calls || [], null, 2);
+                    
+                    // Update modal title and form action
+                    const modalTitle = document.querySelector('#create-eval-modal .modal-title');
+                    const form = document.getElementById('create-eval-form');
+                    if (modalTitle) modalTitle.textContent = 'Edit Eval';
+                    if (form) form.setAttribute('data-edit-id', evalId);
+                    
+                    showCreateEvalModal();
                     } else {
-                        html += `<h3>No Tool Calls</h3>
-                        <p>The agent did not make any tool calls during this conversation.</p>`;
+                    console.error('API returned error:', data.message);
+                    alert('Error loading eval: ' + data.message);
                     }
-                    
-                    toolCallsSummary.innerHTML = html;
-                    
                 } catch (error) {
-                    console.error('Error processing log content:', error);
-                    toolCallsSummary.innerHTML = `<div class="error">Error processing log: ${error.message}</div>`;
-                }
+                console.error('Error loading eval for editing:', error);
+                alert('Error loading eval for editing: ' + error.message);
+            }
+        }
+        
+        // Delete eval
+        async function deleteEval(evalId) {
+            if (!confirm('Are you sure you want to delete this eval? This action cannot be undone.')) {
+                return;
             }
             
-            // Load latest eval summary on page load
-            async function loadLatestEvalSummary() {
-                try {
-                    const response = await fetch('/backend/get-latest-eval-summary');
-                    const data = await response.json();
-                    
-                    if (data.status === 'success' && data.summary) {
-                        const evalSummary = document.getElementById('eval-summary');
-                        const summaryContent = document.getElementById('summary-content');
-                        evalSummary.style.display = 'block';
-                        
-                        const summary = data.summary;
-                        const successRate = summary.total > 0 ? 
-                            Math.round((summary.successful / summary.total) * 100) : 0;
-                        
-                        summaryContent.innerHTML = `
-                            <div class="${summary.failed === 0 ? 'success' : 'error'}">
-                                <h3>Last Eval Run Summary</h3>
-                                <p><strong>${summary.successful}/${summary.total}</strong> tests passed (${successRate}%)</p>
-                                ${summary.failed > 0 ? `<p><strong>${summary.failed}</strong> tests failed</p>` : ''}
-                                <p><small>Run at: ${new Date(summary.timestamp).toLocaleString()}</small></p>
-                            </div>
-                        `;
-                    }
-                } catch (error) {
-                    console.error('Error loading latest eval summary:', error);
+            try {
+                const response = await fetch(`/backend/api/evals/${evalId}`, {
+                    method: 'DELETE'
+                });
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    alert('Eval deleted successfully');
+                    loadEvalGroups();
+                    loadEvals();
+                } else {
+                    alert('Error deleting eval: ' + data.message);
                 }
+            } catch (error) {
+                console.error('Error deleting eval:', error);
+                alert('Error deleting eval');
+            }
+        }
+        
+        // Run a single eval
+        async function runEval(evalId) {
+            const modelName = document.getElementById('model-select').value;
+            
+            // Show loading indicator
+            const loadingOverlay = document.getElementById('loading-overlay');
+            const loadingText = document.getElementById('loading-operation-text');
+            loadingText.textContent = `Running eval...`;
+            loadingOverlay.style.display = 'flex';
+            
+            try {
+                const response = await fetch(`/backend/api/run-eval/${evalId}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ model_name: modelName })
+                });
+                
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    alert(`Eval completed successfully! Score: ${(data.execution_result.success_score * 100).toFixed(1)}%`);
+                    loadResults(); // Refresh results
+                } else {
+                    alert(`Error running eval: ${data.message}`);
+                }
+            } catch (error) {
+                console.error('Error running eval:', error);
+                alert('Error running eval. Please try again.');
+            } finally {
+                // Hide loading indicator
+                loadingOverlay.style.display = 'none';
+            }
+        }
+        
+        // Run an entire group
+        async function runGroup(groupId) {
+            const modelName = document.getElementById('model-select').value;
+            
+            if (!confirm('Run all evals in this group?')) {
+                return;
+            }
+            
+            // Show loading indicator
+            const loadingOverlay = document.getElementById('loading-overlay');
+            const loadingText = document.getElementById('loading-operation-text');
+            loadingText.textContent = `Running eval group...`;
+            loadingOverlay.style.display = 'flex';
+            
+            try {
+                const response = await fetch(`/backend/api/run-eval-group/${groupId}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ model_name: modelName })
+                });
+                
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    alert(`Group completed! ${data.successful_runs}/${data.total_evals} successful. Avg score: ${(data.avg_success_score * 100).toFixed(1)}%`);
+                    loadResults(); // Refresh results
+                } else {
+                    alert(`Error running group: ${data.message}`);
+                }
+            } catch (error) {
+                console.error('Error running group:', error);
+                alert('Error running group. Please try again.');
+            } finally {
+                // Hide loading indicator
+                loadingOverlay.style.display = 'none';
+            }
+        }
+        
+        // View eval details
+        async function viewEvalDetails(evalId) {
+            try {
+                const response = await fetch(`/backend/api/evals/${evalId}`);
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    const eval = data.eval;
+                    const modalContent = document.getElementById('results-modal-content');
+                    
+                    modalContent.innerHTML = `
+                        <h3>${eval.name}</h3>
+                        <p><strong>Group:</strong> ${eval.group_name}</p>
+                        <p><strong>Description:</strong> ${eval.description || 'No description'}</p>
+                        <p><strong>Prompt:</strong></p>
+                        <pre style="background: #f8f9fa; padding: 10px; border-radius: 4px; white-space: pre-wrap;">${eval.prompt}</pre>
+                        <p><strong>Success Criteria:</strong></p>
+                        <pre style="background: #f8f9fa; padding: 10px; border-radius: 4px; white-space: pre-wrap;">${eval.success_criteria}</pre>
+                        <p><strong>Success Type:</strong> ${eval.success_type}</p>
+                        <p><strong>Difficulty:</strong> ${eval.difficulty_level}</p>
+                        <p><strong>Estimated Time:</strong> ${eval.estimated_time_minutes} minutes</p>
+                    `;
+                    
+                    document.getElementById('results-modal').style.display = 'block';
+                }
+            } catch (error) {
+                console.error('Error loading eval details:', error);
+                alert('Error loading eval details.');
+            }
+        }
+        
+        // Modal functions
+        function showCreateGroupModal() {
+            document.getElementById('create-group-modal').style.display = 'block';
+        }
+        
+        function showCreateEvalModal() {
+            document.getElementById('create-eval-modal').style.display = 'block';
+            updateEvalGroupSelect();
+            
+            // Reset form if not editing
+            if (!document.getElementById('create-eval-form').getAttribute('data-edit-id')) {
+                document.getElementById('create-eval-form').reset();
+                document.querySelector('#create-eval-modal .modal-title').textContent = 'Create Eval';
+            }
+        }
+        
+        function closeModal(modalId) {
+            document.getElementById(modalId).style.display = 'none';
+        }
+        
+        // Update eval group select for create eval modal
+        function updateEvalGroupSelect() {
+            const select = document.getElementById('eval-group');
+            select.innerHTML = '<option value="">Select Group</option>';
+            
+            evalGroups.forEach(group => {
+                const option = document.createElement('option');
+                option.value = group.id;
+                option.textContent = group.name;
+                select.appendChild(option);
+            });
+        }
+        
+        // Form submissions
+        document.getElementById('create-group-form').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const formData = {
+                name: document.getElementById('group-name').value,
+                category: document.getElementById('group-category').value,
+                description: document.getElementById('group-description').value
+            };
+            
+            try {
+                const response = await fetch('/backend/api/eval-groups', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(formData)
+                });
+                
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    alert('Eval group created successfully!');
+                    closeModal('create-group-modal');
+                    document.getElementById('create-group-form').reset();
+                    loadEvalGroups(); // Refresh groups
+                } else {
+                    alert(`Error creating group: ${data.message}`);
+                }
+            } catch (error) {
+                console.error('Error creating group:', error);
+                alert('Error creating group. Please try again.');
             }
         });
+        
+        document.getElementById('create-eval-form').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const editId = document.getElementById('create-eval-form').getAttribute('data-edit-id');
+            const isEditing = editId !== null;
+            
+            const formData = {
+                group_id: parseInt(document.getElementById('eval-group').value),
+                name: document.getElementById('eval-name').value,
+                description: document.getElementById('eval-description').value,
+                prompt: document.getElementById('eval-prompt').value,
+                success_criteria: document.getElementById('eval-success-criteria').value,
+                success_type: document.getElementById('eval-success-type').value,
+                difficulty_level: document.getElementById('eval-difficulty').value,
+                estimated_time_minutes: parseInt(document.getElementById('eval-time').value) || 5,
+                expected_tool_calls: JSON.parse(document.getElementById('eval-expected-tool-calls').value || '[]')
+            };
+            
+            try {
+                const url = isEditing ? `/backend/api/evals/${editId}` : '/backend/api/evals';
+                const method = isEditing ? 'PUT' : 'POST';
+                
+                const response = await fetch(url, {
+                    method: method,
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(formData)
+                });
+                
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    alert(isEditing ? 'Eval updated successfully!' : 'Eval created successfully!');
+                    closeModal('create-eval-modal');
+                    document.getElementById('create-eval-form').reset();
+                    document.getElementById('create-eval-form').removeAttribute('data-edit-id');
+                    document.querySelector('#create-eval-modal .modal-title').textContent = 'Create Eval';
+                    loadEvalGroups(); // Refresh groups
+                    loadEvals(); // Refresh evals
+                } else {
+                    alert(`Error ${isEditing ? 'updating' : 'creating'} eval: ${data.message}`);
+                }
+            } catch (error) {
+                console.error(`Error ${isEditing ? 'updating' : 'creating'} eval:`, error);
+                alert(`Error ${isEditing ? 'updating' : 'creating'} eval. Please try again.`);
+            }
+        });
+        
+        // Close modals when clicking outside
+        window.onclick = function(event) {
+            const modals = document.querySelectorAll('.modal');
+            modals.forEach(modal => {
+                if (event.target === modal) {
+                    modal.style.display = 'none';
+                }
+            });
+        }
     </script>
-
-    <!-- Dark Mode JavaScript -->
-    <script src="/static/js/darkmode.js"></script>
-    <script src="/static/js/iframe-darkmode.js"></script>
 </body>
 </html> 

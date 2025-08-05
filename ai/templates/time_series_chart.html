@@ -67,6 +67,11 @@
             border-top-right-radius: 8px;
             display: block;
             pointer-events: none;
+            z-index: 1; /* Ensure framing appears above chart content */
+            box-sizing: border-box;
+            /* Use CSS custom properties for dynamic sizing with fallback */
+            max-width: calc(var(--container-width, 61.8%) * 0.618);
+            max-height: calc(var(--container-height, 61.8%) * 0.618);
         }
         
         .chart-container::after {
@@ -81,6 +86,11 @@
             border-bottom-left-radius: 8px;
             display: block;
             pointer-events: none;
+            z-index: 1; /* Ensure framing appears above chart content */
+            box-sizing: border-box;
+            /* Use CSS custom properties for dynamic sizing with fallback */
+            max-width: calc(var(--container-width, 61.8%) * 0.618);
+            max-height: calc(var(--container-height, 61.8%) * 0.618);
         }
 
         /* Dark mode corner frames */
@@ -253,6 +263,21 @@
             
             body {
                 padding: 5px;
+            }
+        }
+        
+        /* Ensure framing elements scale properly with container size */
+        .chart-container {
+            position: relative;
+            overflow: visible;
+        }
+        
+        /* Override framing size for very small containers */
+        @media (max-width: 300px) {
+            .chart-container::before,
+            .chart-container::after {
+                width: 50% !important;
+                height: 50% !important;
             }
         }
         
@@ -794,63 +819,111 @@
                         const lineColor = isCurrentYear ? '#ad35fa' : '#888888'; // Primary purple for current year, grey for previous
                         
                         // -------------------------------------------------------------
-                        // Add raw daily line (light opacity) and 7-day trailing average
+                        // Add raw data line and optional 7-day trailing average
                         // -------------------------------------------------------------
 
-                        // Compute 7-day trailing average
-                        const avg7 = dailyY.map((_, idx) => {
-                            const start = Math.max(0, idx - 6);
-                            const window = dailyY.slice(start, idx + 1);
-                            const sum = window.reduce((acc, v) => acc + v, 0);
-                            return sum / window.length;
-                        });
+                        // Check if data points are monthly vs daily based on metadata
+                        // Also check if data is labeled as "day" but is actually monthly (sparse data points)
+                        const isMonthlyData = metadata.period_type === 'month' || metadata.period_type === 'monthly';
+                        
+                        // Additional check: if data is labeled as "day" but has sparse data points (likely monthly)
+                        // Count unique day-of-year values to determine if it's actually monthly data
+                        // Monthly data typically has 12 or fewer data points per year
+                        const uniqueDayValues = [...new Set(dailyX)];
+                        const isSparseData = uniqueDayValues.length <= 12; // If 12 or fewer unique day values, likely monthly
+                        
+                        // Use monthly treatment if explicitly monthly OR if sparse data (likely monthly despite "day" label)
+                        const shouldUseMonthlyTreatment = isMonthlyData || isSparseData;
+                        
+                        // Log the detection for debugging
+                        if (shouldUseMonthlyTreatment) {
+                            console.log(`YTD Chart: Using monthly treatment for ${year} - period_type: ${metadata.period_type}, unique days: ${uniqueDayValues.length}, isMonthlyData: ${isMonthlyData}, isSparseData: ${isSparseData}`);
+                        }
+                        
+                        if (shouldUseMonthlyTreatment) {
+                            // For monthly data, just show the raw data without 7-day averaging
+                            traces.push({
+                                x: dailyX,
+                                y: dailyY,
+                                type: 'scatter',
+                                mode: 'lines+markers',
+                                name: `${year}`,
+                                line: { color: lineColor, width: 3 },
+                                marker: { size: 6 },
+                                showlegend: true,
+                                hovertemplate: `${year}<br>%{customdata}<br>%{y}<extra></extra>`,
+                                hoverlabel: {
+                                    bgcolor: '#F6F1EA',
+                                    bordercolor: '#4A7463',
+                                    font: { 
+                                        family: 'IBM Plex Sans, Arial, sans-serif',
+                                        size: 10,
+                                        color: '#222222'
+                                    }
+                                },
+                                customdata: dailyX.map(dayOfYear => {
+                                    const date = new Date(parseInt(year), 0, dayOfYear);
+                                    // For sparse data (likely monthly), show month and year
+                                    // For regular monthly data, also show month and year
+                                    return date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+                                }),
+                            });
+                        } else {
+                            // For daily data (dense data points), compute 7-day trailing average
+                            const avg7 = dailyY.map((_, idx) => {
+                                const start = Math.max(0, idx - 6);
+                                const window = dailyY.slice(start, idx + 1);
+                                const sum = window.reduce((acc, v) => acc + v, 0);
+                                return sum / window.length;
+                            });
 
-                        // Raw daily values – faint for context
-                        traces.push({
-                            x: dailyX,
-                            y: dailyY,
-                            type: 'scatter',
-                            mode: 'lines',
-                            name: `${year}`,
-                            line: { color: lineColor, width: 1 },
-                            opacity: 0.25,
-                            showlegend: false, // Hide daily values from legend
-                            hoverinfo: 'skip', // No hover labels for raw data
-                            hoverlabel: {
-                                bgcolor: '#F6F1EA',
-                                bordercolor: '#4A7463',
-                                font: { 
-                                    family: 'IBM Plex Sans, Arial, sans-serif',
-                                    size: 10,
-                                    color: '#222222'
+                            // Raw daily values – faint for context
+                            traces.push({
+                                x: dailyX,
+                                y: dailyY,
+                                type: 'scatter',
+                                mode: 'lines',
+                                name: `${year}`,
+                                line: { color: lineColor, width: 1 },
+                                opacity: 0.25,
+                                showlegend: false, // Hide daily values from legend
+                                hoverinfo: 'skip', // No hover labels for raw data
+                                hoverlabel: {
+                                    bgcolor: '#F6F1EA',
+                                    bordercolor: '#4A7463',
+                                    font: { 
+                                        family: 'IBM Plex Sans, Arial, sans-serif',
+                                        size: 10,
+                                        color: '#222222'
+                                    }
                                 }
-                            }
-                        });
+                            });
 
-                        // 7-day trailing average – primary focus
-                        traces.push({
-                            x: dailyX,
-                            y: avg7,
-                            type: 'scatter',
-                            mode: 'lines',
-                            name: `${year} 7-Day Avg`,
-                            line: { color: lineColor, width: 3 },
-                            showlegend: true, // Always show legend for YTD charts
-                            hovertemplate: `${year} 7-Day Avg<br>%{customdata}<br>%{y}<extra></extra>`,
-                            hoverlabel: {
-                                bgcolor: '#F6F1EA',
-                                bordercolor: '#4A7463',
-                                font: { 
-                                    family: 'IBM Plex Sans, Arial, sans-serif',
-                                    size: 10,
-                                    color: '#222222'
-                                }
-                            },
-                            customdata: dailyX.map(dayOfYear => {
-                                const date = new Date(parseInt(year), 0, dayOfYear);
-                                return date.toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
-                            }),
-                        });
+                            // 7-day trailing average – primary focus
+                            traces.push({
+                                x: dailyX,
+                                y: avg7,
+                                type: 'scatter',
+                                mode: 'lines',
+                                name: `${year} 7-Day Avg`,
+                                line: { color: lineColor, width: 3 },
+                                showlegend: true, // Always show legend for YTD charts
+                                hovertemplate: `${year} 7-Day Avg<br>%{customdata}<br>%{y}<extra></extra>`,
+                                hoverlabel: {
+                                    bgcolor: '#F6F1EA',
+                                    bordercolor: '#4A7463',
+                                    font: { 
+                                        family: 'IBM Plex Sans, Arial, sans-serif',
+                                        size: 10,
+                                        color: '#222222'
+                                    }
+                                },
+                                customdata: dailyX.map(dayOfYear => {
+                                    const date = new Date(parseInt(year), 0, dayOfYear);
+                                    return date.toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
+                                }),
+                            });
+                        }
                         
                         // Set common variables for YTD trend charts
                         formattedDates = Array.from({length: 365}, (_, i) => i + 1); // 1-365
@@ -1859,24 +1932,37 @@
                 
                 // For embedded mode (chart-section-mode)
                 if (document.body.classList.contains('chart-section-mode')) {
-                    // Style container for embedded view - cap width at 600px
-                    chartContainer.style.maxWidth = '600px'; // Cap at 600px
+                    // Style container for embedded view
                     chartContainer.style.margin = '0'; // Remove auto centering
                     
-                    // Use available width but cap at 600px
-                    const containerWidth = Math.min(window.innerWidth, 600);
+                    // Calculate available width based on the actual container's parent or document body
+                    let availableWidth;
+                    const parentElement = chartContainer.parentElement;
+                    const bodyElement = document.body;
                     
-                    // Adjust aspect ratio based on window size
+                    if (parentElement && parentElement !== bodyElement) {
+                        // Use parent container's available width, but always cap at 600px
+                        const parentWidth = parentElement.clientWidth || parentElement.offsetWidth;
+                        availableWidth = Math.min(parentWidth, 600);
+                    } else {
+                        // Fallback to viewport width, but always cap at 600px
+                        availableWidth = Math.min(window.innerWidth, 600);
+                    }
+                    
+                    // Ensure the chart container itself is also constrained
+                    chartContainer.style.maxWidth = '600px';
+                    chartContainer.style.width = availableWidth + 'px';
+                    
+                    // Adjust aspect ratio based on available space
                     let aspectRatio = 0.75; // Default 4:3
-                    if (window.innerWidth < 450 && window.innerHeight < 450) {
+                    if (availableWidth < 450 && window.innerHeight < 450) {
                         aspectRatio = 0.65; // More compact for very small windows
                     } else if (window.innerHeight < 500) {
                         aspectRatio = 0.70; // Slightly more compact for small height
                     }
                     
-                    const containerHeight = Math.min(window.innerHeight, containerWidth * aspectRatio);
+                    const containerHeight = Math.min(window.innerHeight, availableWidth * aspectRatio);
                     
-                    chartContainer.style.width = containerWidth + 'px'; // Use calculated width
                     chartContainer.style.height = containerHeight + 'px';
 
                     // Adjust the parent Bootstrap container
@@ -1903,10 +1989,26 @@
                     plotElement.style.height = '100%';
                     Plotly.Plots.resize(plotElement);
                 }
+                
+                // Update CSS custom properties for framing elements to scale with actual container size
+                // This ensures the corner framing scales with the actual container size, not the screen size
+                const containerRect = chartContainer.getBoundingClientRect();
+                chartContainer.style.setProperty('--container-width', containerRect.width + 'px');
+                chartContainer.style.setProperty('--container-height', containerRect.height + 'px');
             }
             
             // Add window resize handler for responsiveness
             window.addEventListener('resize', updateChartAspectRatio);
+            
+            // Add ResizeObserver to monitor container size changes
+            const resizeObserver = new ResizeObserver(() => {
+                updateChartAspectRatio();
+            });
+            
+            // Observe the chart container for size changes
+            if (chartContainer) {
+                resizeObserver.observe(chartContainer);
+            }
             
             // Initial call to set aspect ratio
             updateChartAspectRatio();
@@ -1918,6 +2020,11 @@
                 
                 // Apply initial font sizing
                 setTimeout(resizePlot, 100);
+                
+                // Update container dimensions after a short delay to ensure proper calculation
+                setTimeout(() => {
+                    updateChartAspectRatio();
+                }, 200);
                 
                 // Apply initial theme colors
                 applyThemeToPlot(document.documentElement.getAttribute('data-theme') || 'light');

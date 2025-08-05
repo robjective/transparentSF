@@ -27,3 +27,4 @@ qdrant_storage/aliases/data.json
 qdrant_storage/
 .venv/
 venv/
+.venv/

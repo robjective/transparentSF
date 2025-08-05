@@ -8,7 +8,9 @@ import secrets # Added for password comparison
 from fastapi.security import HTTPBasic, HTTPBasicCredentials # Added for basic auth
 
 import os
+import sys
 import json
+import math
 from datetime import datetime, date
 import pytz
 import subprocess  # ADDED
@@ -37,8 +39,29 @@ from typing import Optional
 from tools.analysis.weekly import run_weekly_analysis
 from background_jobs import job_manager
 
+# The evals module now handles agent creation internally
+from evals import run_all_evals, run_model_comparison
+from ai.evals import run_single_eval_langchain
+
 # Use the root logger configured elsewhere (e.g., in monthly_report.py)
 logger = logging.getLogger(__name__)
+
+def clean_json_value(value):
+    """Clean a value to ensure it's JSON serializable."""
+    if isinstance(value, (int, str, bool, type(None))):
+        return value
+    elif isinstance(value, float):
+        # Handle infinite and NaN values
+        if math.isnan(value) or math.isinf(value):
+            return None
+        return value
+    elif isinstance(value, (list, tuple)):
+        return [clean_json_value(item) for item in value]
+    elif isinstance(value, dict):
+        return {k: clean_json_value(v) for k, v in value.items()}
+    else:
+        # Convert other types to string
+        return str(value)
 
 router = APIRouter()
 templates = None  # Will be set by main.py
@@ -481,7 +504,18 @@ async def reload_sfpublic():
         with open(log_file, 'w') as f:
             f.write("")  # Clear the file
             
-        result = subprocess.run(["python", script_path], capture_output=True, text=True)
+        # Run the script with proper working directory and environment
+        logger.info(f"Running script: {script_path}")
+        logger.info(f"Working directory: {script_dir}")
+        logger.info(f"Python executable: {sys.executable}")
+        
+        result = subprocess.run(
+            [sys.executable, script_path],  # Use sys.executable instead of "python"
+            capture_output=True, 
+            text=True,
+            cwd=script_dir,  # Set working directory to script_dir
+            env=os.environ.copy()  # Pass current environment variables
+        )
         
         # Read the log file content
         try:
@@ -2074,45 +2108,76 @@ async def get_notes_file():
             "error": f"Error getting notes: {str(e)}"
         }, status_code=500)
 
-# Import evals functionality
-from evals import run_and_get_tool_calls, agent as analyst_agent
+
 
 @router.get("/run-evals")
-async def run_evals_endpoint(query: str):
-    """Run evals with the specified query and return results."""
-    logger.info(f"Running evals with query: {query}")
+async def run_evals_endpoint(query: str, model_key: str = None):
+    """Run a single eval with the specified query and return results."""
+    logger.info(f"Running single eval with query: '{query}' and model: {model_key or 'default'}")
     
     try:
-        # Run the query through the evals system
-        tool_calls = run_and_get_tool_calls(analyst_agent, query)
-        
-        # Get the log filename that was used
-        from evals import log_filename
+        # Run the query through the new single-eval function
+        result = run_single_eval_langchain(query, model_key=model_key)
         
         # Check if the log file exists
-        if not os.path.exists(log_filename):
-            return JSONResponse({
-                "status": "error",
-                "message": "Log file not found after running eval"
-            }, status_code=500)
+        log_filename = result.get("log_filename")
+        if not log_filename or not os.path.exists(os.path.join('ai/logs/evals', log_filename)):
+            # Also check the full path
+            if not log_filename or not os.path.exists(log_filename):
+                return JSONResponse({
+                    "status": "error",
+                    "message": "Log file not found after running eval"
+                }, status_code=500)
+
+        # Ensure we have the full path to the log file for reading
+        full_log_path = log_filename if os.path.exists(log_filename) else os.path.join('ai/logs/evals', log_filename)
         
         # Read the log file content
-        with open(log_filename, 'r') as log_file:
+        with open(full_log_path, 'r') as log_file:
             log_content = log_file.read()
         
         return JSONResponse({
             "status": "success",
             "message": f"Eval completed successfully for query: {query}",
-            "tool_calls_count": len(tool_calls),
+            "tool_calls_count": result.get("tool_calls_count", 0),
             "log_filename": os.path.basename(log_filename),
             "log_content": log_content
         })
     except Exception as e:
-        logger.exception(f"Error running evals: {str(e)}")
+        logger.exception(f"Error running single eval: {str(e)}")
         return JSONResponse({
             "status": "error",
             "message": str(e)
         }, status_code=500)
+
+@router.get("/run-all-evals")
+async def run_all_evals_endpoint(model_key: str = None):
+    """Run all evals with the specified query and return results."""
+    logger.info(f"Running all evals with model: {model_key or 'default'}")
+    
+    try:
+        # We need a new function in evals.py to handle all evals at once
+        from evals import run_all_evals, run_model_comparison
+        
+        # Run all evals and get results
+        results = run_all_evals(model_key=model_key)
+        
+        return JSONResponse(content=results)
+    except Exception as e:
+        logger.exception(f"Error running all evals: {str(e)}")
+        return JSONResponse(
+            status_code=500,
+            content={
+                "success": False,
+                "error": str(e),
+                "data": {
+                    "time_series_charts": [],
+                    "anomaly_charts": [],
+                    "map_charts": [],
+                    "summary": {"total_charts": 0, "error": str(e)}
+                }
+            }
+        )
 
 @router.get("/evals-interface")
 async def evals_interface(request: Request):
@@ -2126,72 +2191,7 @@ async def evals_interface(request: Request):
         "request": request
     })
 
-@router.get("/list-eval-logs")
-async def list_eval_logs():
-    """List all eval log files."""
-    logger.debug("List eval logs route called")
-    
-    try:
-        log_folder = 'logs/evals'
-        if not os.path.exists(log_folder):
-            return JSONResponse({
-                "status": "success",
-                "files": []
-            })
-        
-        files = []
-        for filename in os.listdir(log_folder):
-            if filename.endswith('.log'):
-                file_path = os.path.join(log_folder, filename)
-                files.append({
-                    "name": filename,
-                    "size": os.path.getsize(file_path),
-                    "modified": datetime.fromtimestamp(os.path.getmtime(file_path)).isoformat()
-                })
-        
-        # Sort files by modification time, most recent first
-        files.sort(key=lambda x: x["modified"], reverse=True)
-        
-        return JSONResponse({
-            "status": "success",
-            "files": files
-        })
-    except Exception as e:
-        logger.exception(f"Error listing eval logs: {str(e)}")
-        return JSONResponse({
-            "status": "error",
-            "message": str(e)
-        }, status_code=500)
 
-@router.get("/eval-log/{filename}")
-async def get_eval_log(filename: str):
-    """Get the content of an eval log file."""
-    logger.debug(f"Get eval log content for {filename}")
-    
-    try:
-        log_folder = 'logs/evals'
-        file_path = os.path.join(log_folder, filename)
-        
-        if not os.path.exists(file_path):
-            return JSONResponse({
-                "status": "error",
-                "message": f"Log file {filename} not found"
-            }, status_code=404)
-        
-        with open(file_path, 'r') as log_file:
-            content = log_file.read()
-        
-        return JSONResponse({
-            "status": "success",
-            "filename": filename,
-            "content": content
-        })
-    except Exception as e:
-        logger.exception(f"Error getting eval log content: {str(e)}")
-        return JSONResponse({
-            "status": "error",
-            "message": str(e)
-        }, status_code=500)
 
 @router.get("/dashboard")
 async def dashboard_page(request: Request):
@@ -2910,9 +2910,16 @@ async def get_chart_data(chart_id: int):
         # Format the data points
         response["data"] = []
         for row in data_results:
+            # Clean the numeric value to handle NaN and infinite values
+            numeric_value = clean_json_value(row["numeric_value"])
+            
+            # Skip data points with None values (which were NaN/infinite)
+            if numeric_value is None:
+                continue
+                
             data_point = {
                 "time_period": row["time_period"].isoformat(),
-                "numeric_value": float(row["numeric_value"])
+                "numeric_value": numeric_value
             }
             
             # Add group_value if it exists
@@ -3296,9 +3303,16 @@ async def get_chart_by_metric(
         # Format the data points
         response["data"] = []
         for row in data_results:
+            # Clean the numeric value to handle NaN and infinite values
+            numeric_value = clean_json_value(row["numeric_value"])
+            
+            # Skip data points with None values (which were NaN/infinite)
+            if numeric_value is None:
+                continue
+                
             data_point = {
                 "time_period": row["time_period"].isoformat(),
-                "numeric_value": float(row["numeric_value"])
+                "numeric_value": numeric_value
             }
             
             # Add group_value if it exists
@@ -4064,17 +4078,18 @@ async def rerun_monthly_report_generation(request: Request):
         period_type = data.get("period_type", "month")
         max_report_items = data.get("max_report_items", 10)
         only_generate = data.get("only_generate", False)
+        filename = data.get("filename")  # Get the original filename for regeneration
         
-        logger.info(f"Re-running monthly report generation for district {district}, period_type {period_type}, only_generate={only_generate}")
+        logger.info(f"Re-running monthly report generation for district {district}, period_type {period_type}, only_generate={only_generate}, filename={filename}")
         
         # Run the monthly report process in a separate thread to prevent blocking
         loop = asyncio.get_event_loop()
         
         if only_generate:
-            # Only run the generate_monthly_report function
+            # Only run the generate_monthly_report function with original filename if provided
             result = await loop.run_in_executor(
                 None,
-                lambda: generate_monthly_report(district=district)
+                lambda: generate_monthly_report(district=district, original_filename=filename)
             )
         else:
             # Run the full monthly report process
@@ -5716,6 +5731,57 @@ async def explain_metric_change_api(request: Request):
             }
         )
 
+@router.post("/api/explainer-cancel")
+async def cancel_explainer_session(request: Request):
+    """Cancel the current explainer session."""
+    try:
+        data = await request.json()
+        session_id = data.get("session_id")
+        
+        if session_id:
+            session_key = f"langchain_{session_id}"
+            if session_key in explainer_sessions:
+                # Remove the session to cancel any ongoing operations
+                del explainer_sessions[session_key]
+                logger.info(f"Cancelled explainer session: {session_key}")
+                return JSONResponse(
+                    status_code=200,
+                    content={
+                        "status": "success",
+                        "message": "Session cancelled successfully"
+                    }
+                )
+            else:
+                return JSONResponse(
+                    status_code=404,
+                    content={
+                        "status": "error",
+                        "message": "Session not found"
+                    }
+                )
+        else:
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "status": "error",
+                    "message": "No session ID provided"
+                }
+            )
+    except Exception as e:
+        logger.error(f"Error cancelling explainer session: {str(e)}")
+        return JSONResponse(
+            status_code=500,
+            content={
+                "status": "error",
+                "message": f"Error cancelling session: {str(e)}"
+            }
+        )
+
+@router.post("/backend/api/explainer-clear-session")
+async def clear_explainer_session_backend(request: Request):
+    """Backend prefix version of the clear session endpoint."""
+    return await clear_explainer_session(request)
+
 @router.post("/api/explainer-clear-session")
 async def clear_explainer_session(request: Request):
     """
@@ -6317,7 +6383,7 @@ async def update_selected_columns_db(request: Request):
         raise HTTPException(status_code=500, detail=f"Error updating selected columns: {str(e)}")
 
 # Import and include evals router
-import evals_routes
+import routes.evals as evals_routes
 evals_routes.set_templates(templates)
 
 @router.get("/dashboard")
@@ -6556,3 +6622,298 @@ async def get_charts_for_review_api(
                 }
             }
         )
+
+@router.post("/api/langchain-explainer-streaming")
+async def langchain_explainer_streaming_api(request: Request):
+    """
+    LangChain-based streaming API endpoint for explainer agent chat functionality.
+    
+    Expected JSON payload:
+    {
+        "prompt": "Explain the change in metric X for district Y",
+        "model_key": "gpt-4-turbo",
+        "tool_groups": ["core", "analysis", "metrics"],
+        "session_data": {
+            "session_id": "unique_session_id"  // Optional, will create new if not provided
+        }
+    }
+    """
+    try:
+        from agents.langchain_agent.explainer_agent import create_explainer_agent
+        from agents.langchain_agent.config.tool_config import ToolGroup
+        
+        data = await request.json()
+        prompt = data.get("prompt")
+        model_key = data.get("model_key", "gpt-4-turbo")
+        tool_groups = data.get("tool_groups", ["core"])
+        session_data = data.get("session_data", {})
+        session_id = session_data.get("session_id")
+        
+        if not prompt:
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "status": "error",
+                    "message": "No prompt provided"
+                }
+            )
+        
+        logger.info(f"Starting LangChain streaming explanation with prompt: {prompt}")
+        logger.info(f"Model: {model_key}, Tool groups: {tool_groups}")
+        
+        # Convert tool group strings to ToolGroup enums
+        tool_group_enums = []
+        for group_name in tool_groups:
+            try:
+                tool_group_enums.append(ToolGroup(group_name))
+            except ValueError:
+                logger.warning(f"Unknown tool group: {group_name}")
+        
+        if not tool_group_enums:
+            tool_group_enums = [ToolGroup.CORE]
+        
+        # Get or create LangChain explainer agent for this session
+        if not session_id:
+            import uuid
+            session_id = str(uuid.uuid4())
+        session_key = f"langchain_{session_id}"
+        
+        if session_key in explainer_sessions:
+            agent = explainer_sessions[session_key]
+            # Update agent configuration if needed
+            if hasattr(agent, 'model_key') and agent.model_key != model_key:
+                agent = create_explainer_agent(model_key=model_key, tool_groups=tool_group_enums)
+                explainer_sessions[session_key] = agent
+            elif hasattr(agent, 'tool_groups') and agent.tool_groups != tool_group_enums:
+                agent.update_tool_groups(tool_group_enums)
+            logger.info(f"Using existing LangChain explainer agent for session: {session_key}")
+        else:
+            # Create new LangChain agent and session
+            agent = create_explainer_agent(model_key=model_key, tool_groups=tool_group_enums)
+            explainer_sessions[session_key] = agent
+            logger.info(f"Created new LangChain explainer agent for session: {session_key}")
+        
+        async def generate_stream():
+            """Generate streaming response using LangChain agent"""
+            try:
+                # Send session ID first so frontend can track it
+                yield f"data: {json.dumps({'session_id': session_id})}\n\n"
+                
+                # Create execution trace callback for tool call tracking
+                from agents.langchain_agent.explainer_agent import ExecutionTraceCallback
+                execution_callback = ExecutionTraceCallback()
+                
+                # Ensure agent has an agent_executor by creating one if it doesn't exist
+                if not hasattr(agent, 'agent_executor') or agent.agent_executor is None:
+                    agent.agent_executor = agent._create_agent(metric_details={})
+                
+                # Set up the agent with callback
+                agent.agent_executor.callbacks = [execution_callback]
+                
+                # Add user message to conversation history
+                agent.add_message("user", prompt)
+                
+                # Use the agent's streaming method
+                async for chunk in agent.explain_change_streaming(prompt, metric_details={}):
+                    yield chunk
+                
+            except Exception as e:
+                logger.error(f"Error in LangChain streaming generation: {str(e)}")
+                yield f"data: {json.dumps({'error': str(e)})}\n\n"
+        
+        return StreamingResponse(
+            generate_stream(),
+            media_type="text/plain",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no"
+            }
+        )
+        
+    except Exception as e:
+        logger.error(f"Error in langchain_explainer_streaming_api: {str(e)}", exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={
+                "status": "error",
+                "message": f"Error in LangChain streaming explanation: {str(e)}"
+            }
+        )
+
+@router.post("/backend/api/explainer-cancel")
+async def cancel_explainer_session_backend(request: Request):
+    """Backend prefix version of the cancel endpoint."""
+    return await cancel_explainer_session(request)
+
+@router.post("/backend/api/langchain-explainer-streaming")
+async def langchain_explainer_streaming_api_backend(request: Request):
+    """Backend prefix version of the LangChain streaming endpoint."""
+    return await langchain_explainer_streaming_api(request)
+
+@router.post("/create_monthly_report")
+async def create_monthly_report(request: Request):
+    """Create a new monthly report."""
+    logger.debug("Create monthly report called")
+    try:
+        data = await request.json()
+        report_name = data.get("report_name", "New Report")
+        district = data.get("district", "0")
+        period_type = data.get("period_type", "month")
+        
+        # Import the monthly report functions
+        from monthly_report import initialize_monthly_reporting_table
+        from tools.db_utils import execute_with_connection
+        import os
+        from datetime import datetime
+        
+        # Initialize the monthly reporting table
+        init_result = initialize_monthly_reporting_table()
+        if not init_result:
+            return JSONResponse(
+                status_code=500,
+                content={"status": "error", "message": "Failed to initialize monthly reporting table"}
+            )
+        
+        def create_report_operation(connection):
+            cursor = connection.cursor()
+            
+            # Get current date
+            report_date = datetime.now().date()
+            
+            # Generate filename based on report name
+            safe_name = "".join(c for c in report_name if c.isalnum() or c in (' ', '-', '_')).rstrip()
+            safe_name = safe_name.replace(' ', '_')
+            filename = f"{safe_name}_{report_date.strftime('%Y%m%d_%H%M%S')}.html"
+            
+            # Create a record in the reports table
+            cursor.execute("""
+                INSERT INTO reports (
+                    max_items, district, period_type, original_filename, revised_filename,
+                    created_at, updated_at
+                ) VALUES (
+                    %s, %s, %s, %s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                ) RETURNING id
+            """, (
+                10,  # Default max_items
+                district,
+                period_type,
+                filename,
+                None  # revised_filename starts as null
+            ))
+            
+            report_id = cursor.fetchone()[0]
+            connection.commit()
+            cursor.close()
+            return report_id
+        
+        # Execute the operation
+        result = execute_with_connection(
+            operation=create_report_operation,
+            db_host=os.getenv("POSTGRES_HOST", "localhost"),
+            db_port=int(os.getenv("POSTGRES_PORT", "5432")),
+            db_name=os.getenv("POSTGRES_DB", "transparentsf"),
+            db_user=os.getenv("POSTGRES_USER", "postgres"),
+            db_password=os.getenv("POSTGRES_PASSWORD", "postgres")
+        )
+        
+        if result["status"] == "success":
+            return JSONResponse({
+                "status": "success",
+                "message": f"Successfully created new report: {report_name}",
+                "report_id": result["result"]
+            })
+        else:
+            return JSONResponse({
+                "status": "error",
+                "message": f"Error creating report: {result['message']}"
+            }, status_code=500)
+            
+    except Exception as e:
+        error_message = f"Error creating monthly report: {str(e)}"
+        logger.error(error_message)
+        return JSONResponse({
+            "status": "error",
+            "message": error_message
+        }, status_code=500)
+
+@router.get("/get_report_items/{report_id}")
+async def get_report_items(report_id: int):
+    """Get items for a specific monthly report."""
+    logger.debug(f"Get report items called for report {report_id}")
+    try:
+        # Import the necessary function
+        from monthly_report import get_monthly_reports_list
+        from tools.db_utils import execute_with_connection
+        import os
+        
+        def get_report_items_operation(connection):
+            cursor = connection.cursor(cursor_factory=psycopg2.extras.DictCursor)
+            
+            # Get items for this report
+            cursor.execute("""
+                SELECT id, report_id, item_title, metric_name, metric_id, group_value, 
+                       group_field_name, period_type, comparison_mean, recent_mean, 
+                       difference, percent_change, rationale, explanation, priority, 
+                       district, metadata
+                FROM monthly_reporting 
+                WHERE report_id = %s
+                ORDER BY priority ASC
+            """, (report_id,))
+            
+            items = cursor.fetchall()
+            
+            # Format the items
+            formatted_items = []
+            for item in items:
+                formatted_items.append({
+                    "id": item['id'],
+                    "report_id": item['report_id'],
+                    "item_title": item['item_title'],
+                    "metric_name": item['metric_name'],
+                    "metric_id": item['metric_id'],
+                    "group_value": item['group_value'],
+                    "group_field_name": item['group_field_name'],
+                    "period_type": item['period_type'],
+                    "comparison_mean": float(item['comparison_mean']) if item['comparison_mean'] and not math.isnan(float(item['comparison_mean'])) else 0,
+                    "recent_mean": float(item['recent_mean']) if item['recent_mean'] and not math.isnan(float(item['recent_mean'])) else 0,
+                    "difference": float(item['difference']) if item['difference'] and not math.isnan(float(item['difference'])) else 0,
+                    "percent_change": float(item['percent_change']) if item['percent_change'] and not math.isnan(float(item['percent_change'])) else 0,
+                    "rationale": item['rationale'],
+                    "explanation": item['explanation'],
+                    "priority": item['priority'],
+                    "district": item['district'],
+                    "metadata": item['metadata']
+                })
+            
+            cursor.close()
+            return formatted_items
+        
+        # Execute the operation
+        result = execute_with_connection(
+            operation=get_report_items_operation,
+            db_host=os.getenv("POSTGRES_HOST", "localhost"),
+            db_port=int(os.getenv("POSTGRES_PORT", "5432")),
+            db_name=os.getenv("POSTGRES_DB", "transparentsf"),
+            db_user=os.getenv("POSTGRES_USER", "postgres"),
+            db_password=os.getenv("POSTGRES_PASSWORD", "postgres")
+        )
+        
+        if result["status"] == "success":
+            return JSONResponse({
+                "status": "success",
+                "items": result["result"]
+            })
+        else:
+            return JSONResponse({
+                "status": "error",
+                "message": f"Error getting report items: {result['message']}"
+            }, status_code=500)
+            
+    except Exception as e:
+        error_message = f"Error getting report items: {str(e)}"
+        logger.error(error_message)
+        return JSONResponse({
+            "status": "error",
+            "message": error_message
+        }, status_code=500)

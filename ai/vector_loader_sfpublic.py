@@ -18,16 +18,21 @@ import shutil
 # ------------------------------
 # Configure Logging
 # ------------------------------
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s [%(levelname)s] %(message)s',
-    handlers=[
-        logging.FileHandler(os.path.join(os.path.dirname(__file__), "logs", "vector_loader.log"), mode='w'),
-        logging.StreamHandler(sys.stdout)
-    ]
-)
-
+# Get the logger for this module
 logger = logging.getLogger(__name__)
+
+# Create a file handler specifically for this script
+log_file = os.path.join(os.path.dirname(__file__), "logs", "vector_loader.log")
+file_handler = logging.FileHandler(log_file, mode='w')
+file_handler.setLevel(logging.INFO)
+
+# Create a formatter
+formatter = logging.Formatter('%(asctime)s [%(levelname)s] %(message)s')
+file_handler.setFormatter(formatter)
+
+# Add the file handler to the logger
+logger.addHandler(file_handler)
+logger.setLevel(logging.INFO)
 
 # ------------------------------
 # Load environment variables

@@ -1176,7 +1176,8 @@ async def query_metrics(
                 m.location_fields,
                 m.category_fields,
                 m.metadata,
-                m.is_active
+                m.is_active,
+                m.most_recent_data_date
             FROM metrics m
             WHERE 1=1
         """
@@ -1208,6 +1209,11 @@ async def query_metrics(
         metrics = cursor.fetchall()
         cursor.close()
         connection.close()
+        
+        # Convert date objects to strings for JSON serialization
+        for metric in metrics:
+            if metric.get('most_recent_data_date'):
+                metric['most_recent_data_date'] = metric['most_recent_data_date'].isoformat()
         
         return JSONResponse({
             "status": "success",
@@ -1568,7 +1574,8 @@ async def get_metrics_with_order():
                 subcategory,
                 endpoint,
                 is_active,
-                display_order
+                display_order,
+                most_recent_data_date
             FROM metrics 
             ORDER BY COALESCE(display_order, 999), id
         """)
@@ -1576,6 +1583,11 @@ async def get_metrics_with_order():
         metrics = cursor.fetchall()
         cursor.close()
         connection.close()
+        
+        # Convert date objects to strings for JSON serialization
+        for metric in metrics:
+            if metric.get('most_recent_data_date'):
+                metric['most_recent_data_date'] = metric['most_recent_data_date'].isoformat()
         
         return JSONResponse({
             "status": "success",

@@ -33,10 +33,9 @@ try:
     
     # Import metrics management tools
     from tools.explainer_metrics_tools import (
-        query_metrics, get_metric_details, list_categories, 
+        query_metrics, get_metric_details, 
         create_new_metric, edit_metric, disable_metric, enable_metric,
-        get_metrics_overview, find_metrics_by_endpoint,
-        get_crime_metrics, get_safety_metrics, get_economy_metrics
+        get_metrics_overview, find_metrics_by_endpoint
     )
     
     # Import prompts from the modular structure
@@ -77,10 +76,9 @@ except ImportError as e:
     
     # Metrics tools dummy functions - only if import failed
     if 'query_metrics' not in locals():
-        query_metrics = get_metric_details = list_categories = dummy_func
+        query_metrics = get_metric_details = dummy_func
         create_new_metric = edit_metric = disable_metric = enable_metric = dummy_func
         get_metrics_overview = find_metrics_by_endpoint = dummy_func
-        get_crime_metrics = get_safety_metrics = get_economy_metrics = dummy_func
         print("Warning: Using dummy metrics functions due to import failure")
 
 # Function mapping for tool execution (similar to webChat)
@@ -110,20 +108,17 @@ function_mapping = {
     # Metrics management tools
     'query_metrics': query_metrics,
     'get_metric_details': get_metric_details,
-    'list_categories': list_categories,
     'create_new_metric': create_new_metric,
     'edit_metric': edit_metric,
     'disable_metric': disable_metric,
     'enable_metric': enable_metric,
     'get_metrics_overview': get_metrics_overview,
     'find_metrics_by_endpoint': find_metrics_by_endpoint,
-    'get_crime_metrics': get_crime_metrics,
-    'get_safety_metrics': get_safety_metrics,
-    'get_economy_metrics': get_economy_metrics,
 }
 
 # Load environment variables
-AGENT_MODEL = os.getenv("AGENT_MODEL", "gpt-4o")
+from .config.models import get_default_model
+AGENT_MODEL = get_default_model()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 if not OPENAI_API_KEY:
@@ -193,17 +188,18 @@ swarm_client = Swarm()
 # Initialize clients
 openai_client = OpenAI(api_key=OPENAI_API_KEY)
 
-def create_explainer_agent(context_variables: Optional[Dict[str, Any]] = None) -> 'ExplainerAgent':
+def create_explainer_agent(context_variables: Optional[Dict[str, Any]] = None, model_key: Optional[str] = None) -> 'ExplainerAgent':
     """
     Factory function to create a new explainer agent instance.
     
     Args:
         context_variables: Optional context variables dictionary. If None, creates a new one.
+        model_key: Optional model key to use (e.g., "gpt-4o", "claude-3-sonnet")
         
     Returns:
         ExplainerAgent instance
     """
-    return ExplainerAgent(context_variables)
+    return ExplainerAgent(context_variables, model_key)
 
 
 class ExplainerAgent:
@@ -212,12 +208,13 @@ class ExplainerAgent:
     Supports both programmatic JSON responses and streaming chat responses.
     """
     
-    def __init__(self, context_variables: Optional[Dict[str, Any]] = None):
+    def __init__(self, context_variables: Optional[Dict[str, Any]] = None, model_key: Optional[str] = None):
         """
         Initialize the explainer agent.
         
         Args:
             context_variables: Optional context variables dictionary. If None, creates a new one with notes.
+            model_key: Optional model key to use (e.g., "gpt-4o", "claude-3-sonnet")
         """
         # Initialize context variables with notes if not provided
         if context_variables is None:
@@ -231,15 +228,20 @@ class ExplainerAgent:
             if "notes" not in self.context_variables or not self.context_variables["notes"]:
                 self.context_variables["notes"] = initialize_notes()
         
+        # Store model key
+        self.model_key = model_key or AGENT_MODEL
+        
         # Initialize conversation history
         self.messages = []
         
         self.swarm_client = swarm_client
         self.logger = logger
         
-        # Create the agent
-        self.agent = Agent(
-            model=AGENT_MODEL,
+        # Create the agent using model factory
+        from .model_factory import model_factory
+        
+        self.agent = model_factory.create_agent(
+            model_key=self.model_key,
             name="Explainer",
             instructions=get_complete_instructions(),
             functions=[
@@ -260,16 +262,12 @@ class ExplainerAgent:
                 # Metrics management tools
                 query_metrics,
                 get_metric_details,
-                list_categories,
                 create_new_metric,
                 edit_metric,
                 disable_metric,
                 enable_metric,
                 get_metrics_overview,
                 find_metrics_by_endpoint,
-                get_crime_metrics,
-                get_safety_metrics,
-                get_economy_metrics,
             ],
             context_variables=self.context_variables,
             debug=False,
@@ -330,9 +328,10 @@ class ExplainerAgent:
             # Re-import the updated functions
             from .explainer_prompts import get_complete_instructions
             
-            # Re-create the agent with updated instructions
-            self.agent = Agent(
-                model=AGENT_MODEL,
+            # Re-create the agent with updated instructions using model factory
+            from .model_factory import model_factory
+            self.agent = model_factory.create_agent(
+                model_key=self.model_key,
                 name="Explainer",
                 instructions=get_complete_instructions(),
                 functions=[
@@ -349,25 +348,19 @@ class ExplainerAgent:
                     get_recent_maps,
                     generate_time_series_chart,
                     get_charts_for_review,
-                    
                     # Metrics management tools
                     query_metrics,
                     get_metric_details,
-                    list_categories,
                     create_new_metric,
                     edit_metric,
                     disable_metric,
                     enable_metric,
                     get_metrics_overview,
                     find_metrics_by_endpoint,
-                    get_crime_metrics,
-                    get_safety_metrics,
-                    get_economy_metrics,
                 ],
                 context_variables=self.context_variables,
                 debug=False,
             )
-            
             self.logger.info("Explainer agent prompts reloaded successfully")
             return True
             

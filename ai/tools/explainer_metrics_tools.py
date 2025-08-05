@@ -50,7 +50,7 @@ def query_metrics(
             show_on_dash_only=dashboard_only
         )
 
-def get_metric_details(context_variables: Dict[str, Any], metric_identifier: Any) -> Dict[str, Any]:
+def get_metric_details(context_variables: Dict[str, Any], metric_identifier: str) -> Dict[str, Any]:
     """
     Get detailed information about a specific metric.
     
@@ -76,20 +76,7 @@ def get_metric_details(context_variables: Dict[str, Any], metric_identifier: Any
     else:
         return get_metric_by_key(str(metric_identifier))
 
-def list_categories(context_variables: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Get all available metric categories and subcategories.
-    
-    Returns:
-        dict: Result with status and categories structure
-        
-    Example:
-        result = list_categories()
-        if result["status"] == "success":
-            for category, data in result["categories"].items():
-                print(f"{category}: {data['total_metrics']} metrics")
-    """
-    return get_categories()
+
 
 def get_dashboard_metrics(context_variables: Dict[str, Any]) -> Dict[str, Any]:
     """
@@ -185,7 +172,7 @@ def create_new_metric(
 
 def edit_metric(
     context_variables: Dict[str, Any],
-    metric_identifier: Any,
+    metric_identifier: str,
     updates: Dict[str, Any]
 ) -> Dict[str, Any]:
     """
@@ -240,7 +227,7 @@ def edit_metric(
     
     return update_metric(metric_id, updates)
 
-def disable_metric(context_variables: Dict[str, Any], metric_identifier: Any) -> Dict[str, Any]:
+def disable_metric(context_variables: Dict[str, Any], metric_identifier: str) -> Dict[str, Any]:
     """
     Disable a metric (soft delete - keeps data but marks as inactive).
     
@@ -267,7 +254,7 @@ def disable_metric(context_variables: Dict[str, Any], metric_identifier: Any) ->
     
     return deactivate_metric(metric_id)
 
-def enable_metric(context_variables: Dict[str, Any], metric_identifier: Any) -> Dict[str, Any]:
+def enable_metric(context_variables: Dict[str, Any], metric_identifier: str) -> Dict[str, Any]:
     """
     Enable a previously disabled metric.
     
@@ -338,17 +325,7 @@ def find_metrics_by_endpoint(context_variables: Dict[str, Any], endpoint: str) -
         "endpoint": endpoint
     }
 
-def get_crime_metrics(context_variables: Dict[str, Any]) -> Dict[str, Any]:
-    """Get all crime-related metrics."""
-    return query_metrics(context_variables, category="crime")
 
-def get_safety_metrics(context_variables: Dict[str, Any]) -> Dict[str, Any]:
-    """Get all safety-related metrics."""
-    return query_metrics(context_variables, category="safety")
-
-def get_economy_metrics(context_variables: Dict[str, Any]) -> Dict[str, Any]:
-    """Get all economy-related metrics."""
-    return query_metrics(context_variables, category="economy")
 
 # Helper function to format metric information for display
 def format_metric_info(metric: Dict[str, Any]) -> str:
@@ -413,14 +390,4 @@ if __name__ == "__main__":
         print(f"Active metrics: {summary['active_metrics']}")
         print(f"Dashboard metrics: {summary['dashboard_metrics']}")
     
-    print("\nCategories:")
-    categories = list_categories()
-    if categories["status"] == "success":
-        for cat, data in categories["categories"].items():
-            print(f"  {cat}: {data['total_metrics']} metrics")
-    
-    print("\nCrime metrics:")
-    crime_metrics = get_crime_metrics()
-    if crime_metrics["status"] == "success":
-        for metric in crime_metrics["metrics"][:3]:  # Show first 3
-            print(f"  - {metric['metric_name']}") 
+ 

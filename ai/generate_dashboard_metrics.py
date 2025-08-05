@@ -1228,9 +1228,8 @@ def generate_ytd_metrics(queries_data, output_dir, target_date=None):
                             date_ranges['last_year_start'] = f"{max_date_dt.year-1}-01-01"
                             logger.info(f"Updated date ranges with max date: {date_ranges}")
                     
-                    # Now process trend data with the updated date ranges
-                    if ytd_query:
-                        trend_data = process_ytd_trend_query(ytd_query, query_endpoint, date_ranges=date_ranges, query_name=query_name)
+                    # Trend data processing removed - no longer needed for JSON files
+                    trend_data = None
                     
                     # Process metric query with the adjusted date ranges
                     query_results = process_query_for_district(metric_query, query_endpoint, date_ranges, query_name=query_name)
@@ -1280,14 +1279,7 @@ def generate_ytd_metrics(queries_data, output_dir, target_date=None):
                         if '0' in results and results['0'].get('lastDataDate'):
                             metric_last_data_date = results['0']['lastDataDate']
                         
-                        # Add trend data if it was processed (citywide)
-                        if trend_data:
-                            metric_base["trend_data"] = trend_data["trend_data"]
-                            # Use metric's last data date if available (for monthly/truncated data),
-                            # otherwise use trend's last updated date
-                            metric_base["trend_last_updated"] = metric_last_data_date or trend_data["last_updated"]
-                            metric_base["queries"]["ytd_query"] = trend_data["original_query"]
-                            metric_base["queries"]["executed_ytd_query"] = trend_data["executed_query"]
+                        # Trend data removed - no longer needed for JSON files
                         
                         # Update metadata with the most recent data date
                         if metrics['metadata']['data_as_of'] is None or (metric_last_data_date and metric_last_data_date > metrics['metadata']['data_as_of']):
@@ -1361,58 +1353,7 @@ def generate_ytd_metrics(queries_data, output_dir, target_date=None):
                                     "lastDataDate": metric_last_data_date or results[district_str].get('lastDataDate')
                                 })
                                 
-                                # Process district-specific trend data
-                                district_trend_data = None
-                                if ytd_query:
-                                    logger.info(f"Processing district-specific trend data for district {district_str}")
-                                    district_trend_data = process_ytd_trend_query(
-                                        ytd_query, query_endpoint, 
-                                        date_ranges=date_ranges, 
-                                        district=district_str,
-                                        query_name=query_name
-                                    )
-                                
-                                # Add district-specific trend data
-                                if district_trend_data:
-                                    district_metric["trend_data"] = district_trend_data["trend_data"]
-                                    district_metric["trend_last_updated"] = metric_last_data_date or district_trend_data["last_updated"]
-                                    district_metric["queries"]["ytd_query"] = district_trend_data["original_query"]
-                                    district_metric["queries"]["executed_ytd_query"] = district_trend_data["executed_query"]
-                                    
-                                    # Create and store YTD trend chart for this district
-                                    try:
-                                        logger.info(f"Creating YTD trend chart for {query_name} - District {district_str}")
-                                        
-                                        # Prepare chart metadata
-                                        chart_metadata = {
-                                            "chart_title": f"{query_name} - YTD Trend",
-                                            "y_axis_label": "Count" if "COUNT" in district_trend_data["original_query"].upper() else "Value",
-                                            "description": f"Year-to-date trend for {query_name} in {'Citywide' if district_str == '0' else f'District {district_str}'}",
-                                            "period_type": "ytd",
-                                            "district": district_str,
-                                            "object_id": str(query_data.get("id", "unknown")),  # Use object_id instead of metric_id
-                                            "object_type": "metric",
-                                            "object_name": f"{query_name} - YTD Trend",
-                                            "category": top_category_name.title()
-                                        }
-                                        
-                                        # Create the chart using Plotly
-                                        chart_html = generate_ytd_trend_chart(
-                                            trend_data=district_trend_data["trend_data"],
-                                            metadata=chart_metadata,
-                                            district=district_str,
-                                            return_html=True,
-                                            store_in_db=True
-                                        )
-                                        
-                                        if chart_html:
-                                            logger.info(f"Successfully created YTD trend chart for {query_name} - District {district_str}")
-                                        else:
-                                            logger.warning(f"Failed to create YTD trend chart for {query_name} - District {district_str}")
-                                            
-                                    except Exception as e:
-                                        logger.error(f"Error creating YTD trend chart for {query_name} - District {district_str}: {str(e)}")
-                                        logger.error(traceback.format_exc())
+                                # District trend data processing removed - no longer needed for JSON files
                                 
                                 # Find or create category for this district
                                 district_category = next(
@@ -1547,9 +1488,7 @@ def generate_ytd_metrics(queries_data, output_dir, target_date=None):
                     if 'show' in metric:
                         metric_data['show'] = metric['show']
                     
-                    # Add trend data if it exists
-                    if 'trend_data' in metric:
-                        metric_data['trend_data'] = metric['trend_data']
+                    # Trend data removed - no longer needed for JSON files
                     
                     # Add district breakdown for citywide metrics (district 0)
                     if district_str == '0':
@@ -1817,7 +1756,7 @@ def create_metadata_dict(category_name, metric, district, district_name):
         'data_url': data_url,
         'district': district,
         'district_name': district_name,
-        'trend_data': metric.get('trend_data', {}),
+        # 'trend_data': metric.get('trend_data', {}),  # Removed - no longer needed
         'queries': metric['queries']
     }
     

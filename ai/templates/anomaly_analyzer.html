@@ -733,6 +733,48 @@
             color: var(--warm-coral-light);
         }
         
+        /* New Report Modal Styles */
+        #new-report-modal .modal-content {
+            max-width: 500px;
+        }
+        
+        #new-report-modal .modal-body {
+            padding: 20px;
+        }
+        
+        #new-report-modal .modal-actions {
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+            margin-top: 20px;
+        }
+        
+        #new-report-modal .action-btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        
+        #new-report-modal .primary-btn {
+            background-color: #007bff;
+            color: white;
+        }
+        
+        #new-report-modal .primary-btn:hover {
+            background-color: #0056b3;
+        }
+        
+        #new-report-modal .action-btn:not(.primary-btn) {
+            background-color: #6c757d;
+            color: white;
+        }
+        
+        #new-report-modal .action-btn:not(.primary-btn):hover {
+            background-color: #545b62;
+        }
+        
         .loader {
             border: 3px solid var(--neutral-gray-light);
             border-top: 3px solid var(--civic-blue);
@@ -994,8 +1036,41 @@
             </div>
         </div>
         
-
+        <!-- Report Management Controls -->
+        <div class="controls" style="border-top: 1px solid var(--border-light); padding-top: 15px; margin-top: 10px;">
+            <div class="control-group">
+                <label for="current-report">Current Monthly Report</label>
+                <select id="current-report">
+                    <option value="new">Create New Report</option>
+                </select>
+            </div>
             
+            <div class="button-group">
+                <button id="new-report-button" class="secondary">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="12" y1="5" x2="12" y2="19"></line>
+                        <line x1="5" y1="12" x2="19" y2="12"></line>
+                    </svg>
+                    New Report
+                </button>
+                <button id="load-report-button" class="secondary">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <folder-open></folder-open>
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                        <polyline points="14,2 14,8 20,8"></polyline>
+                    </svg>
+                    Load Report
+                </button>
+                <button id="clear-checkmarks-button" class="secondary">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="3,6 5,6 21,6"></polyline>
+                        <path d="m19,6v14a2,2 0 0,1 -2,2H7a2,2 0 0,1 -2,-2V6m3,0V4a2,2 0 0,1 2,-2h4a2,2 0 0,1 2,2v2"></path>
+                    </svg>
+                    Clear All ✓
+                </button>
+            </div>
+        </div>
+
         <div class="loader" id="loader"></div>
         
         <div class="metrics-panel">
@@ -1080,6 +1155,24 @@
         </div>
     </div>
     
+    <!-- New Report Modal -->
+    <div id="new-report-modal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Create New Report</h3>
+                <span class="close" onclick="closeNewReportModal()">&times;</span>
+            </div>
+            <div class="modal-body">
+                <label for="report-name-input">Report Name:</label>
+                <input type="text" id="report-name-input" placeholder="Enter report name..." style="width: 100%; padding: 8px; margin: 10px 0;">
+                <div class="modal-actions">
+                    <button onclick="confirmCreateNewReport()" class="action-btn primary-btn">Create Report</button>
+                    <button onclick="closeNewReportModal()" class="action-btn">Cancel</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
     <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
     
     <script>
@@ -1114,6 +1207,15 @@
         const rowChartLoader = document.getElementById('row-chart-loader');
         const rowChartContent = document.getElementById('row-chart-content');
         
+        // Report management elements
+        const currentReportSelect = document.getElementById('current-report');
+        const newReportButton = document.getElementById('new-report-button');
+        const loadReportButton = document.getElementById('load-report-button');
+        const clearCheckmarksButton = document.getElementById('clear-checkmarks-button');
+        
+        // New report modal elements
+        const newReportModal = document.getElementById('new-report-modal');
+        const reportNameInput = document.getElementById('report-name-input');
 
         
         // Event listeners
@@ -1132,6 +1234,12 @@
         districtSelect.addEventListener('change', fetchAllData);
         clearFiltersButton.addEventListener('click', clearFilters);
         retryButton.addEventListener('click', fetchAllData);
+        
+        // Report management event listeners
+        newReportButton.addEventListener('click', createNewReport);
+        loadReportButton.addEventListener('click', loadExistingReport);
+        clearCheckmarksButton.addEventListener('click', clearAllCheckmarks);
+        currentReportSelect.addEventListener('change', handleReportChange);
         
         // Close modal when clicking the X
         modalClose.addEventListener('click', function() {
@@ -1565,13 +1673,12 @@
             const isAdded = isItemAddedToReport(itemData);
             const buttonClass = isAdded ? 'add-to-report-btn added' : 'add-to-report-btn';
             const buttonText = isAdded ? '✓' : '+';
-            const buttonDisabled = isAdded ? 'disabled' : '';
-            const buttonTitle = isAdded ? 'Added to monthly report' : 'Add to Monthly Report';
+            const buttonTitle = isAdded ? 'Click to remove from monthly report' : 'Add to Monthly Report';
             
             // Create row HTML
             row.innerHTML = `
                 <td style="text-align: center; width: 60px;">
-                    <button class="${buttonClass}" onclick="addToMonthlyReport(${JSON.stringify(itemData).replace(/"/g, '&quot;')})" title="${buttonTitle}" ${buttonDisabled}>
+                    <button class="${buttonClass}" onclick="addToMonthlyReport(${JSON.stringify(itemData).replace(/"/g, '&quot;')})" title="${buttonTitle}">
                         ${buttonText}
                     </button>
                 </td>
@@ -1690,13 +1797,12 @@
             const isAdded = isItemAddedToReport(itemData);
             const buttonClass = isAdded ? 'add-to-report-btn added' : 'add-to-report-btn';
             const buttonText = isAdded ? '✓' : '+';
-            const buttonDisabled = isAdded ? 'disabled' : '';
-            const buttonTitle = isAdded ? 'Added to monthly report' : 'Add to Monthly Report';
+            const buttonTitle = isAdded ? 'Click to remove from monthly report' : 'Add to Monthly Report';
             
             // Create row HTML
             row.innerHTML = `
                 <td style="text-align: center; width: 60px;">
-                    <button class="${buttonClass}" onclick="addToMonthlyReport(${JSON.stringify(itemData).replace(/"/g, '&quot;')})" title="${buttonTitle}" ${buttonDisabled}>
+                    <button class="${buttonClass}" onclick="addToMonthlyReport(${JSON.stringify(itemData).replace(/"/g, '&quot;')})" title="${buttonTitle}">
                         ${buttonText}
                     </button>
                 </td>
@@ -1980,8 +2086,69 @@
             // Generate map
             newGenerateMapBtn.addEventListener('click', function() {
                 console.log('Generate map clicked for:', data);
-                // TODO: Implement generate map functionality
-                alert('Generate map functionality will be implemented soon.');
+                
+                // Show loading state
+                const originalText = newGenerateMapBtn.innerHTML;
+                newGenerateMapBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Generating Map...';
+                newGenerateMapBtn.disabled = true;
+                
+                // Prepare the request data
+                const requestData = {
+                    metric_id: data.id || data.object_id,
+                    district: data.district || '0',
+                    period_type: periodSelect.value || 'month'
+                };
+                
+                // Add anomaly_id if this is an anomaly
+                if (data.anomaly_id) {
+                    requestData.anomaly_id = data.anomaly_id;
+                }
+                
+                console.log('Sending generate map request:', requestData);
+                
+                // Make API call to generate map
+                fetch('/anomaly-analyzer/api/generate-map', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(requestData)
+                })
+                .then(response => response.json())
+                .then(result => {
+                    console.log('Generate map response:', result);
+                    
+                    if (result.status === 'success') {
+                        // Show success message with map details
+                        const mapType = result.map_type === 'locator' ? 'Locator Map' : 'Symbol Chart';
+                        const message = `Successfully generated ${mapType} with ${result.data_points} data points!\n\n` +
+                                      `Map ID: ${result.map_id}\n` +
+                                      `View Map: ${result.publish_url}\n` +
+                                      `Edit Map: ${result.edit_url}`;
+                        
+                        alert(message);
+                        
+                        // Optionally open the map in a new tab
+                        if (result.publish_url) {
+                            const openMap = confirm('Would you like to open the map in a new tab?');
+                            if (openMap) {
+                                window.open(result.publish_url, '_blank');
+                            }
+                        }
+                    } else {
+                        // Show error message
+                        alert(`Error generating map: ${result.message}`);
+                    }
+                })
+                .catch(error => {
+                    console.error('Error generating map:', error);
+                    alert(`Error generating map: ${error.message}`);
+                })
+                .finally(() => {
+                    // Reset button state
+                    newGenerateMapBtn.innerHTML = originalText;
+                    newGenerateMapBtn.disabled = false;
+                });
             });
             
             // Analyze metric
@@ -2241,28 +2408,84 @@ Can you help me understand:
             }, 10000); // 10 second timeout
         }
         
-        // Function to add items to monthly report
+        // Function to add/remove items from monthly report
         async function addToMonthlyReport(itemData) {
-            try {
-                console.log('Adding item to monthly report:', itemData);
-                
-                // Disable the button to prevent multiple clicks
-                const button = event.target.closest('.add-to-report-btn');
-                if (button) {
+            console.log('addToMonthlyReport called with:', itemData);
+            
+            // Get the button that was clicked
+            const button = event.target;
+            
+            // Check if item is already added
+            const isAlreadyAdded = isItemAddedToReport(itemData);
+            
+            if (isAlreadyAdded) {
+                // Remove from monthly report (no confirmation)
+                try {
+                    // Disable button during request
                     button.disabled = true;
                     button.innerHTML = '...';
+                    
+                    // Call API to remove from database
+                    const response = await fetch('/anomaly-analyzer/api/remove-from-monthly-report', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            item_data: itemData
+                        })
+                    });
+                    
+                    const result = await response.json();
+                    
+                    if (result.status === 'success') {
+                        // Remove from localStorage
+                        const addedItems = JSON.parse(localStorage.getItem('addedToMonthlyReport') || '[]');
+                        const itemKey = generateItemKey(itemData);
+                        const updatedItems = addedItems.filter(key => key !== itemKey);
+                        localStorage.setItem('addedToMonthlyReport', JSON.stringify(updatedItems));
+                        
+                        // Update button state
+                        button.innerHTML = '+';
+                        button.classList.remove('added');
+                        button.title = 'Add to Monthly Report';
+                    } else if (result.message && result.message.includes('not found')) {
+                        // Item not found in database, just remove from localStorage and reset button
+                        const addedItems = JSON.parse(localStorage.getItem('addedToMonthlyReport') || '[]');
+                        const itemKey = generateItemKey(itemData);
+                        const updatedItems = addedItems.filter(key => key !== itemKey);
+                        localStorage.setItem('addedToMonthlyReport', JSON.stringify(updatedItems));
+                        
+                        // Update button state
+                        button.innerHTML = '+';
+                        button.classList.remove('added');
+                        button.title = 'Add to Monthly Report';
+                    } else {
+                        throw new Error(result.message || 'Failed to remove item from monthly report');
+                    }
+                } catch (error) {
+                    console.error('Error removing item from monthly report:', error);
+                    
+                    // Reset button state
+                    button.innerHTML = '✓';
+                    button.disabled = false;
                 }
+                return;
+            }
+            
+            // Add to monthly report
+            try {
+                // Disable button during request
+                button.disabled = true;
+                button.innerHTML = '...';
                 
-                // Get current month name for the report title
-                const now = new Date();
-                const monthName = now.toLocaleString('default', { month: 'long' });
-                const reportTitle = `${monthName} Analysis Report`;
+                // Use default report title
+                const reportTitle = 'Monthly Manual Report';
                 
                 // Prepare the data for the API
                 const requestData = {
                     item_data: itemData,
                     report_title: reportTitle,
-                    district: itemData.district || '0',
                     period_type: itemData.period_type || 'month'
                 };
                 
@@ -2282,19 +2505,16 @@ Can you help me understand:
                 console.log('Response result:', result);
                 
                 if (result.status === 'success') {
-                    // Show success message
-                    alert(`Successfully added "${itemData.object_name}" to ${reportTitle}`);
-                    
-                    // Permanently mark the button as added
+                    // Mark the button as added
                     if (button) {
                         button.innerHTML = '✓';
                         button.classList.add('added');
-                        button.disabled = true;
-                        button.title = 'Added to monthly report';
+                        button.disabled = false; // Allow toggling
+                        button.title = 'Click to remove from monthly report';
                         
                         // Store the added item in localStorage for persistence
                         const addedItems = JSON.parse(localStorage.getItem('addedToMonthlyReport') || '[]');
-                        const itemKey = `${itemData.object_name}_${itemData.district}_${itemData.period_type}`;
+                        const itemKey = generateItemKey(itemData);
                         if (!addedItems.includes(itemKey)) {
                             addedItems.push(itemKey);
                             localStorage.setItem('addedToMonthlyReport', JSON.stringify(addedItems));
@@ -2319,10 +2539,20 @@ Can you help me understand:
             }
         }
         
+        // Function to generate a unique key for an item
+        function generateItemKey(itemData) {
+            // For anomalies, use anomaly_id, for metrics use metric_id and district
+            if (itemData.type === 'anomaly' && itemData.anomaly_id) {
+                return `anomaly_${itemData.anomaly_id}`;
+            } else {
+                return `metric_${itemData.id}_${itemData.district}`;
+            }
+        }
+        
         // Function to check if an item has been added to monthly report
         function isItemAddedToReport(itemData) {
             const addedItems = JSON.parse(localStorage.getItem('addedToMonthlyReport') || '[]');
-            const itemKey = `${itemData.object_name}_${itemData.district}_${itemData.period_type}`;
+            const itemKey = generateItemKey(itemData);
             return addedItems.includes(itemKey);
         }
         
@@ -2331,8 +2561,8 @@ Can you help me understand:
             if (isItemAddedToReport(itemData)) {
                 button.innerHTML = '✓';
                 button.classList.add('added');
-                button.disabled = true;
-                button.title = 'Added to monthly report';
+                button.disabled = false; // Allow toggling
+                button.title = 'Click to remove from monthly report';
             }
         }
         
@@ -2373,6 +2603,255 @@ Can you help me understand:
         // Make clearAddedItems available globally for debugging
         window.clearAddedItems = clearAddedItems;
         
+        // Report Management Functions
+        let currentReportId = null;
+        
+        // Function to create a new report
+        function createNewReport() {
+            // Show the modal instead of using confirm
+            showNewReportModal();
+        }
+        
+        // Function to show the new report modal
+        function showNewReportModal() {
+            newReportModal.style.display = 'block';
+            reportNameInput.value = '';
+            reportNameInput.focus();
+        }
+        
+        // Function to close the new report modal
+        function closeNewReportModal() {
+            newReportModal.style.display = 'none';
+        }
+        
+        // Function to confirm creating a new report
+        async function confirmCreateNewReport() {
+            const reportName = reportNameInput.value.trim();
+            
+            if (!reportName) {
+                alert('Please enter a report name.');
+                return;
+            }
+            
+            try {
+                // Create the report via API
+                const response = await fetch('/backend/create_monthly_report', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        report_name: reportName,
+                        district: districtSelect.value || '0',
+                        period_type: periodSelect.value || 'month'
+                    })
+                });
+                
+                const result = await response.json();
+                
+                if (result.status === 'success') {
+                    // Clear all checkmarks and localStorage
+                    localStorage.removeItem('addedToMonthlyReport');
+                    currentReportId = result.report_id;
+                    
+                    // Close the modal
+                    closeNewReportModal();
+                    
+                    // Update the dropdown to include the new report
+                    await populateReportDropdown();
+                    
+                    // Select the new report
+                    currentReportSelect.value = result.report_id;
+                    
+                    // Refresh the table to reset all checkmarks
+                    if (lastMetricData) {
+                        displayCombinedResults(lastMetricData, { positive_anomalies: [], negative_anomalies: [] });
+                    }
+                    
+                    console.log('New report created successfully:', result);
+                } else {
+                    alert('Failed to create report: ' + (result.message || 'Unknown error'));
+                }
+            } catch (error) {
+                console.error('Error creating new report:', error);
+                alert('Error creating new report. Please try again.');
+            }
+        }
+        
+        // Function to load an existing report
+        async function loadExistingReport() {
+            try {
+                // Fetch available reports
+                const response = await fetch('/backend/get_monthly_reports');
+                const data = await response.json();
+                
+                if (data.status === 'success' && data.reports.length > 0) {
+                    // Show a modal or dropdown to select report
+                    const reportList = data.reports.map(report => 
+                        `${report.id}: ${report.original_filename} (${report.item_count} items)`
+                    ).join('\n');
+                    
+                    const selectedReport = prompt(`Select a report by ID:\n\n${reportList}\n\nEnter Report ID:`);
+                    
+                    if (selectedReport) {
+                        const reportId = parseInt(selectedReport);
+                        const report = data.reports.find(r => r.id === reportId);
+                        
+                        if (report) {
+                            // Load the report configuration
+                            await loadReportConfiguration(report);
+                        } else {
+                            alert('Invalid report ID selected.');
+                        }
+                    }
+                } else {
+                    alert('No existing reports found.');
+                }
+            } catch (error) {
+                console.error('Error loading existing reports:', error);
+                alert('Error loading reports. Please try again.');
+            }
+        }
+        
+        // Function to load a specific report configuration
+        async function loadReportConfiguration(report) {
+            try {
+                console.log('Loading report configuration for report:', report);
+                // Fetch the items in this report
+                const response = await fetch(`/backend/get_report_items/${report.id}`);
+                console.log('Response status:', response.status);
+                console.log('Response ok:', response.ok);
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    console.log('Response data:', data);
+                    
+                    if (data.status === 'success' && data.items) {
+                        // Clear current localStorage
+                        localStorage.removeItem('addedToMonthlyReport');
+                        
+                        // Add items to localStorage based on report content
+                        const addedItems = [];
+                        data.items.forEach(item => {
+                            console.log('Processing item:', item);
+                            // Check if this is an anomaly by looking at the metadata
+                            let itemKey;
+                            if (item.metadata && item.metadata.anomaly_id) {
+                                // This is an anomaly
+                                itemKey = `anomaly_${item.metadata.anomaly_id}`;
+                                console.log('Created anomaly key:', itemKey);
+                            } else {
+                                // This is a regular metric
+                                itemKey = `metric_${item.metric_id}_${item.district}`;
+                                console.log('Created metric key:', itemKey);
+                            }
+                            addedItems.push(itemKey);
+                        });
+                        console.log('Final addedItems:', addedItems);
+                        
+                        localStorage.setItem('addedToMonthlyReport', JSON.stringify(addedItems));
+                        currentReportId = report.id;
+                        
+                        // Update UI
+                        currentReportSelect.value = report.id;
+                        
+                        // Refresh the table to show checkmarks
+                        console.log('Refreshing table with lastMetricData:', lastMetricData);
+                        if (lastMetricData) {
+                            // Use displayCombinedResults to properly refresh the table
+                            displayCombinedResults(lastMetricData, { positive_anomalies: [], negative_anomalies: [] });
+                        } else {
+                            console.log('No lastMetricData available for table refresh');
+                        }
+                    } else {
+                        alert('Failed to load report items.');
+                    }
+                } else {
+                    alert('Report not found or access denied.');
+                }
+            } catch (error) {
+                console.error('Error loading report configuration:', error);
+                console.error('Error details:', error.message);
+                console.error('Error stack:', error.stack);
+                alert('Error loading report configuration.');
+            }
+        }
+        
+        // Function to clear all checkmarks
+        function clearAllCheckmarks() {
+            if (confirm('Clear all checkmarks? This will remove all items from the current report.')) {
+                localStorage.removeItem('addedToMonthlyReport');
+                currentReportId = null;
+                currentReportSelect.value = 'new';
+                
+                // Refresh the table to reset all checkmarks
+                if (lastMetricData) {
+                    displayCombinedResults(lastMetricData, { positive_anomalies: [], negative_anomalies: [] });
+                }
+            }
+        }
+        
+        // Function to handle report selection change
+        async function handleReportChange() {
+            const selectedValue = currentReportSelect.value;
+            
+            if (selectedValue === 'new') {
+                createNewReport();
+            } else {
+                // Load the selected report
+                const reportId = parseInt(selectedValue);
+                
+                // Fetch the report details
+                try {
+                    const response = await fetch('/backend/get_monthly_reports');
+                    const data = await response.json();
+                    
+                    if (data.status === 'success' && data.reports) {
+                        const selectedReport = data.reports.find(report => report.id === reportId);
+                        if (selectedReport) {
+                            await loadReportConfiguration(selectedReport);
+                        }
+                    }
+                } catch (error) {
+                    console.error('Error loading report:', error);
+                }
+            }
+        }
+        
+        // Function to populate report dropdown on page load
+        async function populateReportDropdown() {
+            try {
+                const response = await fetch('/backend/get_monthly_reports');
+                const data = await response.json();
+                
+                if (data.status === 'success' && data.reports.length > 0) {
+                    // Clear existing options except "Create New Report"
+                    currentReportSelect.innerHTML = '<option value="new">Create New Report</option>';
+                    
+                    // Add existing reports
+                    data.reports.forEach(report => {
+                        const option = document.createElement('option');
+                        option.value = report.id;
+                        option.textContent = `${report.original_filename} (${report.item_count} items)`;
+                        currentReportSelect.appendChild(option);
+                    });
+                }
+            } catch (error) {
+                console.error('Error populating report dropdown:', error);
+            }
+        }
+        
+        // Initialize report dropdown on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            populateReportDropdown();
+            
+            // Add Enter key listener for the report name input
+            reportNameInput.addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') {
+                    confirmCreateNewReport();
+                }
+            });
+        });
 
     </script>
 </body>

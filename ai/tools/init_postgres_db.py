@@ -123,7 +123,8 @@ def init_database():
                     display_order INTEGER DEFAULT 1000,
                     is_active BOOLEAN DEFAULT TRUE,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    most_recent_data_date DATE
                 )
             """)
             
@@ -137,6 +138,7 @@ def init_database():
                 CREATE INDEX IF NOT EXISTS metrics_city_id_idx ON metrics (city_id);
                 CREATE INDEX IF NOT EXISTS metrics_display_order_idx ON metrics (display_order);
                 CREATE INDEX IF NOT EXISTS metrics_category_display_order_idx ON metrics (category, display_order);
+                CREATE INDEX IF NOT EXISTS metrics_most_recent_data_date_idx ON metrics (most_recent_data_date);
             """)
             logger.info("Successfully created metrics table and indexes")
         except Exception as e:

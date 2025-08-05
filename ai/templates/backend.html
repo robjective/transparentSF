@@ -487,6 +487,7 @@
         
         .explainer-input-container {
             display: flex;
+            flex-direction: column;
             gap: 10px;
         }
         
@@ -505,6 +506,24 @@
             display: flex;
             align-items: center;
             line-height: 1.4;
+        }
+        
+        .explainer-controls {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+        
+        .explainer-model-select {
+            padding: 8px 12px;
+            border: 1px solid var(--border-primary);
+            border-radius: 6px;
+            font-size: 12px;
+            font-family: 'IBM Plex Sans', sans-serif;
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+            cursor: pointer;
+            min-width: 140px;
         }
         
         .explainer-input:focus {
@@ -531,6 +550,29 @@
         }
         
         .explainer-send:disabled {
+            background: var(--bg-secondary);
+            cursor: not-allowed;
+            position: relative;
+        }
+        
+        .explainer-stop {
+            background: var(--warm-coral);
+            color: var(--text-primary);
+            border: none;
+            border-radius: 8px;
+            padding: 12px 20px;
+            cursor: pointer;
+            font-size: 14px;
+            font-family: 'IBM Plex Sans', sans-serif;
+            font-weight: 500;
+            transition: background 0.2s ease;
+        }
+        
+        .explainer-stop:hover:not(:disabled) {
+            background: var(--warm-coral);
+        }
+        
+        .explainer-stop:disabled {
             background: var(--bg-secondary);
             cursor: not-allowed;
             position: relative;
@@ -1287,8 +1329,8 @@
             <div class="nav-section">
                 <h3>Tools</h3>
             </div>
-            <button data-href="/backend/monthly-reports" class="analysis-btn">Monthly Newsletters</button>
-            <button data-href="/anomaly-analyzer" class="dashboard-btn">Anomaly Analyzer</button>
+            <button data-href="/anomaly-analyzer" class="dashboard-btn">Data Review</button>
+            <button data-href="/backend/monthly-reports" class="analysis-btn">Newsletter</button>
             <button data-href="/backend/metric-control" class="dashboard-btn">Metric Control</button>
             <button data-href="/backend/query" class="dashboard-btn">Query Tool</button>
             <button data-href="/backend/evals-interface" class="dashboard-btn">Agent Evals</button>
@@ -1382,7 +1424,30 @@
                             placeholder="Ask me anything..."
                             rows="1"
                         ></textarea>
-                        <button class="explainer-send" id="explainer-send">Send</button>
+                        <div class="explainer-controls">
+                            <select id="explainer-model-select" class="explainer-model-select">
+                                <!-- OpenAI Models -->
+                                <option value="gpt-4o">GPT-4o (OpenAI)</option>
+                                <option value="gpt-4">GPT-4 (OpenAI)</option>
+                                <option value="gpt-4-turbo">GPT-4 Turbo (OpenAI)</option>
+                                <option value="gpt-3.5-turbo">GPT-3.5 Turbo (OpenAI)</option>
+                                <option value="gpt-3.5-turbo-16k">GPT-3.5 Turbo 16k (OpenAI)</option>
+                                
+                                <!-- Anthropic Models -->
+                                <option value="claude-opus-4">Claude Opus 4 (Anthropic)</option>
+                                <option value="claude-sonnet-4">Claude Sonnet 4 (Anthropic)</option>
+                                <option value="claude-3-7-sonnet">Claude 3.7 Sonnet (Anthropic)</option>
+                                <option value="claude-3-5-sonnet">Claude 3.5 Sonnet (Anthropic)</option>
+                                <option value="claude-3-5-haiku">Claude 3.5 Haiku (Anthropic)</option>
+                                <option value="claude-3-haiku">Claude 3 Haiku (Anthropic)</option>
+                                
+                                <!-- Google Models -->
+                                <option value="gemini-1.5-pro">Gemini 1.5 Pro (Google)</option>
+                                <option value="gemini-1.5-flash">Gemini 1.5 Flash (Google)</option>
+                            </select>
+                            <button class="explainer-send" id="explainer-send">Send</button>
+                            <button class="explainer-stop" id="explainer-stop" style="display: none;">Stop</button>
+                        </div>
                     </div>
                 </div>
                 
@@ -1515,6 +1580,7 @@
         let explainerOpen = false;
         let isExplainerProcessing = false;
         let explainerSessionId = null; // Track current session ID
+        let currentRequest = null; // Track current request for cancellation
         
         // Settings functionality
         let settingsOpen = false;
@@ -1931,11 +1997,22 @@
             const sendBtn = document.getElementById('explainer-send');
             const input = document.getElementById('explainer-input');
             
-            // Disable input and button with visual indicators
-            sendBtn.disabled = true;
-            sendBtn.classList.add('processing');
-            sendBtn.textContent = '';
+            // Get selected model and use default tool groups
+            const modelSelect = document.getElementById('explainer-model-select');
+            const selectedModel = modelSelect.value;
+            const selectedToolGroups = ['core', 'metrics']; // Default tool groups
+            
+            // Show typing indicator
+            showExplainerTyping();
+            
+            // Show stop button and hide send button
+            const stopBtn = document.getElementById('explainer-stop');
+            sendBtn.style.display = 'none';
+            stopBtn.style.display = 'inline-block';
+            
+            // Disable input and model select
             input.disabled = true;
+            modelSelect.disabled = true;
             
             // Add user message
             addExplainerMessage(message, 'user', false);
@@ -1945,18 +2022,25 @@
             input.style.height = 'auto';
             
             try {
-                // Send request to streaming endpoint with session ID
-                const response = await fetch('/backend/api/explain-change-streaming', {
+                // Create AbortController for request cancellation
+                const abortController = new AbortController();
+                currentRequest = abortController;
+                
+                // Send request to LangChain streaming endpoint
+                const response = await fetch('/backend/api/langchain-explainer-streaming', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                     },
                     body: JSON.stringify({
                         prompt: message,
+                        model_key: selectedModel,
+                        tool_groups: selectedToolGroups,
                         session_data: {
                             session_id: explainerSessionId
                         }
-                    })
+                    }),
+                    signal: abortController.signal
                 });
                 
                 if (!response.ok) {
@@ -1990,7 +2074,7 @@
                                 
                                 // Handle tool call start
                                 if (data.tool_call_start) {
-                                    console.log('Starting tool call:', data.tool_call_start);
+                                    console.log('Starting tool call:', data.tool_call_start, 'with tool_id:', data.tool_id);
                                     const toolId = addToolCallMessage(data.tool_call_start, data.tool_id);
                                     // Store tool ID for completion
                                     if (!window.activeToolCalls) {
@@ -2027,13 +2111,16 @@
                                 
                                 // Handle content
                                 if (data.content) {
+                                    console.log('Received content:', data.content);
                                     // Create a new message bubble only if we don't have one or if we just had a tool call
                                     if (!assistantMessage) {
                                         assistantMessage = addExplainerMessage('', 'assistant');
-                                        currentContent = data.content;
-                                    } else {
-                                        currentContent += data.content;
+                                        currentContent = '';
                                     }
+                                    
+                                    // Append new content
+                                    currentContent += data.content;
+                                    console.log('Updated currentContent:', currentContent);
                                     
                                     // Process chart placeholders and update content with markdown parsing
                                     const processedContent = processChartPlaceholders(currentContent);
@@ -2068,14 +2155,26 @@
                 
             } catch (error) {
                 console.error('Error sending message to explainer:', error);
-                addExplainerMessage(`Sorry, I encountered an error: ${error.message}`, 'system', false);
+                if (error.name === 'AbortError') {
+                    addExplainerMessage('Request was cancelled by user.', 'system', false);
+                } else {
+                    addExplainerMessage(`Sorry, I encountered an error: ${error.message}`, 'system', false);
+                }
             } finally {
-                // Re-enable input and button
+                // Hide typing indicator
+                hideExplainerTyping();
+                
+                // Reset UI state
                 isExplainerProcessing = false;
-                sendBtn.disabled = false;
-                sendBtn.classList.remove('processing');
-                sendBtn.textContent = 'Send';
+                currentRequest = null;
+                
+                // Show send button and hide stop button
+                sendBtn.style.display = 'inline-block';
+                stopBtn.style.display = 'none';
+                
+                // Re-enable input and model select
                 input.disabled = false;
+                modelSelect.disabled = false;
                 input.focus();
             }
         }
@@ -2293,6 +2392,32 @@ Can you help me understand:
             
             explainerSend.addEventListener('click', function() {
                 sendExplainerMessage(explainerInput.value);
+            });
+            
+            // Add stop button event listener
+            const explainerStop = document.getElementById('explainer-stop');
+            explainerStop.addEventListener('click', async function() {
+                if (currentRequest) {
+                    currentRequest.abort();
+                    console.log('Request cancelled by user');
+                    
+                    // Also notify the backend to cancel the session
+                    if (explainerSessionId) {
+                        try {
+                            await fetch('/backend/api/explainer-cancel', {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/json',
+                                },
+                                body: JSON.stringify({
+                                    session_id: explainerSessionId
+                                })
+                            });
+                        } catch (error) {
+                            console.error('Error cancelling session on backend:', error);
+                        }
+                    }
+                }
             });
             
             // Function to format bytes to human readable format

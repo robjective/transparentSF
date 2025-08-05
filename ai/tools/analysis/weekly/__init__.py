@@ -26,9 +26,7 @@ from .report_generator import (
     # generate_weekly_newsletter
 )
 
-from .scheduler import (
-    scheduled_weekly_task
-)
+# Weekly scheduler removed - no longer automatically scheduled
 
 __all__ = [
     # Data processing
@@ -48,6 +46,5 @@ __all__ = [
     'save_weekly_analysis',
     # 'generate_weekly_newsletter',
     
-    # Scheduling
-    'scheduled_weekly_task'
+    # Scheduling - removed
 ] 

@@ -141,13 +141,12 @@ LOGGING_CONFIG = {
         "schedule": {"level": log_level_str, "propagate": True},
         "dotenv": {"level": log_level_str, "propagate": True},
         
-        # Weekly analysis modules - add file handler for these
+        # Weekly analysis modules - add file handler for these (scheduler removed)
         "tools.analysis.weekly": {"handlers": ["default", "weekly_analysis_file"], "level": log_level_str, "propagate": False},
         "tools.analysis.weekly.analysis_engine": {"handlers": ["default", "weekly_analysis_file"], "level": log_level_str, "propagate": False},
         "tools.analysis.weekly.data_processor": {"handlers": ["default", "weekly_analysis_file"], "level": log_level_str, "propagate": False},
         "tools.analysis.weekly.time_utils": {"handlers": ["default", "weekly_analysis_file"], "level": log_level_str, "propagate": False},
         "tools.analysis.weekly.report_generator": {"handlers": ["default", "weekly_analysis_file"], "level": log_level_str, "propagate": False},
-        "tools.analysis.weekly.scheduler": {"handlers": ["default", "weekly_analysis_file"], "level": log_level_str, "propagate": False},
         
         # Other tools modules
         "tools": {"level": log_level_str, "propagate": True},
@@ -184,7 +183,7 @@ from metrics_manager import router as metrics_router
 from anomalyAnalyzer import router as anomaly_analyzer_router, set_templates as set_anomaly_templates
 from routes.dw_charts import router as dw_charts_router
 from routes.database_admin import router as database_admin_router, set_templates as set_database_admin_templates
-from evals_routes import router as evals_router, set_templates as set_evals_templates
+from routes.evals import router as evals_router, set_templates as set_evals_templates
 from routes.weekly_analysis import router as weekly_analysis_router
 
 app = FastAPI()
@@ -922,28 +921,20 @@ async def get_district_ids(district_type: str):
         raise HTTPException(status_code=500, detail=f"Error processing district IDs: {str(e)}")
 
 async def schedule_metrics_generation():
-    """Schedule metrics generation to run daily at 5 AM and 11 AM."""
+    """Schedule metrics generation to run daily at 5 AM."""
     while True:
         try:
-            # Calculate time until next run (either 5 AM or 11 AM)
+            # Calculate time until next run at 5 AM
             now = datetime.now()
             target_5am = now.replace(hour=5, minute=0, second=0, microsecond=0)
-            target_11am = now.replace(hour=11, minute=0, second=0, microsecond=0)
             
-            # If we're past 11 AM, set targets to next day
-            if now.hour >= 11:
+            # If we're past 5 AM, set target to next day
+            if now.hour >= 5:
                 target_5am += timedelta(days=1)
-                target_11am += timedelta(days=1)
-            # If we're past 5 AM but before 11 AM, only adjust the 5 AM target
-            elif now.hour >= 5:
-                target_5am += timedelta(days=1)
-            
-            # Find the next closest target time
-            next_run = min(target_5am, target_11am)
             
             # Wait until the next scheduled time
-            wait_seconds = (next_run - now).total_seconds()
-            logger.info(f"Next metrics generation scheduled for {next_run} (in {wait_seconds/3600:.2f} hours)")
+            wait_seconds = (target_5am - now).total_seconds()
+            logger.info(f"Next metrics generation scheduled for {target_5am} (in {wait_seconds/3600:.2f} hours)")
             await asyncio.sleep(wait_seconds)
             
             # Generate metrics
@@ -962,13 +953,13 @@ async def cleanup_logs():
     """Trim log files to keep only the last 7 days of logs. Runs daily."""
     while True:
         try:
-            # Schedule to run daily at 11:30 AM
+            # Schedule to run daily at 11:30 PM
             now = datetime.now()
             
-            # Calculate time until tomorrow at 11:30 AM
-            target_run = now.replace(hour=11, minute=30, second=0, microsecond=0)
-            if now.hour > 11 or (now.hour == 11 and now.minute >= 30):
-                target_run += timedelta(days=1)  # If it's already past 11:30 AM, schedule for tomorrow
+            # Calculate time until tomorrow at 11:30 PM
+            target_run = now.replace(hour=23, minute=30, second=0, microsecond=0)
+            if now.hour > 23 or (now.hour == 23 and now.minute >= 30):
+                target_run += timedelta(days=1)  # If it's already past 11:30 PM, schedule for tomorrow
             
             # Wait until the scheduled time
             wait_seconds = (target_run - now).total_seconds()

@@ -192,12 +192,20 @@ def generate_time_series_chart(
             
             data_records = df.to_dict('records')
             # Apply filter_data_by_date_and_conditions
+            # Determine period_type based on time_series_field and aggregation_period
+            period_type = 'month'  # default
+            if 'year' in time_series_field.lower() or aggregation_period == 'year':
+                period_type = 'year'
+            elif aggregation_period == 'day':
+                period_type = 'day'
+            
             filtered_data = filter_data_by_date_and_conditions(
                 data_records,
                 filter_conditions,
                 start_date=None,
                 end_date=None,
-                date_field=time_series_field
+                date_field=time_series_field,
+                period_type=period_type
             )
             # Convert back to DataFrame
             df = pd.DataFrame(filtered_data)

@@ -322,19 +322,19 @@ def process_metric_analysis(metric_info, period_type='month', process_districts=
         category_fields = []
         logging.info("No category fields defined for this metric. Not using any default fields.")
     
+    # Only use supervisor_district if it's already defined in the metric's category fields
+    # Don't automatically add it - let the metric configuration determine if it should be used
+    if process_districts:
+        logging.info("process_districts=True, but will only use supervisor_district if it's defined in category_fields")
+
     # Check if supervisor_district exists in category_fields
-    has_district = False
-    for field in category_fields:
-        if (isinstance(field, dict) and field.get('fieldName') == 'supervisor_district') or field == 'supervisor_district':
-            has_district = True
-            break
-    
-    # If process_districts is True, make sure supervisor_district is used as a category field
-    if process_districts and not has_district and 'supervisor_district' in original_query:
-        # Add supervisor_district as a category field
-        category_fields.append('supervisor_district')
-        logging.info("Added supervisor_district to category fields for district processing")
-        has_district = True
+    has_district = any(
+        (isinstance(field, dict) and field.get('fieldName') == 'supervisor_district') or
+        field == 'supervisor_district'
+        for field in category_fields
+    )
+    logging.info(f"Final category_fields: {category_fields}")
+    logging.info(f"has_district set to: {has_district}")
     
     # Determine the date field to use from the query
     date_field = extract_date_field_from_query(original_query)
@@ -480,8 +480,35 @@ def process_metric_analysis(metric_info, period_type='month', process_districts=
                 logging.info(f"Created {period_field} from max_date column")
             except Exception as e:
                 logging.error(f"Error creating {period_field} from max_date: {e}")
+
+        elif 'date' in dataset.columns:
+            # Use the date column that's already in the dataset
+            try:
+                # Convert date to datetime
+                dataset['date'] = pd.to_datetime(dataset['date'])
+                
+                # Create period field based on period_type
+                if period_type == 'month':
+                    # Format as YYYY-MM
+                    dataset[period_field] = dataset['date'].dt.strftime('%Y-%m')
+                else:  # year
+                    # Format as YYYY
+                    dataset[period_field] = dataset['date'].dt.strftime('%Y')
+                
+                logging.info(f"Created {period_field} from date column")
+            except Exception as e:
+                logging.error(f"Error creating {period_field} from date column: {e}")
+                # Fall back to current date
+                current_date = datetime.now()
+                if period_type == 'month':
+                    period_value = current_date.strftime('%Y-%m')
+                else:  # year
+                    period_value = current_date.strftime('%Y')
+                
+                dataset[period_field] = period_value
+                logging.info(f"Created {period_field} with current date: {period_value}")
         else:
-            # If no max_date column, use current date
+            # If no date columns, use current date
             current_date = datetime.now()
             if period_type == 'month':
                 period_value = current_date.strftime('%Y-%m')
@@ -492,9 +519,19 @@ def process_metric_analysis(metric_info, period_type='month', process_districts=
             logging.info(f"Created {period_field} with current date: {period_value}")
     
     # Update filter conditions to use period_field instead of date_field_name
+    # Format the dates correctly for the period_field format
+    if period_type == 'month':
+        # For month_period field, use YYYY-MM format
+        recent_end_str = recent_period['end'].strftime('%Y-%m')
+        comparison_start_str = comparison_period['start'].strftime('%Y-%m')
+    else:  # year
+        # For year_period field, use YYYY format
+        recent_end_str = str(recent_period['end'].year)
+        comparison_start_str = str(comparison_period['start'].year)
+    
     filter_conditions = [
-        {'field': period_field, 'operator': '<=', 'value': recent_period['end'].isoformat(), 'is_date': False},
-        {'field': period_field, 'operator': '>=', 'value': comparison_period['start'].isoformat(), 'is_date': False},
+        {'field': period_field, 'operator': '<=', 'value': recent_end_str, 'is_date': False},
+        {'field': period_field, 'operator': '>=', 'value': comparison_start_str, 'is_date': False},
     ]
     
     # Log the updated filter conditions
@@ -585,25 +622,18 @@ def process_metric_analysis(metric_info, period_type='month', process_districts=
         try:
             # Get the most recent month's data
             if 'month_period' in dataset.columns:
+                # Get the most recent month from the 'recent' period
                 recent_months = dataset[dataset['period_type'] == 'recent']['month_period'].unique()
                 if len(recent_months) > 0:
-                    # Sort months and get the most recent one
-                    recent_months = sorted(recent_months)
-                    last_month = recent_months[-1]
+                    last_month = sorted(recent_months)[-1]
                     
-                    # For second_last_month, look in comparison period if not found in recent
-                    second_last_month = recent_months[-2] if len(recent_months) > 1 else None
+                    # Get the second most recent month, which could be in 'recent' or 'comparison'
+                    all_months = sorted(dataset['month_period'].unique())
+                    if len(all_months) > 1:
+                        second_last_month = all_months[-2]
+                    else:
+                        second_last_month = None
                     
-                    # If we don't have a second recent month, look for the most recent comparison month
-                    if second_last_month is None:
-                        comparison_months = dataset[dataset['period_type'] == 'comparison']['month_period'].unique()
-                        if len(comparison_months) > 0:
-                            comparison_months = sorted(comparison_months)
-                            second_last_month = comparison_months[-1]  # Most recent comparison month
-                            logging.info(f"Using most recent comparison month as second_last_month: {second_last_month}")
-                    
-                    # Log the months we're using
-                    logging.info(f"Recent months available: {recent_months}")
                     logging.info(f"Using last_month: {last_month}, second_last_month: {second_last_month}")
                     
                     # Format date values for display
@@ -861,7 +891,11 @@ def process_metric_analysis(metric_info, period_type='month', process_districts=
                             
                             # Generate delta map
                             if delta_map_data:
-                                map_title = f"{query_name} - Changes by District from {second_last_month_display} to {last_month_display}"
+                                # Extract month names from the display dates and format as "Month - Month Year"
+                                second_month = second_last_month_display.split()[0] if ' ' in second_last_month_display else second_last_month_display
+                                last_month = last_month_display.split()[0] if ' ' in last_month_display else last_month_display
+                                last_year = last_month_display.split()[1] if ' ' in last_month_display else ''
+                                map_title = f"{query_name} - Changes by District {second_month} - {last_month} {last_year}"
                                 
                                 # Use enhanced data format for delta maps (not CSV conversion)
                                 # This will trigger the enhanced tooltip format with current_value, previous_value, delta, percent_change
@@ -1313,24 +1347,38 @@ def transform_query_for_period(original_query, date_field, category_fields, peri
     modified_query = re.sub(r'<\s*current_date', f"<= '{recent_end}'", modified_query)
     modified_query = re.sub(r'<\s*\'{recent_end}\'', f"<= '{recent_end}'", modified_query)
     
-    # Determine if it's a YTD query by checking format
-    is_ytd_query = ('as date, COUNT(*)' in modified_query or 
-                   'as date,' in modified_query or 
-                   'date_trunc_ymd' in modified_query)
+    # Determine if it's a YTD query by checking format (case insensitive)
+    is_ytd_query = ('as date, COUNT(*)' in modified_query.lower() or 
+                   'as date,' in modified_query.lower() or 
+                   'date_trunc_ymd' in modified_query.lower())
     
     # If it's a YTD query, we'll modify it to work with our period types
     if is_ytd_query:
         logging.info("Using YTD query format as basis")
         
         # Extract the core table and WHERE conditions from the original query
-        # This pattern looks for date_trunc, field selection, conditions
-        ytd_pattern = r'SELECT\s+date_trunc_[ymd]+\((.*?)\)\s+as\s+date,\s+([^W]+)WHERE\s+(.*?)(?:GROUP BY|ORDER BY|$)'
-        ytd_match = re.search(ytd_pattern, modified_query, re.IGNORECASE | re.DOTALL)
+        # This pattern looks for date_trunc, field selection, conditions.
+        # It supports two formats:
+        # 1. SELECT date_trunc... as date, value_expression WHERE ...
+        # 2. SELECT value_expression, date_trunc... as date WHERE ...
+        ytd_pattern_1 = r'SELECT\s+date_trunc_[ymd]+\((.*?)\)\s+as\s+date,\s+(.*?)WHERE\s+(.*?)(?:GROUP BY|ORDER BY|$)'
+        ytd_pattern_2 = r'SELECT\s+(.*?),\s*date_trunc_[ymd]+\((.*?)\)\s+as\s+date\s+WHERE\s+(.*?)(?:GROUP BY|ORDER BY|$)'
         
+        ytd_match = re.search(ytd_pattern_1, modified_query, re.IGNORECASE | re.DOTALL)
+        match_type = 1
+        if not ytd_match:
+            ytd_match = re.search(ytd_pattern_2, modified_query, re.IGNORECASE | re.DOTALL)
+            match_type = 2
+
         if ytd_match:
-            date_field_match = ytd_match.group(1).strip()
-            value_part = ytd_match.group(2).strip()
-            where_part = ytd_match.group(3).strip()
+            if match_type == 1:
+                date_field_match = ytd_match.group(1).strip()
+                value_part = ytd_match.group(2).strip()
+                where_part = ytd_match.group(3).strip()
+            else: # match_type == 2
+                value_part = ytd_match.group(1).strip()
+                date_field_match = ytd_match.group(2).strip()
+                where_part = ytd_match.group(3).strip()
             
             # Remove current_date references and replace with our recent_end
             where_part = re.sub(r'<=\s*current_date', f"<= '{recent_end}'", where_part)
@@ -1364,7 +1412,7 @@ def transform_query_for_period(original_query, date_field, category_fields, peri
                             group_by_fields.append("floor(supervisor_district)")
                             logging.info("Applied floor() to supervisor_district for 311 cases endpoint")
                         else:
-                            category_select += f", CASE WHEN supervisor_district IS NOT NULL THEN supervisor_district ELSE NULL END as supervisor_district"
+                            category_select += f", supervisor_district"
                             group_by_fields.append("supervisor_district")
                     else:
                         category_select += f", {field_name}"

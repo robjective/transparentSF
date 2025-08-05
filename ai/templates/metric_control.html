@@ -1475,9 +1475,10 @@
             <div class="form-group">
                 <label for="period-type-select">Period Type:</label>
                 <select id="period-type-select">
+                    <option value="ytd">YTD Metrics (Day)</option>
+                    <option value="week">Weekly Analysis</option>
                     <option value="month">Monthly Analysis</option>
                     <option value="year">Annual Analysis</option>
-                    <option value="week">Weekly Analysis</option>
                     <option value="both">Monthly & Annual Analysis</option>
                 </select>
             </div>
@@ -1874,6 +1875,14 @@
                             <p>Click \"Generate Metrics\" to run annual analysis for all available metrics. This will process all active metrics and generate a comprehensive annual report.</p>
                         </div>
                     `;
+                } else if (metricId === 'all' && periodType === 'ytd') {
+                    generateStatus.style.display = 'block';
+                    generateStatus.innerHTML = `
+                        <div style="color: #17a2b8; background-color: #d1ecf1; border: 1px solid #bee5eb; border-radius: 4px; padding: 10px; margin-bottom: 15px;">
+                            <h4>📊 YTD Metrics Generation for All Metrics</h4>
+                            <p>Click "Generate Metrics" to run YTD metrics generation for all available metrics. This will process all active metrics and generate comprehensive dashboard metrics.</p>
+                        </div>
+                    `;
                 } else {
                     generateStatus.style.display = 'none';
                 }
@@ -1928,6 +1937,14 @@
                         <div style=\"color: #17a2b8; background-color: #d1ecf1; border: 1px solid #bee5eb; border-radius: 4px; padding: 10px; margin-bottom: 15px;\">
                             <h4>📊 Annual Analysis for All Metrics</h4>
                             <p>Click \"Generate Metrics\" to run annual analysis for all available metrics. This will process all active metrics and generate a comprehensive annual report.</p>
+                        </div>
+                    `;
+                } else if (metricId === 'all' && periodType === 'ytd') {
+                    generateStatus.style.display = 'block';
+                    generateStatus.innerHTML = `
+                        <div style="color: #17a2b8; background-color: #d1ecf1; border: 1px solid #bee5eb; border-radius: 4px; padding: 10px; margin-bottom: 15px;">
+                            <h4>📊 YTD Metrics Generation for All Metrics</h4>
+                            <p>Click "Generate Metrics" to run YTD metrics generation for all available metrics. This will process all active metrics and generate comprehensive dashboard metrics.</p>
                         </div>
                     `;
                 } else {
@@ -1993,6 +2010,14 @@
                         <div style=\"color: #17a2b8; background-color: #d1ecf1; border: 1px solid #bee5eb; border-radius: 4px; padding: 10px; margin-bottom: 15px;\">
                             <h4>📊 Annual Analysis for All Metrics</h4>
                             <p>Click \"Generate Metrics\" to run annual analysis for all available metrics. This will process all active metrics and generate a comprehensive annual report.</p>
+                        </div>
+                    `;
+                } else if (selectedMetric === 'all' && periodType === 'ytd') {
+                    generateStatus.style.display = 'block';
+                    generateStatus.innerHTML = `
+                        <div style="color: #17a2b8; background-color: #d1ecf1; border: 1px solid #bee5eb; border-radius: 4px; padding: 10px; margin-bottom: 15px;">
+                            <h4>📊 YTD Metrics Generation for All Metrics</h4>
+                            <p>Click "Generate Metrics" to run YTD metrics generation for all available metrics. This will process all active metrics and generate comprehensive dashboard metrics.</p>
                         </div>
                     `;
                 }
@@ -2635,7 +2660,9 @@
             // Format the most recent data date
             let dateInfo = '';
             if (selectedMetric.most_recent_data_date) {
-                const date = new Date(selectedMetric.most_recent_data_date);
+                // Parse the date string and treat it as local time to avoid timezone issues
+                const [year, month, day] = selectedMetric.most_recent_data_date.split('-').map(Number);
+                const date = new Date(year, month - 1, day); // month is 0-indexed in JavaScript
                 const formattedDate = date.toLocaleDateString('en-US', {
                     year: 'numeric',
                     month: 'long',
@@ -3420,6 +3447,118 @@
                 return;
             }
             
+            // Check if we're running all metrics for YTD analysis
+            if (metricId === 'all' && periodType === 'ytd') {
+                try {
+                    // Reset and show progress UI
+                    generateMetricsBtn.classList.add('loading');
+                    generateMetricsBtn.disabled = true;
+                    progressContainer.style.display = 'block';
+                    progressBar.style.width = '0%';
+                    progressStatus.textContent = 'Initializing YTD metrics generation for all metrics...';
+                    progressLog.innerHTML = '';
+                    
+                    // Add initial log entry
+                    addLogEntry('Starting YTD metrics generation for all metrics...', 'info');
+                    
+                    // Get all active metrics
+                    const metricsResponse = await fetch('/api/enhanced-queries');
+                    if (!metricsResponse.ok) {
+                        throw new Error('Failed to load metrics data');
+                    }
+                    
+                    const metricsData = await metricsResponse.json();
+                    const allMetrics = [];
+                    
+                    // Extract all active metrics from the data structure
+                    Object.entries(metricsData).forEach(([category, categoryData]) => {
+                        Object.entries(categoryData).forEach(([subcategory, subcategoryData]) => {
+                            if (subcategoryData.queries) {
+                                Object.entries(subcategoryData.queries).forEach(([metricName, metricData]) => {
+                                    if (metricData.is_active) {
+                                        allMetrics.push({
+                                            id: metricData.id,
+                                            name: metricName
+                                        });
+                                    }
+                                });
+                            }
+                        });
+                    });
+                    
+                    // Sort metrics by display_order, then by ID
+                    allMetrics.sort((a, b) => {
+                        const orderA = a.display_order || 999;
+                        const orderB = b.display_order || 999;
+                        if (orderA !== orderB) {
+                            return orderA - orderB;
+                        }
+                        return a.id - b.id;
+                    });
+                    
+                    addLogEntry(`Found ${allMetrics.length} active metrics to process`, 'info');
+                    
+                    // Process each metric individually
+                    let successful = 0;
+                    let failed = 0;
+                    
+                    for (let i = 0; i < allMetrics.length; i++) {
+                        const metric = allMetrics[i];
+                        const progressPercent = ((i + 1) / allMetrics.length) * 100;
+                        
+                        progressStatus.textContent = `Processing metric ${i + 1}/${allMetrics.length}: ${metric.name}`;
+                        updateProgressBar(progressBar, `${progressPercent}%`);
+                        addLogEntry(`Starting YTD metrics generation for metric ${metric.id} (${metric.name})...`, 'info');
+                        
+                        try {
+                            const response = await fetch(`/backend/run_specific_metric?metric_id=${metric.id}&district_id=${districtId}&period_type=ytd`);
+                            const data = await response.json();
+                            
+                            if (data.status === 'success') {
+                                successful++;
+                                addLogEntry(`✅ Completed YTD metrics generation for metric ${metric.id} (${metric.name})`, 'success');
+                            } else {
+                                failed++;
+                                addLogEntry(`❌ Failed YTD metrics generation for metric ${metric.id} (${metric.name}): ${data.message}`, 'error');
+                            }
+                        } catch (error) {
+                            failed++;
+                            addLogEntry(`❌ Error processing metric ${metric.id} (${metric.name}): ${error.message}`, 'error');
+                        }
+                    }
+                    
+                    updateProgressBar(progressBar, '100%');
+                    progressStatus.textContent = 'YTD metrics generation completed for all metrics';
+                    addLogEntry(`YTD metrics generation completed. Successful: ${successful}, Failed: ${failed}`, 'success');
+                    
+                    generateStatus.innerHTML = `
+                        <div style="color: #28a745;">
+                            <h4>✅ YTD Metrics Generation Complete</h4>
+                            <p>YTD metrics generation completed for all metrics</p>
+                            <p>Successful: ${successful}, Failed: ${failed}</p>
+                            <p><a href="/dashboard" target="_blank">View Dashboard</a></p>
+                        </div>
+                    `;
+                    
+                } catch (error) {
+                    console.error('Error generating YTD metrics for all metrics:', error);
+                    updateProgressBar(progressBar, '100%', '#dc3545');
+                    progressStatus.textContent = `Error: ${error.message}`;
+                    addLogEntry(`Error: ${error.message}`, 'error');
+                    
+                    generateStatus.innerHTML = `
+                        <div style="color: #dc3545;">
+                            <h4>❌ Error</h4>
+                            <p>An error occurred while generating YTD metrics: ${error.message}</p>
+                        </div>
+                    `;
+                } finally {
+                    generateMetricsBtn.classList.remove('loading');
+                    generateMetricsBtn.disabled = false;
+                }
+                return;
+            }
+            
             // Original logic for specific metrics
             if (!metricId || metricId === 'all') {
                 if (generateStatus) {
@@ -3528,6 +3667,39 @@
                                 <h4>✅ Weekly Analysis Complete</h4>
                                 <p>Weekly analysis completed successfully</p>
                                 <p><a href="/weekly-report" target="_blank">View Weekly Report</a></p>
+                            </div>
+                        `;
+                    } else {
+                        throw new Error(data.message || 'Unknown error');
+                    }
+                } else if (periodType === 'ytd') {
+                    // YTD metrics generation for individual metric
+                    progressStatus.textContent = 'Starting YTD metrics generation...';
+                    updateProgressBar(progressBar, '50%');
+                    addLogEntry(`Starting YTD metrics generation for metric ${metricId} in district ${districtId}...`, 'info');
+                    
+                    const response = await fetch('/run_specific_metric_async', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            metric_id: metricId,
+                            district_id: districtId,
+                            period_type: 'ytd'
+                        })
+                    });
+                    const data = await response.json();
+                    
+                    if (data.status === 'success') {
+                        // Poll for job completion
+                        const jobId = data.job_id;
+                        await pollJobCompletion(jobId, 'YTD metrics generation', 50, 100);
+                        
+                        progressStatus.textContent = 'YTD metrics generation completed successfully';
+                        generateStatus.innerHTML = `
+                            <div style="color: #28a745;">
+                                <h4>✅ YTD Metrics Generation Complete</h4>
+                                <p>YTD metrics generation completed successfully</p>
+                                <p><a href="/dashboard" target="_blank">View Dashboard</a></p>
                             </div>
                         `;
                     } else {

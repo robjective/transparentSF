@@ -5,8 +5,26 @@ import uuid
 from typing import Dict, Any, Optional, Callable
 from datetime import datetime
 import logging
+import math
 
 logger = logging.getLogger(__name__)
+
+def clean_json_value(value):
+    """Clean a value to ensure it's JSON serializable."""
+    if isinstance(value, (int, str, bool, type(None))):
+        return value
+    elif isinstance(value, float):
+        # Handle infinite and NaN values
+        if math.isnan(value) or math.isinf(value):
+            return None
+        return value
+    elif isinstance(value, (list, tuple)):
+        return [clean_json_value(item) for item in value]
+    elif isinstance(value, dict):
+        return {k: clean_json_value(v) for k, v in value.items()}
+    else:
+        # Convert other types to string
+        return str(value)
 
 class BackgroundJob:
     """Represents a background job with status tracking."""
@@ -50,18 +68,34 @@ class BackgroundJob:
         
     def to_dict(self) -> Dict[str, Any]:
         """Convert job to dictionary for JSON serialization."""
+        # Calculate duration safely
+        duration = None
+        if self.start_time and self.end_time:
+            try:
+                duration = (self.end_time - self.start_time).total_seconds()
+                # Handle infinite values
+                if not (duration == duration):  # Check for NaN
+                    duration = None
+                elif duration == float('inf') or duration == float('-inf'):
+                    duration = None
+            except (TypeError, ValueError):
+                duration = None
+        
+        # Clean the result to ensure JSON serialization
+        cleaned_result = clean_json_value(self.result)
+        
         return {
             "job_id": self.job_id,
             "job_type": self.job_type,
             "description": self.description,
             "status": self.status,
             "progress": self.progress,
-            "result": self.result,
+            "result": cleaned_result,
             "error": self.error,
             "start_time": self.start_time.isoformat() if self.start_time else None,
             "end_time": self.end_time.isoformat() if self.end_time else None,
             "created_at": self.created_at.isoformat(),
-            "duration": (self.end_time - self.start_time).total_seconds() if self.start_time and self.end_time else None
+            "duration": duration
         }
 
 class BackgroundJobManager:

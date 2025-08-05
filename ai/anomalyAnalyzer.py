@@ -1342,13 +1342,30 @@ async def get_top_metric_changes(
                                     if end_date_str:
                                         try:
                                             if 'T' in end_date_str:
-                                                expected_end_date = datetime.fromisoformat(end_date_str.replace('Z', '+00:00')).date()
+                                                start_date = datetime.fromisoformat(end_date_str.replace('Z', '+00:00')).date()
                                             else:
-                                                expected_end_date = datetime.strptime(end_date_str, '%Y-%m-%d').date()
+                                                start_date = datetime.strptime(end_date_str, '%Y-%m-%d').date()
+                                            
+                                            # Calculate the last day of the month from the start date
+                                            if start_date.day == 1:  # If it's the first day of the month
+                                                # Get the last day of the month
+                                                if start_date.month == 12:
+                                                    next_month = start_date.replace(year=start_date.year + 1, month=1, day=1)
+                                                else:
+                                                    next_month = start_date.replace(month=start_date.month + 1, day=1)
+                                                expected_end_date = next_month - timedelta(days=1)
+                                            else:
+                                                expected_end_date = start_date
                                             break
                                         except ValueError:
                                             try:
-                                                expected_end_date = datetime.strptime(end_date_str, '%Y-%m').date()
+                                                start_date = datetime.strptime(end_date_str, '%Y-%m').date()
+                                                # Calculate the last day of the month
+                                                if start_date.month == 12:
+                                                    next_month = start_date.replace(year=start_date.year + 1, month=1, day=1)
+                                                else:
+                                                    next_month = start_date.replace(month=start_date.month + 1, day=1)
+                                                expected_end_date = next_month - timedelta(days=1)
                                                 break
                                             except ValueError:
                                                 continue
@@ -2580,7 +2597,7 @@ async def add_to_monthly_report(request: Request):
         logger.info(f"Adding item to monthly report: {item_data.get('object_name', 'Unknown')}")
         
         # Import the monthly report functions
-        from .monthly_report import (
+        from monthly_report import (
             initialize_monthly_reporting_table, 
             store_prioritized_items,
             get_monthly_reports_list
@@ -2657,7 +2674,7 @@ async def add_to_monthly_report(request: Request):
             logger.info(f"Adding item to existing report: {existing_report.get('id')}")
             
             # Import database utilities
-            from .tools.db_utils import execute_with_connection
+            from tools.db_utils import execute_with_connection
             import os
             
             def add_to_existing_report_operation(connection):
@@ -2727,6 +2744,8 @@ async def add_to_monthly_report(request: Request):
                     content={"status": "error", "message": f"Failed to add item to existing report: {result['message']}"}
                 )
             
+            # Note: HTML report generation will be done separately in the monthly report process
+            
             return JSONResponse(content={
                 "status": "success",
                 "message": f"Successfully added '{prioritized_item['metric']}' to existing monthly report",
@@ -2751,6 +2770,8 @@ async def add_to_monthly_report(request: Request):
                     content={"status": "error", "message": f"Failed to create new report: {store_result.get('message')}"}
                 )
             
+            # Note: HTML report generation will be done separately in the monthly report process
+            
             return JSONResponse(content={
                 "status": "success",
                 "message": f"Successfully created new monthly report and added '{prioritized_item['metric']}'",
@@ -2763,6 +2784,1001 @@ async def add_to_monthly_report(request: Request):
         return JSONResponse(
             status_code=500,
             content={"status": "error", "message": f"Failed to add item to monthly report: {str(e)}"}
+        )
+
+@router.post("/api/generate-map")
+async def generate_map_endpoint(request: Request):
+    """
+    Generate a map from anomaly data.
+    
+    Expected request body:
+    {
+        "metric_id": "string",
+        "district": "string", 
+        "period_type": "string",
+        "anomaly_id": "string" (optional)
+    }
+    """
+    global anomaly_period_info
+    anomaly_period_info = {}
+    
+    try:
+        data = await request.json()
+        metric_id = data.get("metric_id")
+        district = data.get("district", "0")
+        period_type = data.get("period_type", "month")
+        anomaly_id = data.get("anomaly_id")
+        
+        logger.info(f"Generate map request - metric_id: {metric_id}, district: {district}, period_type: {period_type}, anomaly_id: {anomaly_id}")
+        
+        # Store original anomaly_id since we might overwrite metric_id
+        original_anomaly_id = anomaly_id
+        
+        # Import the generate_map function from tools
+        from tools.generate_map import generate_map
+        from tools.metrics_manager import get_metric_by_id
+        import requests
+        import json as json_module
+        
+        # Handle case where anomaly_id is provided instead of metric_id
+        if anomaly_id and not metric_id:
+            logger.info(f"Getting metric_id from anomaly_id: {anomaly_id}")
+            try:
+                # Get anomaly details to extract the metric_id (object_id)
+                anomaly_details = get_anomaly_details(context_variables, int(anomaly_id))
+                if anomaly_details.get("status") == "success" and anomaly_details.get("anomaly"):
+                    anomaly_data = anomaly_details["anomaly"]
+                    logger.info(f"Anomaly data keys: {list(anomaly_data.keys())}")
+                    logger.info(f"Anomaly data: {anomaly_data}")
+                    
+                    # Try different field names that might contain the metric ID
+                    metric_id = (anomaly_data.get("object_id") or 
+                               anomaly_data.get("metric_id") or
+                               anomaly_data.get("id") or
+                               (anomaly_data.get("metadata", {}).get("object_id") if isinstance(anomaly_data.get("metadata"), dict) else None))
+                    
+                    if metric_id and str(metric_id) != "unknown":
+                        logger.info(f"Extracted metric_id {metric_id} from anomaly_id {anomaly_id}")
+                    else:
+                        logger.error(f"Could not find valid metric_id in anomaly {anomaly_id}. Available data: {anomaly_data}")
+                        return JSONResponse(
+                            status_code=400,
+                            content={"status": "error", "message": f"Could not extract metric_id from anomaly {anomaly_id}. Available fields: {list(anomaly_data.keys())}"}
+                        )
+                else:
+                    return JSONResponse(
+                        status_code=404,
+                        content={"status": "error", "message": f"Anomaly not found: {anomaly_id}"}
+                    )
+            except Exception as e:
+                logger.error(f"Error getting anomaly details: {str(e)}")
+                return JSONResponse(
+                    status_code=500,
+                    content={"status": "error", "message": f"Error retrieving anomaly {anomaly_id}: {str(e)}"}
+                )
+        
+        # Check if we have a metric_id
+        if not metric_id:
+            return JSONResponse(
+                status_code=400,
+                content={"status": "error", "message": "Either metric_id or anomaly_id is required"}
+            )
+        
+        # Get metric information
+        metric_result = get_metric_by_id(metric_id)
+        if metric_result["status"] != "success":
+            # If metric lookup failed, check if the provided metric_id is actually an anomaly_id
+            logger.info(f"Metric lookup failed for {metric_id}, checking if it's an anomaly_id")
+            try:
+                anomaly_details = get_anomaly_details(context_variables, int(metric_id))
+                if anomaly_details.get("status") == "success" and anomaly_details.get("anomaly"):
+                    anomaly_data = anomaly_details["anomaly"]
+                    logger.info(f"Checking if {metric_id} is anomaly_id. Anomaly data keys: {list(anomaly_data.keys())}")
+                    
+                    # Try different field names that might contain the metric ID
+                    actual_metric_id = (anomaly_data.get("object_id") or 
+                                      anomaly_data.get("metric_id") or
+                                      (anomaly_data.get("metadata", {}).get("object_id") if isinstance(anomaly_data.get("metadata"), dict) else None))
+                    
+                    if actual_metric_id and str(actual_metric_id) != "unknown":
+                        logger.info(f"Found that {metric_id} is an anomaly_id, extracted metric_id: {actual_metric_id}")
+                        # Set original_anomaly_id since metric_id was actually an anomaly ID
+                        original_anomaly_id = metric_id
+                        metric_id = actual_metric_id
+                        logger.info(f"Set original_anomaly_id = {original_anomaly_id}, new metric_id = {metric_id}")
+                        # Try again with the correct metric_id
+                        metric_result = get_metric_by_id(metric_id)
+                        if metric_result["status"] != "success":
+                            return JSONResponse(
+                                status_code=404,
+                                content={"status": "error", "message": f"Metric not found: {metric_id} (extracted from anomaly)"}
+                            )
+                    else:
+                        logger.error(f"Could not find valid metric_id in anomaly {metric_id}. Available data: {anomaly_data}")
+                        return JSONResponse(
+                            status_code=400,
+                            content={"status": "error", "message": f"Could not extract metric_id from anomaly {metric_id}. Available fields: {list(anomaly_data.keys())}"}
+                        )
+                else:
+                    return JSONResponse(
+                        status_code=404,
+                        content={"status": "error", "message": f"Neither metric nor anomaly found with ID: {metric_id}"}
+                    )
+            except Exception as e:
+                logger.error(f"Error checking if {metric_id} is an anomaly_id: {str(e)}")
+                return JSONResponse(
+                    status_code=404,
+                    content={"status": "error", "message": f"Metric not found: {metric_id}"}
+                )
+        
+        metric = metric_result["metric"]
+        metric_name = metric.get("metric_name", metric.get("object_name", "Unknown Metric"))
+        
+        # Look up executed_query_url from time_series_metadata table
+        query_url = ""
+        anomaly_filters = {}
+        
+        def get_executed_query_url_from_metadata(metric_id, period_type, district):
+            """Get executed_query_url from time_series_metadata table"""
+            try:
+                from tools.db_utils import get_postgres_connection
+                connection = get_postgres_connection()
+                cursor = connection.cursor()
+                
+                # Query time_series_metadata for the specific metric, period_type, and district
+                query = """
+                    SELECT executed_query_url, metadata, group_field, district
+                    FROM time_series_metadata 
+                    WHERE object_id = %s AND period_type = %s AND district = %s
+                    ORDER BY created_at DESC
+                    LIMIT 1
+                """
+                cursor.execute(query, (str(metric_id), period_type, district))
+                result = cursor.fetchone()
+                
+                cursor.close()
+                connection.close()
+                
+                if result:
+                    executed_query_url = result[0]
+                    metadata = result[1] if result[1] else {}
+                    group_field = result[2]
+                    district = result[3]
+                    
+                    logger.info(f"Found executed_query_url from time_series_metadata: {executed_query_url[:100] if executed_query_url else 'None'}...")
+                    
+                    # Extract filters from metadata if available
+                    filters = {}
+                    if isinstance(metadata, dict):
+                        if metadata.get("group_field"):
+                            filters["group_field"] = metadata["group_field"]
+                        if metadata.get("field_value"):
+                            filters["field_value"] = metadata["field_value"]
+                        if metadata.get("time_period"):
+                            filters["time_period"] = metadata["time_period"]
+                    
+                    # Add group_field and district from the row
+                    if group_field:
+                        filters["group_field"] = group_field
+                    if district:
+                        filters["district"] = district
+                    
+                    return executed_query_url, filters
+                else:
+                    logger.warning(f"No time_series_metadata found for metric_id={metric_id}, period_type={period_type}, district={district}")
+                    return None, {}
+                    
+            except Exception as e:
+                logger.error(f"Error getting executed_query_url from time_series_metadata: {str(e)}")
+                return None, {}
+        
+        # Try to get executed_query_url from time_series_metadata
+        logger.info(f"Looking up executed_query_url for metric_id={metric_id}, period_type={period_type}, district={district}")
+        query_url, anomaly_filters = get_executed_query_url_from_metadata(metric_id, period_type, district)
+        
+        logger.info(f"Retrieved metric: {metric_name}")
+        logger.info(f"Metric data keys: {list(metric.keys())}")
+        logger.info(f"Executed query_url from time_series_metadata: {query_url[:100] if query_url else 'None'}...")
+        logger.info(f"Anomaly filters from time_series_metadata: {anomaly_filters}")
+        
+        # If no query URL found in time_series_metadata, check if we have an anomaly with an executed query URL
+        if not query_url and original_anomaly_id:
+            logger.info(f"No query URL in metric, checking anomaly {original_anomaly_id} for executed_query_url")
+            try:
+                anomaly_details = get_anomaly_details(context_variables, int(original_anomaly_id))
+                if anomaly_details.get("status") == "success":
+                    anomaly_data = anomaly_details.get("anomaly", {})
+                    metadata = anomaly_data.get("metadata", {})
+                    
+                    # Extract anomaly filters that should be applied to the map
+                    # Use correct column names from database
+                    anomaly_filters = {
+                        "district": anomaly_data.get("district"),
+                        "group_field": anomaly_data.get("group_field_name"),  # Correct column name
+                        "field_value": anomaly_data.get("group_value"),       # Correct column name
+                        "time_period": anomaly_data.get("recent_date"),       # Use recent_date for time period
+                        "period_type": anomaly_data.get("period_type")
+                    }
+                    
+                    # Remove None/empty values
+                    anomaly_filters = {k: v for k, v in anomaly_filters.items() if v is not None and v != "" and v != "unknown"}
+                    logger.info(f"Extracted anomaly filters: {anomaly_filters}")
+                    
+                    # Show what specific filters will be applied
+                    if anomaly_filters.get("district") and anomaly_filters["district"] != "0":
+                        logger.info(f"Will filter by district: {anomaly_filters['district']}")
+                    if anomaly_filters.get("group_field") and anomaly_filters.get("field_value"):
+                        logger.info(f"Will filter by {anomaly_filters['group_field']} = {anomaly_filters['field_value']}")
+                    if anomaly_filters.get("time_period"):
+                        logger.info(f"Will filter by time period: {anomaly_filters['time_period']}")
+                    
+                    # Debug metadata structure
+                    logger.info(f"Anomaly metadata type: {type(metadata)}")
+                    logger.info(f"Anomaly metadata keys: {list(metadata.keys()) if isinstance(metadata, dict) else 'Not a dict'}")
+                    logger.info(f"Full anomaly metadata: {metadata}")
+                    
+                    # Check for executed_query_url in metadata
+                    if isinstance(metadata, dict) and metadata.get("executed_query_url"):
+                        query_url = metadata["executed_query_url"]
+                        logger.info(f"SUCCESS: Found executed_query_url in anomaly metadata: {query_url[:100]}...")
+                        logger.info(f"Setting query_url = {query_url[:200]}...")
+                    elif isinstance(metadata, str):
+                        # Try parsing JSON string
+                        try:
+                            import json
+                            metadata_dict = json.loads(metadata)
+                            logger.info(f"Parsed metadata keys: {list(metadata_dict.keys())}")
+                            if metadata_dict.get("executed_query_url"):
+                                query_url = metadata_dict["executed_query_url"]
+                                logger.info(f"SUCCESS: Found executed_query_url in parsed anomaly metadata: {query_url[:100]}...")
+                                logger.info(f"Setting query_url = {query_url[:200]}...")
+                        except json.JSONDecodeError:
+                            logger.warning(f"Could not parse anomaly metadata as JSON: {metadata}")
+                    else:
+                        logger.warning(f"No executed_query_url found in metadata: {metadata}")
+                            
+            except Exception as e:
+                logger.error(f"Error getting anomaly query URL: {str(e)}")
+        
+        # If we have an anomaly_id but no filters yet, try to get them anyway
+        elif original_anomaly_id and not anomaly_filters:
+            try:
+                logger.info(f"Getting anomaly details for anomaly_id: {original_anomaly_id}")
+                anomaly_details = get_anomaly_details(context_variables, int(original_anomaly_id))
+                logger.info(f"Anomaly details result: {anomaly_details}")
+                
+                if anomaly_details.get("status") == "success":
+                    anomaly_data = anomaly_details.get("anomaly", {})
+                    logger.info(f"Anomaly data keys: {list(anomaly_data.keys())}")
+                    
+                    # Extract filters using correct column names from database
+                    anomaly_filters = {
+                        "district": anomaly_data.get("district"),
+                        "group_field": anomaly_data.get("group_field_name"),  # Correct column name
+                        "field_value": anomaly_data.get("group_value"),       # Correct column name
+                        "time_period": anomaly_data.get("recent_date"),       # Use recent_date for time period
+                        "period_type": anomaly_data.get("period_type")
+                    }
+                    anomaly_filters = {k: v for k, v in anomaly_filters.items() if v is not None and v != "" and v != "unknown"}
+                    logger.info(f"Extracted anomaly filters from anomaly_id: {anomaly_filters}")
+                    
+                    # Also check for executed_query_url in this case
+                    metadata = anomaly_data.get("metadata", {})
+                    logger.info(f"Second lookup - Anomaly metadata type: {type(metadata)}")
+                    logger.info(f"Second lookup - Anomaly metadata keys: {list(metadata.keys()) if isinstance(metadata, dict) else 'Not a dict'}")
+                    
+                    if isinstance(metadata, dict) and metadata.get("executed_query_url") and not query_url:
+                        query_url = metadata["executed_query_url"]
+                        logger.info(f"SUCCESS: Found executed_query_url in second lookup: {query_url[:100]}...")
+                        logger.info(f"Setting query_url = {query_url[:200]}...")
+                else:
+                    logger.error(f"Failed to get anomaly details: {anomaly_details}")
+            except Exception as e:
+                logger.error(f"Error getting anomaly filters: {str(e)}")
+                import traceback
+                logger.error(f"Traceback: {traceback.format_exc()}")
+        
+        # Final check if we still don't have a query URL
+        logger.info(f"Final query_url check: query_url = '{query_url}', original_anomaly_id = {original_anomaly_id}")
+        if not query_url:
+            return JSONResponse(
+                status_code=400,
+                content={"status": "error", "message": f"Metric '{metric_name}' (ID: {metric_id}) cannot be mapped because no executed query URL was found in time_series_metadata for period_type='{period_type}' and district='{district}'. Anomaly ID checked: {original_anomaly_id}"}
+            )
+        
+        # Handle different query URL formats
+        if query_url.startswith("http"):
+            # This is already a full DataSF API URL - modify it for mapping
+            logger.info("Query URL is a full API URL, modifying for mapping")
+            modified_query = query_url
+            
+            # Remove LIMIT and OFFSET to get all data points
+            import re
+            from urllib.parse import unquote
+            
+            # First, remove existing LIMIT and OFFSET
+            modified_query = re.sub(r'LIMIT\s+\d+', '', modified_query, flags=re.IGNORECASE)
+            modified_query = re.sub(r'OFFSET\s+\d+', '', modified_query, flags=re.IGNORECASE)
+            
+            # Decode the URL to work with the SQL
+            if '%24query=' in modified_query:
+                base_url = modified_query.split('%24query=')[0] + '%24query='
+                encoded_sql = modified_query.split('%24query=')[1]
+                decoded_sql = unquote(encoded_sql)
+                
+                # Always rebuild the query for mapping detail records
+                logger.info("Rebuilding query for mapping detail records")
+                logger.info(f"Original decoded SQL: {decoded_sql[:200]}...")
+                
+                # Extract the actual date field from the original query
+                actual_date_field = "incident_date"  # Default fallback
+                if "requested_datetime" in decoded_sql:
+                    actual_date_field = "requested_datetime"
+                elif "incident_date" in decoded_sql:
+                    actual_date_field = "incident_date"
+                elif "created_date" in decoded_sql:
+                    actual_date_field = "created_date"
+                elif "date_trunc_ym(" in decoded_sql:
+                    # Extract field from date_trunc_ym function
+                    import re
+                    match = re.search(r'date_trunc_ym\(([^)]+)\)', decoded_sql)
+                    if match:
+                        actual_date_field = match.group(1).strip()
+                        logger.info(f"Extracted date field from date_trunc_ym: {actual_date_field}")
+                
+                logger.info(f"Using date field from original query: {actual_date_field}")
+                
+                # Get table/endpoint info from metric
+                endpoint = metric.get("endpoint", "")
+                if endpoint:
+                    # Create a completely clean query for detail records (no GROUP BY, no aggregation, no FROM clause in SOQL)
+                    decoded_sql = "SELECT *"
+                    logger.info(f"Created clean SOQL detail query: {decoded_sql}")
+                else:
+                    logger.warning("No endpoint found, cannot rebuild query")
+                
+                # Apply anomaly filters to the query
+                if anomaly_filters:
+                    logger.info(f"Applying anomaly filters to query: {anomaly_filters}")
+                    
+                    # Build WHERE conditions for the filters
+                    where_conditions = []
+                    
+                    # Handle district filter
+                    if anomaly_filters.get("district"):
+                        district = anomaly_filters["district"]
+                        if district != "0":  # Skip if district is "0" (all districts)
+                            # Use the most common district field name
+                            where_conditions.append(f"supervisor_district = '{district}'")
+                    
+                    # Handle group_field and field_value filter
+                    if anomaly_filters.get("group_field") and anomaly_filters.get("field_value"):
+                        group_field = anomaly_filters["group_field"]
+                        field_value = anomaly_filters["field_value"]
+                        # Escape single quotes in field_value
+                        field_value = field_value.replace("'", "''")
+                        where_conditions.append(f"{group_field} = '{field_value}'")
+                    
+                    # Handle time period - use recent period + calculate previous period for comparison
+                    if isinstance(metadata, dict) and metadata.get("recent_period"):
+                        recent_period = metadata["recent_period"]
+                        recent_start = recent_period.get("start")
+                        recent_end = recent_period.get("end")
+                        
+                        # Use the actual date field extracted from the original query
+                        date_field = actual_date_field
+                        
+                        if recent_start and recent_end:
+                            # Calculate the previous month for comparison
+                            from datetime import datetime, timedelta
+                            from dateutil.relativedelta import relativedelta
+                            
+                            recent_start_date = datetime.strptime(recent_start, "%Y-%m-%d")
+                            recent_end_date = datetime.strptime(recent_end, "%Y-%m-%d")
+                            
+                            # Calculate previous month period
+                            prev_start_date = recent_start_date - relativedelta(months=1)
+                            prev_end_date = recent_end_date - relativedelta(months=1)
+                            
+                            prev_start = prev_start_date.strftime("%Y-%m-%d")
+                            prev_end = prev_end_date.strftime("%Y-%m-%d")
+                            
+                            logger.info(f"Using 2 consecutive periods - Recent: {recent_start} to {recent_end}, Previous: {prev_start} to {prev_end}")
+                            
+                            # Include data from both periods with OR condition
+                            period_condition = f"(({date_field} >= '{recent_start}' AND {date_field} <= '{recent_end}') OR ({date_field} >= '{prev_start}' AND {date_field} <= '{prev_end}'))"
+                            where_conditions.append(period_condition)
+                            
+                            # Store period info for later use in data processing
+                            anomaly_period_info = {
+                                "recent_start": recent_start,
+                                "recent_end": recent_end,
+                                "prev_start": prev_start,
+                                "prev_end": prev_end,
+                                "date_field": date_field
+                            }
+                    elif anomaly_filters.get("time_period"):
+                        # Fallback to using recent_date if no recent_period in metadata
+                        time_period = anomaly_filters["time_period"]
+                        period_type = anomaly_filters.get("period_type", "month")
+                        
+                        # Use the actual date field extracted from the original query
+                        date_field = actual_date_field
+                        
+                        if isinstance(time_period, str) and len(time_period) >= 10:  # YYYY-MM-DD format
+                            date_parts = time_period[:10].split("-")
+                            if len(date_parts) >= 3:
+                                year, month, day = date_parts[0], date_parts[1], date_parts[2]
+                                
+                                if period_type == "month":
+                                    # Use date range for the month instead of extract functions
+                                    month_start = f"{year}-{month}-01"
+                                    month_end = f"{year}-{month}-31"  # SOQL will handle month boundaries
+                                    where_conditions.append(f"{date_field} >= '{month_start}'")
+                                    where_conditions.append(f"{date_field} <= '{month_end}'")
+                                elif period_type == "year":
+                                    year_start = f"{year}-01-01"
+                                    year_end = f"{year}-12-31"
+                                    where_conditions.append(f"{date_field} >= '{year_start}'")
+                                    where_conditions.append(f"{date_field} <= '{year_end}'")
+                
+                # Add WHERE conditions to the SOQL query
+                    if where_conditions:
+                        logger.info(f"Adding WHERE conditions: {where_conditions}")
+                        # Since we rebuilt the query as "SELECT *", we can cleanly add WHERE
+                        where_clause = ' AND '.join(where_conditions)
+                        decoded_sql = f"{decoded_sql} WHERE {where_clause}"
+                        logger.info(f"SOQL query after adding WHERE: {decoded_sql}")
+                        logger.info(f"WHERE clause: {where_clause}")
+                    else:
+                        logger.info("No WHERE conditions to add - using basic SELECT *")
+                    
+                    logger.info(f"Applied filters to SQL query")
+                
+                # Add a reasonable limit for mapping detail records
+                # Use higher limit since we'll choose chart type based on results
+                if "LIMIT" not in decoded_sql.upper():
+                    decoded_sql += " LIMIT 2000"  # Higher limit to allow symbol charts when needed
+                
+                logger.info(f"Final SOQL query for mapping: {decoded_sql}")
+                
+                # Re-encode the modified SQL
+                from urllib.parse import quote
+                modified_query = base_url + quote(decoded_sql)
+            
+        else:
+            # This is just SQL - construct a full DataSF URL
+            logger.info("Query URL is SQL, constructing full API URL")
+            
+            # Extract endpoint from metric data
+            endpoint = metric.get("endpoint", "")
+            if not endpoint:
+                return JSONResponse(
+                    status_code=400,
+                    content={"status": "error", "message": f"No endpoint found for metric '{metric_name}' (ID: {metric_id})"}
+                )
+            
+            # Create a clean detail query for mapping
+            logger.info("Creating clean SQL query for mapping detail records")
+            
+            # Build a simple SOQL SELECT query for mapping individual records (no FROM clause in SOQL)
+            modified_sql = "SELECT *"
+            logger.info(f"Created clean SOQL detail query: {modified_sql}")
+            
+            # Apply anomaly filters to the query
+            if anomaly_filters:
+                logger.info(f"Applying anomaly filters to SQL query: {anomaly_filters}")
+                
+                # Build WHERE conditions for the filters
+                where_conditions = []
+                
+                # Get metadata from anomaly details if we have original_anomaly_id
+                metadata = {}
+                actual_date_field = "incident_date"  # Default fallback
+                if original_anomaly_id:
+                    try:
+                        anomaly_details = get_anomaly_details(context_variables, int(original_anomaly_id))
+                        if anomaly_details.get("status") == "success":
+                            anomaly_data = anomaly_details.get("anomaly", {})
+                            metadata = anomaly_data.get("metadata", {})
+                            
+                            # Extract date field from the executed_query_url if available
+                            if isinstance(metadata, dict) and metadata.get("executed_query_url"):
+                                executed_url = metadata["executed_query_url"]
+                                if "requested_datetime" in executed_url:
+                                    actual_date_field = "requested_datetime"
+                                elif "incident_date" in executed_url:
+                                    actual_date_field = "incident_date"
+                                elif "created_date" in executed_url:
+                                    actual_date_field = "created_date"
+                                elif "date_trunc_ym(" in executed_url:
+                                    # Extract field from date_trunc_ym function
+                                    import re
+                                    match = re.search(r'date_trunc_ym\(([^)]+)\)', executed_url)
+                                    if match:
+                                        actual_date_field = match.group(1).strip()
+                                        logger.info(f"Extracted date field from executed_query_url: {actual_date_field}")
+                                
+                                logger.info(f"Using date field from executed query: {actual_date_field}")
+                    except Exception as e:
+                        logger.warning(f"Could not get metadata for filters: {e}")
+                
+                # Handle district filter
+                if anomaly_filters.get("district"):
+                    district = anomaly_filters["district"]
+                    if district != "0":  # Skip if district is "0" (all districts)
+                        # Use the most common district field name for 311 Cases
+                        where_conditions.append(f"supervisor_district = '{district}'")
+                
+                # Handle group_field and field_value filter
+                if anomaly_filters.get("group_field") and anomaly_filters.get("field_value"):
+                    group_field = anomaly_filters["group_field"]
+                    field_value = anomaly_filters["field_value"]
+                    # Escape single quotes in field_value
+                    field_value = field_value.replace("'", "''")
+                    where_conditions.append(f"{group_field} = '{field_value}'")
+                
+                # Handle time period - use recent period + calculate previous period for comparison
+                if isinstance(metadata, dict) and metadata.get("recent_period"):
+                    recent_period = metadata["recent_period"]
+                    recent_start = recent_period.get("start")
+                    recent_end = recent_period.get("end")
+                    
+                    # Use the actual date field extracted from the executed query
+                    date_field = actual_date_field
+                    
+                    if recent_start and recent_end:
+                        # Calculate the previous month for comparison
+                        from datetime import datetime, timedelta
+                        from dateutil.relativedelta import relativedelta
+                        
+                        recent_start_date = datetime.strptime(recent_start, "%Y-%m-%d")
+                        recent_end_date = datetime.strptime(recent_end, "%Y-%m-%d")
+                        
+                        # Calculate previous month period
+                        prev_start_date = recent_start_date - relativedelta(months=1)
+                        prev_end_date = recent_end_date - relativedelta(months=1)
+                        
+                        prev_start = prev_start_date.strftime("%Y-%m-%d")
+                        prev_end = prev_end_date.strftime("%Y-%m-%d")
+                        
+                        logger.info(f"Using 2 consecutive periods - Recent: {recent_start} to {recent_end}, Previous: {prev_start} to {prev_end}")
+                        
+                        # Include data from both periods with OR condition
+                        period_condition = f"(({date_field} >= '{recent_start}' AND {date_field} <= '{recent_end}') OR ({date_field} >= '{prev_start}' AND {date_field} <= '{prev_end}'))"
+                        where_conditions.append(period_condition)
+                        
+                        # Store period info for later use in data processing
+                        anomaly_period_info = {
+                            "recent_start": recent_start,
+                            "recent_end": recent_end,
+                            "prev_start": prev_start,
+                            "prev_end": prev_end,
+                            "date_field": date_field
+                        }
+                
+                # Add WHERE conditions to the SOQL query
+                if where_conditions:
+                    logger.info(f"Adding WHERE conditions: {where_conditions}")
+                    # Since we built the query as "SELECT *", we can cleanly add WHERE  
+                    where_clause = ' AND '.join(where_conditions)
+                    modified_sql = f"{modified_sql} WHERE {where_clause}"
+                    logger.info(f"SOQL query after adding WHERE: {modified_sql}")
+                    logger.info(f"WHERE clause: {where_clause}")
+                else:
+                    logger.info("No WHERE conditions to add - using basic SELECT *")
+                
+                logger.info(f"Applied filters to SQL query")
+            
+            # Add limit for mapping performance  
+            # Use higher limit since we'll choose chart type based on results
+            if "LIMIT" not in modified_sql.upper():
+                modified_sql += " LIMIT 2000"  # Higher limit to allow symbol charts when needed
+            
+            logger.info(f"Final SOQL query for mapping: {modified_sql}")
+            
+            # Construct full URL
+            from urllib.parse import quote
+            modified_query = f"https://data.sfgov.org/resource/{endpoint}.json?$query={quote(modified_sql)}"
+        
+        logger.info(f"Final modified query URL: {modified_query}")
+        logger.info(f"Query length: {len(modified_query)} characters")
+        
+        # Fetch the data
+        try:
+            response = requests.get(modified_query, timeout=30)
+            response.raise_for_status()
+            data_results = response.json()
+        except requests.exceptions.HTTPError as e:
+            logger.error(f"HTTP Error fetching data: {str(e)}")
+            try:
+                # Try to get the detailed error from the response
+                error_details = response.json()
+                logger.error(f"DataSF API error details: {error_details}")
+                return JSONResponse(
+                    status_code=response.status_code,
+                    content={"status": "error", "message": f"DataSF API error: {error_details.get('message', str(e))}", "query": modified_query}
+                )
+            except:
+                return JSONResponse(
+                    status_code=response.status_code,
+                    content={"status": "error", "message": f"HTTP error: {str(e)}", "query": modified_query}
+                )
+        except Exception as e:
+            logger.error(f"Error fetching data: {str(e)}")
+            return JSONResponse(
+                status_code=500,
+                content={"status": "error", "message": f"Failed to fetch data: {str(e)}", "query": modified_query}
+            )
+        
+        if not data_results:
+            return JSONResponse(
+                status_code=404,
+                content={"status": "error", "message": "No data found for mapping"}
+            )
+        
+        num_points = len(data_results)
+        logger.info(f"Fetched {num_points} data points")
+        
+        # Determine chart type based on number of points
+        if num_points <= 200:
+            chart_type = "locator"
+            logger.info(f"Using locator chart for {num_points} points (≤200)")
+        else:
+            chart_type = "symbol"
+            logger.info(f"Using symbol chart for {num_points} points (>200)")
+        
+        # Process location data
+        # Prioritize lat/long coordinates over addresses to avoid unnecessary geocoding
+        location_data = []
+        
+        # Check if we have period info for color coding
+        # The period info should be available from the earlier processing
+        # We'll get it from the global variable that was set earlier
+        period_info = globals().get('anomaly_period_info', {})
+        logger.info(f"Period info for color coding: {period_info}")
+        
+        def get_period_color(item, period_info):
+            """Determine if a data point is from recent period (purple) or previous period (grey)"""
+            if not period_info:
+                logger.debug(f"No period info available, using default purple")
+                return "#6366f1"  # Default purple if no period info
+                
+            # Get the date field value from the item
+            date_field = period_info.get('date_field', 'requested_datetime')
+            item_date = item.get(date_field)
+            
+            if not item_date:
+                logger.debug(f"No date found in item for field {date_field}, using default purple")
+                return "#6366f1"  # Default purple
+                
+            try:
+                from datetime import datetime
+                # Parse the date (handle different formats)
+                if 'T' in item_date:
+                    item_date = item_date.split('T')[0]  # Remove time component
+                    
+                item_date_obj = datetime.strptime(item_date, "%Y-%m-%d")
+                recent_start_obj = datetime.strptime(period_info['recent_start'], "%Y-%m-%d")
+                recent_end_obj = datetime.strptime(period_info['recent_end'], "%Y-%m-%d")
+                
+                # Check if in recent period
+                if recent_start_obj <= item_date_obj <= recent_end_obj:
+                    logger.debug(f"Item date {item_date} is in recent period, using purple")
+                    return "#8b5cf6"  # Purple for recent period
+                else:
+                    logger.debug(f"Item date {item_date} is in previous period, using grey")
+                    return "#9ca3af"  # Grey for previous period
+                    
+            except (ValueError, KeyError):
+                return "#6366f1"  # Default purple if parsing fails
+        
+        for item in data_results:
+            # Priority 1: 311 Cases format (lat/long) - most common in DataSF
+            if 'lat' in item and 'long' in item and item['lat'] and item['long']:
+                try:
+                    color = get_period_color(item, period_info)
+                    location_data.append({
+                        "lat": float(item['lat']),
+                        "lon": float(item['long']),
+                        "title": item.get('service_name', item.get('title', '')),
+                        "tooltip": f"Service: {item.get('service_name', '')}, District: {item.get('supervisor_district', '')}, Date: {item.get('requested_datetime', item.get('incident_date', ''))}",
+                        "value": item.get('value', 1),
+                        "markerColor": color
+                    })
+                    continue
+                except (ValueError, TypeError):
+                    pass
+            
+            # Priority 2: Alternative lat/lng field names
+            elif 'lat' in item and 'lng' in item and item['lat'] and item['lng']:
+                try:
+                    color = get_period_color(item, period_info)
+                    location_data.append({
+                        "lat": float(item['lat']),
+                        "lon": float(item['lng']),
+                        "title": item.get('service_name', item.get('title', '')),
+                        "tooltip": f"Service: {item.get('service_name', '')}, District: {item.get('supervisor_district', '')}, Date: {item.get('requested_datetime', item.get('incident_date', ''))}",
+                        "value": item.get('value', 1),
+                        "color": color
+                    })
+                    continue
+                except (ValueError, TypeError):
+                    pass
+                    
+            # Priority 3: Standard lat/lon field names
+            elif 'lat' in item and 'lon' in item and item['lat'] and item['lon']:
+                try:
+                    color = get_period_color(item, period_info)
+                    location_data.append({
+                        "lat": float(item['lat']),
+                        "lon": float(item['lon']),
+                        "title": item.get('service_name', item.get('title', '')),
+                        "tooltip": f"Service: {item.get('service_name', '')}, District: {item.get('supervisor_district', '')}, Date: {item.get('requested_datetime', item.get('incident_date', ''))}",
+                        "value": item.get('value', 1),
+                        "markerColor": color
+                    })
+                    continue
+                except (ValueError, TypeError):
+                    pass
+                    
+            # Priority 4: Full field names
+            elif 'latitude' in item and 'longitude' in item and item['latitude'] and item['longitude']:
+                try:
+                    color = get_period_color(item, period_info)
+                    location_data.append({
+                        "lat": float(item['latitude']),
+                        "lon": float(item['longitude']),
+                        "title": item.get('service_name', item.get('title', '')),
+                        "tooltip": f"Service: {item.get('service_name', '')}, District: {item.get('supervisor_district', '')}, Date: {item.get('requested_datetime', item.get('incident_date', ''))}",
+                        "value": item.get('value', 1),
+                        "markerColor": color
+                    })
+                    continue
+                except (ValueError, TypeError):
+                    pass
+            
+            # Priority 5: DataSF location object (contains lat/lng)
+            elif 'location' in item and item['location']:
+                color = get_period_color(item, period_info)
+                location_data.append({
+                    "location": item['location'],
+                    "title": item.get('service_name', item.get('title', '')),
+                    "tooltip": f"Service: {item.get('service_name', '')}, District: {item.get('supervisor_district', '')}, Date: {item.get('requested_datetime', item.get('incident_date', ''))}",
+                    "value": item.get('value', 1),
+                    "markerColor": color
+                })
+                continue
+            
+            # Priority 6: Address (requires geocoding - least preferred)
+            elif 'address' in item and item['address']:
+                color = get_period_color(item, period_info)
+                location_data.append({
+                    "address": item['address'],
+                    "title": item.get('service_name', item.get('address', '')),
+                    "tooltip": f"Service: {item.get('service_name', '')}, Address: {item.get('address', '')}, District: {item.get('supervisor_district', '')}, Date: {item.get('requested_datetime', item.get('incident_date', ''))}",
+                    "value": item.get('value', 1),
+                    "markerColor": color
+                })
+        
+        if not location_data:
+            return JSONResponse(
+                status_code=404,
+                content={"status": "error", "message": "No location data found in the results"}
+            )
+        
+        # Log what types of location data were found
+        location_types = []
+        color_counts = {"#8b5cf6": 0, "#9ca3af": 0, "#6366f1": 0}  # Purple, Grey, Default
+        
+        for item in location_data:
+            if "lat" in item and "lon" in item:
+                location_types.append("lat/lon_coords")
+            elif "location" in item:
+                location_types.append("location_object")
+            elif "address" in item:
+                location_types.append("address")
+            
+            # Count colors for period analysis
+            color = item.get("markerColor", "#6366f1")
+            if color in color_counts:
+                color_counts[color] += 1
+        
+        location_type_counts = {}
+        for loc_type in location_types:
+            location_type_counts[loc_type] = location_type_counts.get(loc_type, 0) + 1
+        
+        logger.info(f"Location data types found: {location_type_counts}")
+        if "lat/lon_coords" in location_type_counts:
+            logger.info(f"Using {location_type_counts['lat/lon_coords']} direct lat/lon coordinates (no geocoding needed) ✓")
+        if "location_object" in location_type_counts:
+            logger.info(f"Using {location_type_counts['location_object']} DataSF location objects")
+        if "address" in location_type_counts:
+            logger.info(f"Using {location_type_counts['address']} addresses (requires geocoding)")
+        
+        # Log period color distribution
+        if period_info:
+            logger.info(f"Period color distribution: {color_counts['#8b5cf6']} recent (purple), {color_counts['#9ca3af']} previous (grey)")
+        else:
+            logger.info(f"No period info available - using default colors")
+        
+        # Use the chart type determined earlier based on 200-point threshold
+        data_points = len(location_data)
+        if chart_type == "locator":
+            map_type = "point"  # Locator map for ≤200 points
+        else:
+            map_type = "symbol"  # Symbol chart for >200 points
+        
+        logger.info(f"Creating {chart_type} map with {data_points} data points (map_type: {map_type})")
+        
+        # Generate map title
+        map_title = f"{metric_name}"
+        if district != "0":
+            map_title += f" - District {district}"
+        
+        # Call the generate_map function
+        map_result = generate_map(
+            context_variables=context_variables,
+            map_title=map_title,
+            map_type=map_type,
+            location_data=location_data,
+            map_metadata={
+                "description": f"Map showing {metric_name} data",
+                "metric_id": metric_id,
+                "district": district,
+                "period_type": period_type
+            },
+            metric_id=metric_id
+        )
+        
+        if not map_result or "error" in map_result:
+            error_msg = map_result.get("error") if map_result else "Failed to generate map"
+            return JSONResponse(
+                status_code=500,
+                content={"status": "error", "message": error_msg}
+            )
+        
+        # Return success response
+        return JSONResponse(content={
+            "status": "success",
+            "message": f"Successfully generated {chart_type} map for {metric_name}",
+            "map_id": map_result.get("map_id"),
+            "edit_url": map_result.get("edit_url"),
+            "publish_url": map_result.get("publish_url"),
+            "data_points": data_points,
+            "map_type": chart_type
+        })
+        
+    except Exception as e:
+        logger.error(f"Error generating map: {str(e)}", exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={"status": "error", "message": f"Internal server error: {str(e)}"}
+        )
+
+@router.post("/api/create-new-report")
+async def create_new_report(request: Request):
+    """
+    Create a new monthly report in the database.
+    """
+    try:
+        data = await request.json()
+        district = data.get("district", "0")
+        period_type = data.get("period_type", "month")
+        
+        logger.info(f"Creating new monthly report for district {district}")
+        
+        # Import the monthly report functions
+        from monthly_report import initialize_monthly_reporting_table
+        from tools.db_utils import execute_with_connection
+        import os
+        from datetime import datetime
+        
+        # Initialize the monthly reporting table
+        init_result = initialize_monthly_reporting_table()
+        if not init_result:
+            return JSONResponse(
+                status_code=500,
+                content={"status": "error", "message": "Failed to initialize monthly reporting table"}
+            )
+        
+        def create_new_report_operation(connection):
+            cursor = connection.cursor()
+            
+            # Get current date
+            report_date = datetime.now().date()
+            
+            # Generate a unique filename for the new report
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            original_filename = f"manual_report_{timestamp}.html"
+            
+            # Create a record in the reports table
+            cursor.execute("""
+                INSERT INTO reports (
+                    max_items, district, period_type, original_filename, revised_filename,
+                    created_at, updated_at
+                ) VALUES (
+                    %s, %s, %s, %s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                ) RETURNING id
+            """, (
+                10,  # max_items
+                district,
+                period_type,
+                original_filename,
+                None  # revised_filename
+            ))
+            
+            report_id = cursor.fetchone()[0]
+            logger.info(f"Created new report with ID: {report_id}")
+            
+            connection.commit()
+            cursor.close()
+            return report_id
+        
+        # Execute the operation
+        result = execute_with_connection(
+            operation=create_new_report_operation,
+            db_host=os.getenv("POSTGRES_HOST", "localhost"),
+            db_port=int(os.getenv("POSTGRES_PORT", "5432")),
+            db_name=os.getenv("POSTGRES_DB", "transparentsf"),
+            db_user=os.getenv("POSTGRES_USER", "postgres"),
+            db_password=os.getenv("POSTGRES_PASSWORD", "postgres")
+        )
+        
+        if result["status"] != "success":
+            return JSONResponse(
+                status_code=500,
+                content={"status": "error", "message": f"Failed to create new report: {result['message']}"}
+            )
+        
+        report_id = result["result"]
+        
+        # Create a basic HTML file for the new report
+        from pathlib import Path
+        reports_dir = Path(__file__).parent / 'output' / 'reports'
+        reports_dir.mkdir(parents=True, exist_ok=True)
+        
+        html_content = f"""<!DOCTYPE html>
+<html>
+<head>
+    <title>New Monthly Report</title>
+</head>
+<body>
+    <h1>New Monthly Report</h1>
+    <p>This is a new report created on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
+    <p>Report ID: {report_id}</p>
+    <p>District: {district}</p>
+    <p>Period Type: {period_type}</p>
+    <p>Items will be added here as you select them from the anomaly analyzer.</p>
+</body>
+</html>"""
+        
+        html_file_path = reports_dir / f"manual_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.html"
+        with open(html_file_path, 'w') as f:
+            f.write(html_content)
+        
+        # Create report data for response
+        report_data = {
+            "id": report_id,
+            "district": district,
+            "district_name": "Citywide" if district == "0" else f"District {district}",
+            "period_type": period_type,
+            "item_count": 0,
+            "original_filename": html_file_path.name
+        }
+        
+        return JSONResponse(content={
+            "status": "success",
+            "message": f"Successfully created new monthly report",
+            "report_id": report_id,
+            "report_data": report_data
+        })
+        
+    except Exception as e:
+        logger.error(f"Error creating new report: {str(e)}", exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={"status": "error", "message": f"Failed to create new report: {str(e)}"}
         )
 
 # Run the application

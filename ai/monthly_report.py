@@ -873,7 +873,7 @@ def prioritize_deltas(deltas, max_items=10):
         logger.error(error_msg, exc_info=True)
         return {"status": "error", "message": error_msg}
 
-def store_prioritized_items(prioritized_items, period_type='month', district="0"):
+def store_prioritized_items(prioritized_items, period_type='month', district=None):
     """
     Store prioritized items in the monthly_reporting table.
     Args:
@@ -895,9 +895,19 @@ def store_prioritized_items(prioritized_items, period_type='month', district="0"
         # Get the current date for the report
         report_date = datetime.now().date()
         
-        # Generate filenames for the report
-        original_filename = f"monthly_report_{district}_{report_date.strftime('%Y_%m')}.html"
-        revised_filename = f"monthly_report_{district}_{report_date.strftime('%Y_%m')}_revised.html"
+        # Generate filenames for the report (use 'multi' for multi-district reports)
+        if district is None:
+            # If no district specified, check if all items have the same district
+            districts = [item.get('district', '0') for item in prioritized_items]
+            unique_districts = set(districts)
+            if len(unique_districts) == 1:
+                report_district = districts[0]
+            else:
+                report_district = 'multi'
+        else:
+            report_district = 'multi' if any(item.get('district', district) != district for item in prioritized_items) else district
+        original_filename = f"monthly_report_{report_district}_{report_date.strftime('%Y_%m')}.html"
+        revised_filename = f"monthly_report_{report_district}_{report_date.strftime('%Y_%m')}_revised.html"
         
         # Create a record in the reports table first
         cursor.execute("""
@@ -909,7 +919,7 @@ def store_prioritized_items(prioritized_items, period_type='month', district="0"
             ) RETURNING id
         """, (
             len(prioritized_items),
-            district,
+            report_district,
             period_type,
             original_filename,
             revised_filename
@@ -1273,13 +1283,14 @@ DO NOT include any additional content, headers, or formatting outside of this JS
     else:
         return {"status": "error", "message": result["message"]}
 
-def generate_monthly_report(report_date=None, district="0"):
+def generate_monthly_report(report_date=None, district="0", original_filename=None):
     """
     Step 4: Generate the final monthly report with charts and annotations
     
     Args:
         report_date: The date for the report (defaults to current month)
         district: District number
+        original_filename: Optional original filename to use instead of generating a new one
         
     Returns:
         Path to the generated report file
@@ -1789,7 +1800,12 @@ def generate_monthly_report(report_date=None, district="0"):
         reports_dir.mkdir(parents=True, exist_ok=True)
         
         # Save the report to a file as HTML
-        report_filename = f"monthly_report_{district}_{report_date.strftime('%Y_%m')}.html"
+        if original_filename:
+            # Use the provided original filename
+            report_filename = original_filename
+        else:
+            # Generate a new filename based on current date
+            report_filename = f"monthly_report_{district}_{report_date.strftime('%Y_%m')}.html"
         report_path = reports_dir / report_filename
         
         # Write the report directly without adding HTML structure
@@ -2442,7 +2458,42 @@ def run_monthly_report_process(district="0", period_type="month", max_report_ite
 
         # Step 7: Generate the monthly newsletter (with enriched context already in the database)
         logger.info("Step 7: Generating monthly newsletter")
-        newsletter_result = generate_monthly_report(district=district)
+        
+        # Get the original filename from the database for this district
+        def get_original_filename_operation(connection):
+            cursor = connection.cursor(cursor_factory=psycopg2.extras.DictCursor)
+            
+            # Get the most recent report for this district
+            cursor.execute("""
+                SELECT original_filename 
+                FROM reports 
+                WHERE district = %s 
+                ORDER BY created_at DESC 
+                LIMIT 1
+            """, (district,))
+            
+            result = cursor.fetchone()
+            cursor.close()
+            return result['original_filename'] if result else None
+        
+        # Get the original filename
+        filename_result = execute_with_connection(
+            operation=get_original_filename_operation,
+            db_host=DB_HOST,
+            db_port=DB_PORT,
+            db_name=DB_NAME,
+            db_user=DB_USER,
+            db_password=DB_PASSWORD
+        )
+        
+        original_filename = None
+        if filename_result["status"] == "success" and filename_result["result"]:
+            original_filename = filename_result["result"]
+            logger.info(f"Using original filename: {original_filename}")
+        else:
+            logger.info("No original filename found, will generate new filename")
+        
+        newsletter_result = generate_monthly_report(district=district, original_filename=original_filename)
         if newsletter_result.get("status") != "success":
             return newsletter_result
             
@@ -2540,14 +2591,31 @@ def get_monthly_reports_list():
             if district == "0":
                 district_name = "Citywide"
             
-            # Extract date from filename (format: monthly_report_0_2025_04.html)
+            # Extract date from filename (format: monthly_report_0_2025_04.html or manual_report_20250803_094231.html)
             filename = report['original_filename']
             parts = filename.split('_')
             
             if len(parts) >= 4:
-                year = parts[3]
-                month = parts[4].split('.')[0]  # Remove .html extension
-                report_date = f"{year}-{month}-01T00:00:00"  # ISO format date
+                # Try the original format first (monthly_report_0_2025_04.html)
+                if parts[0] == 'monthly' and parts[1] == 'report':
+                    year = parts[3]
+                    month = parts[4].split('.')[0]  # Remove .html extension
+                    report_date = f"{year}-{month}-01T00:00:00"  # ISO format date
+                # Try the manual format (manual_report_20250803_094231.html)
+                elif parts[0] == 'manual' and parts[1] == 'report':
+                    # Extract date from manual_report_20250803_094231.html
+                    date_part = parts[2]  # 20250803
+                    if len(date_part) == 8:  # YYYYMMDD format
+                        year = date_part[:4]
+                        month = date_part[4:6]
+                        day = date_part[6:8]
+                        report_date = f"{year}-{month}-{day}T00:00:00"  # ISO format date
+                    else:
+                        # Fallback to created_at if date parsing fails
+                        report_date = report['created_at'].isoformat()
+                else:
+                    # Fallback to created_at if filename doesn't match expected format
+                    report_date = report['created_at'].isoformat()
             else:
                 # Fallback to created_at if filename doesn't match expected format
                 report_date = report['created_at'].isoformat()

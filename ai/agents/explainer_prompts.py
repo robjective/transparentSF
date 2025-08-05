@@ -392,7 +392,29 @@ IMPORTANT NOTES:
 
 # Core tools list
 CORE_TOOLS_INSTRUCTIONS = """TOOLS YOU SHOULD USE:
-- get_notes() ALWAYS Start here. This is a summary of all the analysis you have available to you in your docs. Use it to determine what data is available, and what to search for in your query_docs() calls.  It contains no links or charts, so don't share any links or charts with the user without checking your docs first. 
+- set_dataset: Set dataset for analysis by querying DataSF
+  USAGE: set_dataset(endpoint="endpoint-id", query="your-soql-query")
+  Use this to query DataSF datasets for analysis. Both parameters are required.
+  
+  Parameter guidelines:
+  - endpoint: The dataset identifier WITHOUT the .json extension (e.g., 'wg3w-h783')
+  - query: The complete SoQL (Socrata query language) query string using standard SQL syntax (remember NO FROM clause!)
+  
+  IMPORTANT: You MUST use the EXACT function call format shown below with named arguments:
+  
+  ```
+  set_dataset(
+      endpoint="g8m3-pdis", 
+      query="select dba_name where supervisor_district = '2' AND naic_code_description = 'Retail Trade' order by business_start_date desc limit 5"
+  )
+  ```
+  SOQL Query Guidelines:
+  - Use fieldName values (not column name) in your queries
+  - NO FROM clause!, thats why we pass endpoint. (This is unlike standard SQL)
+  - Use single quotes for string values: where field_name = 'value'
+  - Don't use type casting with :: syntax
+  - Use proper date functions: date_trunc_y(), date_trunc_ym(), date_trunc_ymd()
+  - Use standard aggregation functions: sum(), avg(), min(), max(), count() 
 
 - get_dashboard_metric: Retrieve dashboard metric data containing anomalies
   USAGE: get_dashboard_metric(context_variables, district_number=0, metric_id=id_number)
@@ -490,27 +512,23 @@ When you are asked about metrics, you should follow this workflow:
 - get_metric_details: Get detailed information about a specific metric
   USAGE: get_metric_details(context_variables, metric_identifier=1) or get_metric_details(context_variables, metric_identifier="metric_key")
   Use this to get complete information about a metric by ID or key.
-  
-- list_categories: Get all available metric categories and subcategories
-  USAGE: list_categories(context_variables)
-  Use this to see what categories of metrics are available.
-  
+
 - get_metrics_overview: Get summary statistics about the metrics system
   USAGE: get_metrics_overview(context_variables)
   Use this to get high-level information about total metrics, active metrics, etc.
   
 - create_new_metric: Add a new metric to the database
   USAGE: create_new_metric(
-    context_variables,
-    name="🚗 Vehicle Thefts",
-    key="vehicle_thefts",
+    
+    name="🚨 Violent Crime Incidents",
+    key="violent_violent_crime_incidents_2",
     category="crime",
     endpoint="wg3w-h783",
-    summary="Count of reported vehicle theft incidents",
-    definition="Vehicle thefts include all reported incidents of motor vehicle theft, including cars, trucks, motorcycles, and other motorized vehicles.",
+    summary="Count of reported violent crime incidents, including assaults, homicides, rapes, robberies, human trafficking, weapons offenses, and offenses against family/children.",
+    definition="Count of reported violent crime incidents. Violent crimes are defined as incidents categorized as: Assault, Homicide, Rape, Robbery, Human Trafficking (Commercial Sex Acts and Involuntary Servitude), Offences Against The Family And Children, and Weapons Offenses.",
     data_sf_url="https://data.sfgov.org/Public-Safety/Police-Department-Incident-Reports-2018-to-Present/wg3w-h783",
-    ytd_query="SELECT COUNT(*) as count FROM incidents WHERE incident_category = 'Motor Vehicle Theft' AND incident_date >= DATE_TRUNC('year', CURRENT_DATE) AND incident_date < CURRENT_DATE",
-    metric_query="SELECT COUNT(*) as count FROM incidents WHERE incident_category = 'Motor Vehicle Theft' AND incident_date >= DATE_TRUNC('month', CURRENT_DATE) AND incident_date < CURRENT_DATE",
+    ytd_query="SELECT date_trunc_ymd(Report_Datetime) as date, COUNT(*) as value WHERE Report_Datetime >= last_year_start AND Report_Datetime <= current_date AND Incident_Category IN (''Assault'', ''Homicide'', ''Rape'', ''Robbery'', ''Human Trafficking (A), Commercial Sex Acts'', ''Human Trafficking, Commercial Sex Acts'', ''Human Trafficking (B), Involuntary Servitude'', ''Offences Against The Family And Children'', ''Weapons Carrying Etc'', ''Weapons Offense'', ''Weapons Offence'') GROUP BY date ORDER BY date",
+    metric_query="SELECT ''Violent Crime'' as label, max(Report_Datetime) as max_date, COUNT(CASE WHEN Report_Datetime >= this_year_start AND Report_Datetime <= this_year_end AND Incident_Category IN (''Assault'', ''Homicide'', ''Rape'', ''Robbery'', ''Human Trafficking (A), Commercial Sex Acts'', ''Human Trafficking, Commercial Sex Acts'', ''Human Trafficking (B), Involuntary Servitude'', ''Offences Against The Family And Children'', ''Weapons Carrying Etc'', ''Weapons Offense'', ''Weapons Offence'') THEN 1 END) as this_year, COUNT(CASE WHEN Report_Datetime >= last_year_start AND Report_Datetime <= last_year_end AND Incident_Category IN (''Assault'', ''Homicide'', ''Rape'', ''Robbery'', ''Human Trafficking (A), Commercial Sex Acts'', ''Human Trafficking, Commercial Sex Acts'', ''Human Trafficking (B), Involuntary Servitude'', ''Offences Against The Family And Children'', ''Weapons Carrying Etc'', ''Weapons Offense'', ''Weapons Offence'') THEN 1 END) as last_year, (COUNT(CASE WHEN Report_Datetime >= this_year_start AND Report_Datetime <= this_year_end AND Incident_Category IN (''Assault'', ''Homicide'', ''Rape'', ''Robbery'', ''Human Trafficking (A), Commercial Sex Acts'', ''Human Trafficking, Commercial Sex Acts'', ''Human Trafficking (B), Involuntary Servitude'', ''Offences Against The Family And Children'', ''Weapons Carrying Etc'', ''Weapons Offense'', ''Weapons Offence'') THEN 1 END) - COUNT(CASE WHEN Report_Datetime >= last_year_start AND Report_Datetime <= last_year_end AND Incident_Category IN (''Assault'', ''Homicide'', ''Rape'', ''Robbery'', ''Human Trafficking (A), Commercial Sex Acts'', ''Human Trafficking, Commercial Sex Acts'', ''Human Trafficking (B), Involuntary Servitude'', ''Offences Against The Family And Children'', ''Weapons Carrying Etc'', ''Weapons Offense'', ''Weapons Offence'') THEN 1 END)) as delta, ((COUNT(CASE WHEN Report_Datetime >= this_year_start AND Report_Datetime <= this_year_end AND Incident_Category IN (''Assault'', ''Homicide'', ''Rape'', ''Robbery'', ''Human Trafficking (A), Commercial Sex Acts'', ''Human Trafficking, Commercial Sex Acts'', ''Human Trafficking (B), Involuntary Servitude'', ''Offences Against The Family And Children'', ''Weapons Carrying Etc'', ''Weapons Offense'', ''Weapons Offence'') THEN 1 END) - COUNT(CASE WHEN Report_Datetime >= last_year_start AND Report_Datetime <= last_year_end AND Incident_Category IN (''Assault'', ''Homicide'', ''Rape'', ''Robbery'', ''Human Trafficking (A), Commercial Sex Acts'', ''Human Trafficking, Commercial Sex Acts'', ''Human Trafficking (B), Involuntary Servitude'', ''Offences Against The Family And Children'', ''Weapons Carrying Etc'', ''Weapons Offense'', ''Weapons Offence'') THEN 1 END)) * 100.0 / NULLIF(COUNT(CASE WHEN Report_Datetime >= last_year_start AND Report_Datetime <= last_year_end AND Incident_Category IN (''Assault'', ''Homicide'', ''Rape'', ''Robbery'', ''Human Trafficking (A), Commercial Sex Acts'', ''Human Trafficking, Commercial Sex Acts'', ''Human Trafficking (B), Involuntary Servitude'', ''Offences Against The Family And Children'', ''Weapons Carrying Etc'', ''Weapons Offense'', ''Weapons Offence'') THEN 1 END), 0)) as perc_diff, supervisor_district group by supervisor_district",
     dataset_title="Police Department Incident Reports",
     dataset_category="Public Safety",
     show_on_dash=True,
@@ -524,10 +542,25 @@ When you are asked about metrics, you should follow this workflow:
         {"name": "incident_category", "fieldName": "incident_category", "description": "Category of the incident"},
         {"name": "incident_subcategory", "fieldName": "incident_subcategory", "description": "Subcategory of the incident"}
     ]
-  )
+    )
   Use this to add new metrics to the system. Required fields: name, key, category, endpoint.
+ 
   The ytd_query should calculate year-to-date totals, while metric_query should calculate current period totals.
   Location fields and category fields are optional but recommended for better data analysis.
+  
+  DATE SUBSTITUTION VARIABLES:
+  The system automatically substitutes date variables in queries at runtime. Use these variables in your queries:
+  - last_year_start: Start of the previous year (e.g., '2024-01-01')
+  - last_year_end: End of the previous year (e.g., '2024-12-31')
+  - this_year_start: Start of the current year (e.g., '2025-01-01')
+  - this_year_end: End of the current year (e.g., '2025-12-31')
+  - current_date: Current date when the query is executed
+  - last_month_start: Start of the previous month
+  - last_month_end: End of the previous month
+  - this_month_start: Start of the current month
+  - this_month_end: End of the current month
+  
+  These variables are automatically replaced with actual date values when queries are executed, allowing for dynamic date ranges without hardcoding dates.
   
 - edit_metric: Update an existing metric
   USAGE: edit_metric(context_variables, metric_identifier=1, updates={"summary": "Updated summary", "show_on_dash": False})
@@ -545,17 +578,7 @@ When you are asked about metrics, you should follow this workflow:
   USAGE: find_metrics_by_endpoint(context_variables, endpoint="wg3w-h783")
   Use this to see what metrics are built on a particular dataset.
   
-- get_crime_metrics: Get all crime-related metrics
-  USAGE: get_crime_metrics(context_variables)
-  Convenience function to get all metrics in the crime category.
-  
-- get_safety_metrics: Get all safety-related metrics
-  USAGE: get_safety_metrics(context_variables)
-  Convenience function to get all metrics in the safety category.
-  
-- get_economy_metrics: Get all economy-related metrics
-  USAGE: get_economy_metrics(context_variables)
-  Convenience function to get all metrics in the economy category."""
+"""
 
 # Function to combine all sections into the complete instructions
 def get_complete_instructions():

@@ -1,0 +1,104 @@
+# Cursor Rules for TransparentSF Repository
+
+## Repository Organization Structure
+
+### AI Module Structure (`ai/`)
+- **Main AI files**: Keep core AI functionality at the `ai/` level (e.g., `main.py`, `backend.py`, `anomalyAnalyzer.py`)
+- **Agents**: All agent-related code goes in `ai/agents/`
+  - Agent configurations in `ai/agents/config/`
+  - LangChain agents in `ai/agents/langchain_agent/`
+  - Agent-specific tools in `ai/agents/langchain_agent/tools/`
+  - Agent prompts in `ai/agents/langchain_agent/prompts/`
+- **Routes**: All Flask routes in `ai/routes/`
+  - Each route type gets its own file (e.g., `metrics.py`, `chat.py`, `anomaly.py`)
+- **Tools**: Utility functions and tools in `ai/tools/`
+  - Analysis tools in `ai/tools/analysis/`
+  - Database utilities in `ai/tools/`
+  - Unused/legacy code in `ai/tools/unused/`
+- **Templates**: HTML templates in `ai/templates/`
+- **Static**: Static assets in `ai/static/`
+- **Data**: Data files and configurations in `ai/data/`
+
+### Configuration Files
+- **Environment variables**: `.env` files should be at the appropriate level (ai/ for AI-specific, root for global)
+- **Database migrations**: SQL files at root level or in dedicated migration folders
+- **Configuration JSON**: Keep in `ai/data/` or appropriate subdirectories
+
+### File Naming Conventions
+- **Python files**: Use snake_case (e.g., `anomaly_analyzer.py`, `metrics_manager.py`)
+- **Configuration files**: Use descriptive names with appropriate extensions
+- **SQL files**: Use descriptive names with `.sql` extension
+- **Documentation**: Use `README_*.md` for specific documentation
+
+### Code Organization Principles
+1. **Separation of Concerns**: Keep routes, agents, tools, and data separate
+2. **Modular Design**: Use config folders for configuration management
+3. **Clear Hierarchy**: Maintain the established folder structure
+4. **Consistent Imports**: Use relative imports within modules, absolute imports for cross-module dependencies
+
+### Specific Rules
+- **New agents**: Add to `ai/agents/` with appropriate subdirectories
+- **New routes**: Add to `ai/routes/` as separate files
+- **New tools**: Add to `ai/tools/` or appropriate subdirectory
+- **Configuration**: Use `config/` folders within modules for module-specific config
+- **Database operations**: Keep SQL files organized and use `ai/tools/` for database utilities
+- **Analysis code**: Place in `ai/tools/analysis/` with appropriate subdirectories
+
+### Import Patterns
+- Use `from ai.agents import ...` for agent imports
+- Use `from ai.routes import ...` for route imports  
+- Use `from ai.tools import ...` for tool imports
+- Use `from ai.data import ...` for data imports
+
+### Documentation
+- Keep README files in appropriate directories
+- Use consistent documentation patterns
+- Document configuration options in config files
+
+### Testing
+- Place test files near the code they test
+- Use `test_` prefix for test files
+- Keep test utilities in appropriate test directories
+
+### Data Management
+- Raw data files in `ai/data/`
+- Processed data in appropriate subdirectories
+- Database backups in `backup_history/`
+- Logs in `logs/` directories
+
+### Security
+- Keep sensitive configuration in `.env` files
+- Don't commit `.env` files to version control
+- Use appropriate file permissions for sensitive data
+
+### Performance
+- Keep large files organized in appropriate directories
+- Use efficient import patterns
+- Maintain clear separation between heavy computational tasks and lightweight utilities
+
+### Logging Configuration
+- **Main logging setup**: Configure comprehensive logging in `ai/main.py` with Uvicorn logging config
+- **Log levels**: Use environment variable `LOG_LEVEL` to control logging verbosity
+- **Log directories**: Create and use `ai/logs/` directory for log files
+- **Module-specific logging**: Configure specific loggers for each module (routes, agents, tools)
+- **File handlers**: Use dedicated file handlers for specific modules (e.g., weekly analysis)
+- **Third-party logging**: Set appropriate levels for external libraries to reduce noise
+- **Logger naming**: Use `__name__` for logger instances to maintain module hierarchy
+
+### FastAPI Application Structure
+- **Main app**: Use `ai/main.py` as the primary FastAPI application entry point
+- **Router imports**: Import routers from their respective modules at the top of main.py
+- **Router inclusion**: Use `app.include_router()` with appropriate prefixes and tags
+- **Template sharing**: Pass templates to routers using setter functions (e.g., `set_templates()`)
+- **Static file mounting**: Mount static directories using `app.mount()` with proper paths
+- **CORS configuration**: Configure CORS middleware with appropriate origins and settings
+- **Directory structure**: Create necessary directories (logs, output, static) if they don't exist
+
+### Route Module Pattern
+- **Router creation**: Each route module should create an `APIRouter()` instance
+- **Template handling**: Include a `set_templates()` function to receive templates from main app
+- **Environment loading**: Load environment variables at the top of route modules
+- **Error handling**: Use proper HTTP exceptions and logging for error cases
+- **Response types**: Use appropriate FastAPI response classes (JSONResponse, HTMLResponse, etc.)
+- **Async functions**: Use async/await pattern for route handlers
+- **Import organization**: Group imports logically (standard library, third-party, local modules) 
