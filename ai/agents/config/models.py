@@ -77,13 +77,19 @@ MODEL_CONFIGS = {
     "claude-3-5-sonnet": ModelConfig(ModelProvider.ANTHROPIC, "claude-3-5-sonnet-20241022"),
     "claude-3-haiku": ModelConfig(ModelProvider.ANTHROPIC, "claude-3-haiku-20240307"),
     # Google Models (Latest versions - with specific config for tool calling)
-    "gemini-1.5-pro": ModelConfig(ModelProvider.GOOGLE, "gemini-1.5-pro-latest", {
+    "gemini-2.5-pro": ModelConfig(ModelProvider.GOOGLE, "gemini-2.5-pro", {
         "temperature": 0.1,
         "top_p": 0.8,
         "top_k": 40,
         "max_output_tokens": 8192
     }),
-    "gemini-1.5-flash": ModelConfig(ModelProvider.GOOGLE, "gemini-1.5-flash-latest", {
+    "gemini-1.5-pro": ModelConfig(ModelProvider.GOOGLE, "gemini-1.5-pro", {
+        "temperature": 0.1,
+        "top_p": 0.8,
+        "top_k": 40,
+        "max_output_tokens": 8192
+    }),
+    "gemini-1.5-flash": ModelConfig(ModelProvider.GOOGLE, "gemini-1.5-flash", {
         "temperature": 0.1,
         "top_p": 0.8,
         "top_k": 40,

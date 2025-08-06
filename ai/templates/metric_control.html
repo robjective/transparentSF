@@ -574,6 +574,25 @@
             background-color: #f8f9fa;
             text-align: center;
         }
+        
+        .generate-map-section {
+            margin-top: 30px;
+            padding: 20px;
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            text-align: center;
+        }
+        
+        .generate-map-section h3 {
+            margin-bottom: 10px;
+            color: #333;
+        }
+        
+        .generate-map-section p {
+            margin-bottom: 15px;
+            color: #666;
+        }
         .chart-dw-btn {
             background-color: #ad35fa;
             color: white;
@@ -2660,9 +2679,7 @@
             // Format the most recent data date
             let dateInfo = '';
             if (selectedMetric.most_recent_data_date) {
-                // Parse the date string and treat it as local time to avoid timezone issues
-                const [year, month, day] = selectedMetric.most_recent_data_date.split('-').map(Number);
-                const date = new Date(year, month - 1, day); // month is 0-indexed in JavaScript
+                const date = new Date(selectedMetric.most_recent_data_date);
                 const formattedDate = date.toLocaleDateString('en-US', {
                     year: 'numeric',
                     month: 'long',
@@ -3942,6 +3959,20 @@
                     charts.forEach(chart => {
                         chartsHtml += createChartCard(chart, chartType);
                     });
+                    
+                    // Add generate map button for maps modal
+                    if (chartType === 'maps') {
+                        chartsHtml += `
+                            <div class="generate-map-section">
+                                <h3>Generate New Map</h3>
+                                <p>Create a new map for this metric using the anomaly analyzer.</p>
+                                <button class="btn btn-primary" onclick="generateNewMap('${metricId}', '${districtId}')">
+                                    <i class="fas fa-map"></i> Generate New Map
+                                </button>
+                            </div>
+                        `;
+                    }
+                    
                     chartsGrid.innerHTML = chartsHtml;
                 } else {
                     chartsGrid.innerHTML = '<div class="no-charts-message">No charts available for this selection</div>';
@@ -4192,13 +4223,13 @@
             try {
                 let response;
                 try {
-                    response = await fetch(`/api/district-maps?metric_id=${metricId}`);
+                    response = await fetch(`/api/all-maps?metric_id=${metricId}`);
                     if (!response.ok) {
                         throw new Error(`Failed to fetch from main API: ${response.status}`);
                     }
                 } catch (apiError) {
                     console.warn('Error using main API endpoint, falling back to backend:', apiError);
-                    response = await fetch(`/backend/api/district-maps?metric_id=${metricId}`);
+                    response = await fetch(`/backend/api/all-maps?metric_id=${metricId}`);
                     if (!response.ok) {
                         throw new Error(`Failed to fetch maps: ${response.status}`);
                     }
@@ -4223,6 +4254,66 @@
             } catch (error) {
                 console.error('Error loading maps:', error);
                 return [];
+            }
+        }
+        
+        // Function to generate new map
+        async function generateNewMap(metricId, districtId) {
+            try {
+                // Show loading state
+                const button = event.target;
+                const originalText = button.textContent;
+                button.textContent = 'Generating...';
+                button.disabled = true;
+                
+                // Prepare the request data
+                const requestData = {
+                    metric_id: metricId,
+                    district: districtId || '0',
+                    period_type: 'month'
+                };
+                
+                console.log('Sending generate map request:', requestData);
+                
+                // Make API call to generate map
+                const response = await fetch('/anomaly-analyzer/api/generate-map', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(requestData)
+                });
+                
+                const result = await response.json();
+                console.log('Generate map response:', result);
+                
+                if (result.status === 'success') {
+                    // Show success message
+                    const mapType = result.map_type === 'locator' ? 'Locator Map' : 'Symbol Chart';
+                    alert(`Successfully generated ${mapType} with ${result.data_points} data points!\n\nMap ID: ${result.map_id}\nView Map: ${result.publish_url}`);
+                    
+                    // Optionally open the map in a new tab
+                    if (result.publish_url) {
+                        const openMap = confirm('Would you like to open the map in a new tab?');
+                        if (openMap) {
+                            window.open(result.publish_url, '_blank');
+                        }
+                    }
+                    
+                    // Refresh the maps modal to show the new map
+                    loadChartsInModal('monthly', 'maps', metricId, districtId);
+                } else {
+                    // Show error message
+                    alert(`Error generating map: ${result.message}`);
+                }
+            } catch (error) {
+                console.error('Error generating map:', error);
+                alert(`Error generating map: ${error.message}`);
+            } finally {
+                // Reset button state
+                const button = event.target;
+                button.textContent = 'Generate New Map';
+                button.disabled = false;
             }
         }
         

@@ -305,10 +305,13 @@ class ExplainerAgent:
             message["sender"] = sender
         self.messages.append(message)
         
-        # Log conversation to Seymour's log
-        if role in ['user', 'assistant']:
+        # Log conversation to Seymour's log (but not assistant messages to avoid log artifacts in response)
+        if role == 'user':
             sender_name = sender if sender else role
             self.logger.info(f"{sender_name}: {content}")
+        elif role == 'assistant':
+            # Don't log assistant messages to avoid log artifacts appearing in the response
+            pass
     
     def clear_conversation_history(self):
         """Clear the conversation history."""

@@ -1031,6 +1031,23 @@
             background: var(--bg-secondary);
         }
         
+        .explainer-tool-call-content {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            width: 100%;
+        }
+        
+        .tool-name {
+            font-weight: 500;
+        }
+        
+        .tool-status {
+            font-size: 11px;
+            font-weight: 500;
+            opacity: 0.8;
+        }
+        
         .explainer-tool-call:hover {
             opacity: 0.8;
         }
@@ -1442,6 +1459,7 @@
                                 <option value="claude-3-haiku">Claude 3 Haiku (Anthropic)</option>
                                 
                                 <!-- Google Models -->
+                                <option value="gemini-2.5-pro">Gemini 2.5 Pro (Google)</option>
                                 <option value="gemini-1.5-pro">Gemini 1.5 Pro (Google)</option>
                                 <option value="gemini-1.5-flash">Gemini 1.5 Flash (Google)</option>
                             </select>
@@ -1936,7 +1954,7 @@
                 
                 const statusDiv = toolCallDiv.querySelector('.tool-status');
                 if (statusDiv) {
-                    statusDiv.textContent = success ? 'Completed' : 'Failed';
+                    statusDiv.textContent = success ? 'Success' : 'Failure';
                 }
                 
                 // Update details
@@ -1944,19 +1962,19 @@
                 if (detailsDiv) {
                     const statusText = detailsDiv.querySelector('div:nth-child(2)');
                     if (statusText) {
-                        statusText.innerHTML = `<strong>Status:</strong> ${success ? 'Completed' : 'Failed'}`;
+                        statusText.innerHTML = `<strong>Status:</strong> ${success ? 'Success' : 'Failure'}`;
                     }
                     
                     const responseElement = detailsDiv.querySelector(`#${toolId}-response`);
                     if (responseElement) {
-                        responseElement.textContent = response ? JSON.stringify(response, null, 2) : (success ? 'Completed successfully' : 'Failed');
+                        responseElement.textContent = response ? JSON.stringify(response, null, 2) : (success ? 'Success' : 'Failure');
                     }
                 }
                 
                 // Update stored data
                 if (window.toolCallData && window.toolCallData.has(toolId)) {
                     const data = window.toolCallData.get(toolId);
-                    data.status = success ? 'completed' : 'failed';
+                    data.status = success ? 'success' : 'failure';
                     data.response = response;
                     data.endTime = Date.now();
                     data.duration = data.endTime - data.startTime;

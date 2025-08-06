@@ -341,8 +341,8 @@ def create_datawrapper_map(map_id):
                         "map-type": "symbol",
                         "symbol-type": "circle",
                         "symbol-size": "value",
-                        "symbol-min-size": 20,
-                        "symbol-max-size": 50,
+                        "symbol-min-size": 4,
+                        "symbol-max-size": 4,
                         "symbol-color": "color",
                         "tooltip": {
                             "enabled": True,
@@ -528,8 +528,8 @@ def create_datawrapper_map(map_id):
                         "map-type": "symbol",
                         "symbol-type": "circle",
                         "symbol-size": "value",
-                        "symbol-min-size": metadata.get("min_size", 5),
-                        "symbol-max-size": metadata.get("max_size", 30),
+                        "symbol-min-size": metadata.get("min_size", 4),
+                        "symbol-max-size": metadata.get("max_size", 4),
                         "symbol-color": "color",
                         "tooltip": {
                             "enabled": True,

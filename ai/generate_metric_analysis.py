@@ -1350,6 +1350,7 @@ def transform_query_for_period(original_query, date_field, category_fields, peri
     # Determine if it's a YTD query by checking format (case insensitive)
     is_ytd_query = ('as date, COUNT(*)' in modified_query.lower() or 
                    'as date,' in modified_query.lower() or 
+                   'as date' in modified_query.lower() or 
                    'date_trunc_ymd' in modified_query.lower())
     
     # If it's a YTD query, we'll modify it to work with our period types
@@ -1469,13 +1470,20 @@ def transform_query_for_period(original_query, date_field, category_fields, peri
             return modified_query
     
     # For non-YTD queries, check if the query already has a date_trunc function for the period
-    if period_type == 'month' and 'date_trunc_ym' in modified_query:
+    # Only skip transformation if the query already includes category fields
+    has_category_fields = any(
+        (isinstance(field, dict) and field.get('fieldName', '') in modified_query) or
+        (isinstance(field, str) and field in modified_query)
+        for field in category_fields
+    )
+    
+    if period_type == 'month' and 'date_trunc_ym' in modified_query and has_category_fields:
         # Just use the modified query with replaced placeholders
-        logging.info("Query already has date_trunc_ym, using original query with replaced placeholders")
+        logging.info("Query already has date_trunc_ym and category fields, using original query with replaced placeholders")
         return modified_query
-    elif period_type == 'year' and 'date_trunc_y' in modified_query:
+    elif period_type == 'year' and 'date_trunc_y' in modified_query and has_category_fields:
         # Just use the modified query with replaced placeholders
-        logging.info("Query already has date_trunc_y, using original query with replaced placeholders")
+        logging.info("Query already has date_trunc_y and category fields, using original query with replaced placeholders")
         return modified_query
     
     # Special case for the police incidents query

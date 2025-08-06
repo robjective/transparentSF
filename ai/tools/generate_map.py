@@ -322,7 +322,7 @@ def _prepare_locator_marker_data(location_data, series_field=None, color_palette
                 "horiz-adv-x": 1000,
                 "scale": 1
             },
-            "scale": loc.get("scale", 0.6),
+            "scale": loc.get("scale", 0.4),  # Default diameter of 4 (0.4 scale)
             "markerColor": loc.get("markerColor", "#8b5cf6"),  # Use purple like working example
             "opacity": loc.get("opacity", 1),  # Keep higher opacity for visibility
             "text": {
@@ -521,7 +521,7 @@ def _fit_map_to_markers(chart_id, markers_json_string):
         logger.error(f"Error fitting map to markers: {str(e)}", exc_info=True)
         return False
 
-def _create_and_configure_locator_map(chart_title, markers_json_string, center_coords=None, zoom_level=None, series_info=None):
+def _create_and_configure_locator_map(chart_title, markers_json_string, center_coords=None, zoom_level=None, series_info=None, period_info=None):
     """
     Creates and configures a Datawrapper locator map with markers.
 
@@ -645,6 +645,98 @@ def _create_and_configure_locator_map(chart_title, markers_json_string, center_c
             json_payload=initial_metadata_payload
         )
         logger.info(f"Initial metadata set for map ID: {chart_id}")
+
+        # Add key configuration for period labels
+        try:
+            # Parse markers to get unique colors and create key items
+            markers_data = json.loads(markers_json_string)
+            unique_colors = set()
+            for marker in markers_data.get("markers", []):
+                if "markerColor" in marker:
+                    unique_colors.add(marker["markerColor"])
+            
+            if len(unique_colors) >= 2:
+                # Create key items for the periods
+                key_items = []
+                
+                # Get actual period names from the data
+                from datetime import datetime
+                try:
+                    if period_info:
+                        recent_start = period_info.get('recent_start')
+                        prev_start = period_info.get('prev_start')
+                        
+                        if recent_start:
+                            recent_date = datetime.strptime(recent_start, '%Y-%m-%d')
+                            recent_label = recent_date.strftime('%B %Y')
+                        else:
+                            recent_label = "Current Period"
+                            
+                        if prev_start:
+                            prev_date = datetime.strptime(prev_start, '%Y-%m-%d')
+                            prev_label = prev_date.strftime('%B %Y')
+                        else:
+                            prev_label = "Previous Period"
+                    else:
+                        recent_label = "Current Period"
+                        prev_label = "Previous Period"
+                except Exception as e:
+                    logger.warning(f"Failed to get period labels: {e}")
+                    recent_label = "Current Period"
+                    prev_label = "Previous Period"
+                
+                color_to_period = {
+                    "#8b5cf6": recent_label,  # Purple for recent
+                    "#9ca3af": prev_label      # Grey for comparison
+                }
+                
+                for color in sorted(unique_colors):
+                    period_label = color_to_period.get(color, "Other")
+                    key_items.append({
+                        "id": f"key_{len(key_items)}",
+                        "icon": {
+                            "id": "circle",
+                            "path": "M1000 350a500 500 0 0 0-500-500 500 500 0 0 0-500 500 500 500 0 0 0 500 500 500 500 0 0 0 500-500z",
+                            "scale": 0.75,
+                            "width": 1000,
+                            "height": 700,
+                            "outline": "",
+                            "horiz-adv-x": 1000
+                        },
+                        "text": period_label,
+                        "type": "point",
+                        "stroke": "null",
+                        "highlight": False,
+                        "fillOpacity": 1,
+                        "markerColor": color,
+                        "markerSymbol": "",
+                        "markerPattern": False,
+                        "markerTextColor": ""
+                    })
+                
+                key_config = {
+                    "metadata": {
+                        "visualize": {
+                            "key": {
+                                "items": key_items,
+                                "style": "grid",
+                                "title": "",
+                                "enabled": True,
+                                "position": "bottom",
+                                "columnWidth": 200
+                            }
+                        }
+                    }
+                }
+                
+                _make_dw_request(
+                    "PATCH",
+                    f"/charts/{chart_id}",
+                    json_payload=key_config
+                )
+                logger.info(f"Added key configuration with {len(key_items)} items for map ID: {chart_id}")
+        except Exception as e:
+            logger.warning(f"Failed to add key configuration: {e}")
 
         # Force a republish to ensure markers and metadata are processed
         logger.info(f"Republishing chart {chart_id} to ensure markers are visible")
@@ -1023,30 +1115,32 @@ def create_datawrapper_chart(chart_title, location_data, map_type="supervisor_di
                 logger.info(f"Converting symbol map data to CSV format")
                 
                 # First process and geocode the address data
-                geocoded_data = process_symbol_map_data(location_data)
+                # Extract period_info from map_metadata if available
+                period_info = None
+                if map_metadata and isinstance(map_metadata, dict):
+                    period_info = map_metadata.get("period_info")
+                    if period_info:
+                        logger.info(f"Using period_info for color coding: {period_info}")
+                geocoded_data = process_symbol_map_data(location_data, period_info)
                 
-                # Create CSV format for symbol map: lat,lon,value,title,tooltip,series
-                # Note: Datawrapper symbol maps expect 'tooltip' column for hover text
-                csv_data = "lat,lon,value,title,tooltip,series\n"
+                # Create CSV format for symbol map: name,latitude,longitude,value,color
+                # Note: Datawrapper symbol maps expect this specific format
+                csv_data = "name,latitude,longitude,value,color\n"
                 for item in geocoded_data:
                     if item.get('lat') is not None and item.get('lon') is not None:
                         lat = item['lat']
                         lon = item['lon']
                         value = item.get('value', 1)
-                        title = item.get('title', '')
-                        # Use description as tooltip, or fall back to tooltip field
-                        tooltip = item.get('description', item.get('tooltip', ''))
-                        series = item.get('series', '')
+                        name = item.get('title', 'Location')
+                        color = item.get('color', '#6366f1')
                         
                         # Escape any commas or quotes in text fields
-                        title = str(title).replace('"', '""')
-                        tooltip = str(tooltip).replace('"', '""')
-                        series = str(series).replace('"', '""')
+                        name = str(name).replace('"', '""')
                         
-                        # Log the tooltip text for debugging
-                        logger.debug(f"Adding tooltip for {title}: {tooltip[:50]}...")
+                        # Log the data for debugging
+                        logger.debug(f"Adding symbol: name='{name}', lat={lat}, lon={lon}, value={value}, color={color}")
                         
-                        csv_data += f'{lat},{lon},{value},"{title}","{tooltip}","{series}"\n'
+                        csv_data += f'"{name}",{lat},{lon},{value},"{color}"\n'
                 
                 location_data = csv_data
                 logger.info(f"Converted {len(geocoded_data)} symbol locations to CSV format")
@@ -1069,8 +1163,14 @@ def create_datawrapper_chart(chart_title, location_data, map_type="supervisor_di
             # For symbol maps, process addresses and geocode them first
             if map_type == "symbol":
                 logger.info(f"Processing symbol map with {len(location_data)} locations")
+                # Extract period_info from map_metadata if available
+                period_info = None
+                if map_metadata and isinstance(map_metadata, dict):
+                    period_info = map_metadata.get("period_info")
+                    if period_info:
+                        logger.info(f"Using period_info for color coding: {period_info}")
                 # Use existing geocoding function but prepare for locator map format
-                geocoded_data = process_symbol_map_data(location_data)
+                geocoded_data = process_symbol_map_data(location_data, period_info)
                 
                 # Convert geocoded data to locator map format with proper coordinate structure
                 location_data = []
@@ -1085,7 +1185,8 @@ def create_datawrapper_chart(chart_title, location_data, map_type="supervisor_di
                             "tooltip": tooltip_text,  # Use tooltip for Datawrapper
                             "description": tooltip_text,  # Keep description for compatibility
                             "value": item.get("value", 1),
-                            "series": item.get("series", "")
+                            "series": item.get("series", ""),
+                            "color": item.get("color", "#6366f1")  # Include color from period coding
                         }
                         location_data.append(locator_item)
                         logger.debug(f"Converted symbol location: title='{locator_item['title']}', tooltip='{tooltip_text[:50]}...' series='{locator_item['series']}'")
@@ -1242,12 +1343,18 @@ def create_datawrapper_chart(chart_title, location_data, map_type="supervisor_di
                 series_info['color_mapping'] = color_mapping
                 logger.info(f"Extracted color mapping for legend: {color_mapping}")
             
+            # Extract period_info from map_metadata if available
+            period_info = None
+            if map_metadata and isinstance(map_metadata, dict):
+                period_info = map_metadata.get('period_info')
+            
             chart_id = _create_and_configure_locator_map(
                 chart_title,
                 markers_json_string,
                 center_coords=center_coords, 
                 zoom_level=zoom_level,
-                series_info=series_info
+                series_info=series_info,
+                period_info=period_info
             )
             if chart_id:
                 logger.info(f"Successfully created and configured locator map '{chart_title}' with ID: {chart_id}")
@@ -1342,8 +1449,8 @@ def create_datawrapper_chart(chart_title, location_data, map_type="supervisor_di
                     "visualize": {
                         "tooltip": {
                             "enabled": True,
-                            "body": "{{tooltip}}",
-                            "title": "{{title}}",
+                            "body": "Value: {{value}}",
+                            "title": "{{name}}",
                             "sticky": True
                         }
                     }
@@ -2018,19 +2125,85 @@ def generate_map(context_variables, map_title, map_type, location_data=None, map
                     "visualize": {
                         "tooltip": {
                             "enabled": True,
-                            "body": "{{tooltip}}",
-                            "title": "{{title}}",
+                            "body": "Value: {{value}}",
+                            "title": "{{name}}",
                             "sticky": True
                         }
                     }
                 }
             }
+            
+            # Add period-based legend if period_info is available
+            if map_metadata and isinstance(map_metadata, dict):
+                period_info = map_metadata.get("period_info")
+                if period_info:
+                    logger.info(f"Adding period-based legend for symbol map {chart_id}")
+                    
+                    # Create legend items for recent and previous periods
+                    key_items = []
+                    
+                    # Recent period (purple)
+                    key_items.append({
+                        "id": "key_recent",
+                        "icon": {
+                            "id": "circle",
+                            "path": "M1000 350a500 500 0 0 0-500-500 500 500 0 0 0-500 500 500 500 0 0 0 500 500 500 500 0 0 0 500-500z",
+                            "scale": 0.75,
+                            "width": 1000,
+                            "height": 700,
+                            "outline": "",
+                            "horiz-adv-x": 1000
+                        },
+                        "text": period_info.get("recent_label", "Recent Period"),
+                        "type": "point",
+                        "stroke": "null",
+                        "highlight": False,
+                        "fillOpacity": 1,
+                        "markerColor": "#8b5cf6",  # Purple for recent
+                        "markerSymbol": "",
+                        "markerPattern": False,
+                        "markerTextColor": ""
+                    })
+                    
+                    # Previous period (grey)
+                    key_items.append({
+                        "id": "key_previous",
+                        "icon": {
+                            "id": "circle",
+                            "path": "M1000 350a500 500 0 0 0-500-500 500 500 0 0 0-500 500 500 500 0 0 0 500 500 500 500 0 0 0 500-500z",
+                            "scale": 0.75,
+                            "width": 1000,
+                            "height": 700,
+                            "outline": "",
+                            "horiz-adv-x": 1000
+                        },
+                        "text": period_info.get("prev_label", "Previous Period"),
+                        "type": "point",
+                        "stroke": "null",
+                        "highlight": False,
+                        "fillOpacity": 1,
+                        "markerColor": "#9ca3af",  # Grey for previous
+                        "markerSymbol": "",
+                        "markerPattern": False,
+                        "markerTextColor": ""
+                    })
+                    
+                    # Add key configuration to symbol metadata
+                    symbol_metadata["metadata"]["visualize"]["key"] = {
+                        "items": key_items,
+                        "style": "grid",
+                        "title": "",
+                        "enabled": True,
+                        "position": "bottom",
+                        "columnWidth": 200
+                    }
+            
             _make_dw_request(
                 "PATCH",
                 f"/charts/{chart_id}",
                 json_payload=symbol_metadata
             )
-            logger.info(f"Applied tooltip configuration to symbol map {chart_id}")
+            logger.info(f"Applied tooltip and legend configuration to symbol map {chart_id}")
 
         # Publish the chart once with all styling applied
         logger.info(f"Publishing chart {chart_id}")
@@ -2615,12 +2788,57 @@ def create_sample_series_data():
     ]
     return sample_data
 
-def process_symbol_map_data(location_data):
+def process_symbol_map_data(location_data, period_info=None):
     """
     Process location data for symbol maps, handling various coordinate formats and addresses.
     Returns a list of dictionaries with lat/lon coordinates.
+    
+    Args:
+        location_data (list): List of location dictionaries
+        period_info (dict, optional): Period information for color coding (recent vs previous period)
     """
     processed_locations = []
+    
+    def get_period_color(item, period_info):
+        """Determine if a data point is from recent period (purple) or previous period (grey)"""
+        if not period_info:
+            return "#6366f1"  # Default purple if no period info
+            
+        # First, try to use the period_type field if it exists in the item
+        if 'period_type' in item:
+            period_type = item.get('period_type')
+            if period_type == 'recent':
+                return "#8b5cf6"  # Purple for recent period
+            elif period_type == 'comparison':
+                return "#9ca3af"  # Grey for previous period
+            else:
+                return "#6366f1"  # Default purple
+                
+        # Fallback: Calculate based on date field if period_type is not available
+        date_field = period_info.get('date_field', 'requested_datetime')
+        item_date = item.get(date_field)
+        
+        if not item_date:
+            return "#6366f1"  # Default purple
+            
+        try:
+            from datetime import datetime
+            # Parse the date (handle different formats)
+            if 'T' in item_date:
+                item_date = item_date.split('T')[0]  # Remove time component
+                
+            item_date_obj = datetime.strptime(item_date, "%Y-%m-%d")
+            recent_start_obj = datetime.strptime(period_info['recent_start'], "%Y-%m-%d")
+            recent_end_obj = datetime.strptime(period_info['recent_end'], "%Y-%m-%d")
+            
+            # Check if in recent period
+            if recent_start_obj <= item_date_obj <= recent_end_obj:
+                return "#8b5cf6"  # Purple for recent period
+            else:
+                return "#9ca3af"  # Grey for previous period
+                
+        except (ValueError, KeyError):
+            return "#6366f1"  # Default purple if parsing fails
     
     for item in location_data:
         if not isinstance(item, dict):
@@ -2705,7 +2923,8 @@ def process_symbol_map_data(location_data):
                     "value": float(item.get("value", 1)),  # Convert value to float
                     "description": description_text,  # Keep as description for consistency
                     "tooltip": description_text,      # Also keep as tooltip for compatibility
-                    "series": item.get("series", "")  # Include series if present
+                    "series": item.get("series", ""),  # Include series if present
+                    "color": get_period_color(item, period_info)  # Add color based on period
                 }
                 processed_locations.append(processed_location)
                 logger.debug(f"Processed location: title='{processed_location['title']}', description='{description_text[:50]}...' if description_text else '(empty)', series='{processed_location['series']}'")

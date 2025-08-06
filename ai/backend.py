@@ -5520,6 +5520,109 @@ async def get_district_maps(metric_id: str = None):
             }
         )
 
+@router.get("/api/all-maps")
+@router.get("/backend/api/all-maps")  # Add an extra route
+async def get_all_maps(metric_id: str = None):
+    """
+    Retrieve all active maps for a specific metric ID (not just district maps).
+    
+    Args:
+        metric_id: The ID of the metric to get maps for
+        
+    Returns:
+        JSON with a list of all active maps
+    """
+    try:
+        import psycopg2
+        import psycopg2.extras
+        
+        logger.info(f"Getting all maps for metric_id={metric_id}")
+        
+        # Connect to PostgreSQL
+        conn = psycopg2.connect(
+            host=os.getenv("POSTGRES_HOST", "localhost"),
+            port=int(os.getenv("POSTGRES_PORT", "5432")),
+            dbname=os.getenv("POSTGRES_DB", "transparentsf"),
+            user=os.getenv("POSTGRES_USER", "postgres"),
+            password=os.getenv("POSTGRES_PASSWORD", "postgres")
+        )
+        
+        # Create cursor with dictionary-like results
+        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        
+        # Query to get all active maps for the specified metric
+        query = """
+        SELECT *
+        FROM maps
+        WHERE active = TRUE
+        """
+        
+        # Add metric_id filter if provided
+        params = []
+        if metric_id:
+            query = """
+            SELECT *
+            FROM maps
+            WHERE active = TRUE
+              AND (
+                  metric_id = %s 
+                  OR metadata::jsonb->>'metric_id' = %s
+              )
+            ORDER BY created_at DESC
+            """
+            params = [metric_id, metric_id]
+        else:
+            query += " ORDER BY created_at DESC"
+        
+        cursor.execute(query, params)
+        maps = cursor.fetchall()
+        
+        # Convert any date objects to ISO format strings for JSON serialization
+        for map_item in maps:
+            for key, value in map_item.items():
+                if hasattr(value, 'isoformat'):
+                    map_item[key] = value.isoformat()
+                # Parse JSON strings to objects
+                elif key in ('metadata', 'location_data') and value:
+                    if isinstance(value, str):
+                        try:
+                            map_item[key] = json.loads(value)
+                        except:
+                            # If parsing fails, keep as string
+                            pass
+                    # Ensure the metadata is properly formatted as a string when it's already an object
+                    elif isinstance(value, dict) or isinstance(value, list):
+                        try:
+                            # Convert to JSON string for display
+                            map_item[key] = json.dumps(value, indent=2)
+                        except:
+                            # If conversion fails, use string representation
+                            map_item[key] = str(value)
+        
+        logger.info(f"Found {len(maps)} total maps for metric_id={metric_id}")
+        
+        cursor.close()
+        conn.close()
+        
+        return JSONResponse(
+            content={
+                "status": "success",
+                "metric_id": metric_id,
+                "map_count": len(maps),
+                "maps": maps
+            }
+        )
+        
+    except Exception as e:
+        logger.error(f"Error getting all maps: {str(e)}", exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={
+                "status": "error", 
+                "message": f"Failed to get all maps: {str(e)}"
+            }
+        )
+
 @router.post("/api/explain-change")
 async def explain_change_api(request: Request):
     """

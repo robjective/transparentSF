@@ -734,8 +734,29 @@
         }
         
         /* New Report Modal Styles */
+        #new-report-modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+            overflow: hidden;
+        }
+        
         #new-report-modal .modal-content {
+            background-color: var(--background);
+            margin: 10% auto;
+            padding: 0;
+            width: 90%;
             max-width: 500px;
+            border-radius: 8px;
+            box-shadow: var(--shadow);
+            position: relative;
+            display: flex;
+            flex-direction: column;
         }
         
         #new-report-modal .modal-body {
@@ -1262,6 +1283,13 @@
         window.addEventListener('click', function(event) {
             if (event.target === rowDetailsModal) {
                 rowDetailsModal.style.display = 'none';
+            }
+        });
+        
+        // Close new report modal when clicking outside of it
+        window.addEventListener('click', function(event) {
+            if (event.target === newReportModal) {
+                newReportModal.style.display = 'none';
             }
         });
         
@@ -1910,72 +1938,114 @@
             console.log('Setting chart iframe src to:', chartUrl);
             chartIframe.src = chartUrl;
             
-            // Create map iframes (only for citywide metrics)
-            if (district === '0') {
-                // First, try to fetch available maps for this metric
+                        // Always append the chart iframe first
+            contentContainer.appendChild(chartIframe);
+            
+            // Create map iframes (for all districts, not just citywide)
+            try {
+                let mapsResponse;
                 try {
-                    let mapsResponse;
-                    try {
-                        mapsResponse = await fetch(`/api/district-maps?metric_id=${metricId}`);
-                        if (!mapsResponse.ok) {
-                            throw new Error(`Failed to fetch from main API: ${mapsResponse.status}`);
-                        }
-                    } catch (apiError) {
-                        console.warn('Error using main API endpoint, falling back to backend:', apiError);
-                        mapsResponse = await fetch(`/backend/api/district-maps?metric_id=${metricId}`);
-                        if (!mapsResponse.ok) {
-                            throw new Error(`Failed to fetch maps: ${mapsResponse.status}`);
-                        }
+                    mapsResponse = await fetch(`/api/all-maps?metric_id=${metricId}`);
+                    if (!mapsResponse.ok) {
+                        throw new Error(`Failed to fetch from main API: ${mapsResponse.status}`);
                     }
-                    
-                    const mapsData = await mapsResponse.json();
-                    console.log('Maps data received:', mapsData);
-                    if (mapsData.status === 'success' && mapsData.maps && mapsData.maps.length > 0) {
-                        console.log(`Found ${mapsData.maps.length} maps for metric:`, metricId);
-                        
-                        // Create iframes for all available maps
-                        mapsData.maps.forEach((map, index) => {
-                            console.log(`Creating iframe for map ${index + 1}:`, map);
-                            const mapIframe = document.createElement('iframe');
-                            mapIframe.style.width = '100%';
-                            mapIframe.style.height = '600px';
-                            mapIframe.style.border = 'none';
-                            mapIframe.style.display = 'block';
-                            mapIframe.style.borderRadius = '8px';
-                            mapIframe.style.marginBottom = '20px';
-                            
-                            // Add a title/label for each map
-                            const mapLabel = document.createElement('h4');
-                            mapLabel.textContent = `Map ${index + 1}${map.title ? ': ' + map.title : ''}`;
-                            mapLabel.style.marginBottom = '10px';
-                            mapLabel.style.color = 'var(--text-primary)';
-                            mapLabel.style.fontSize = '16px';
-                            mapLabel.style.fontWeight = '600';
-                            
-                            // Use the published_url directly instead of the backend endpoint
-                            if (map.published_url) {
-                                console.log(`Setting map ${index + 1} iframe src to:`, map.published_url);
-                                mapIframe.src = map.published_url;
-                            } else {
-                                console.warn(`No published_url found for map ${index + 1}, trying backend endpoint`);
-                                const mapUrl = `/backend/map-chart?id=${map.id}`;
-                                mapIframe.src = mapUrl;
-                            }
-                            
-                            // Add label and iframe to container
-                            contentContainer.appendChild(mapLabel);
-                            contentContainer.appendChild(mapIframe);
-                        });
-                    } else {
-                        console.log('No maps found for metric:', metricId);
+                } catch (apiError) {
+                    console.warn('Error using main API endpoint, falling back to backend:', apiError);
+                    mapsResponse = await fetch(`/backend/api/all-maps?metric_id=${metricId}`);
+                    if (!mapsResponse.ok) {
+                        throw new Error(`Failed to fetch maps: ${mapsResponse.status}`);
                     }
-                } catch (error) {
-                    console.warn('Failed to fetch maps for metric:', error);
                 }
+                
+                const mapsData = await mapsResponse.json();
+                console.log('Maps data received:', mapsData);
+                if (mapsData.status === 'success' && mapsData.maps && mapsData.maps.length > 0) {
+                    console.log(`Found ${mapsData.maps.length} maps for metric:`, metricId);
+                    
+                    // Create a maps section header
+                    const mapsHeader = document.createElement('h3');
+                    mapsHeader.textContent = '🗺️ Generated Maps';
+                    mapsHeader.style.marginTop = '20px';
+                    mapsHeader.style.marginBottom = '15px';
+                    mapsHeader.style.color = 'var(--text-primary)';
+                    mapsHeader.style.fontSize = '18px';
+                    mapsHeader.style.fontWeight = '600';
+                    mapsHeader.style.borderBottom = '2px solid var(--border-primary)';
+                    mapsHeader.style.paddingBottom = '8px';
+                    contentContainer.appendChild(mapsHeader);
+                    
+                    // Create iframes for all available maps
+                    mapsData.maps.forEach((map, index) => {
+                        console.log(`Creating iframe for map ${index + 1}:`, map);
+                        
+                        // Create map container
+                        const mapContainer = document.createElement('div');
+                        mapContainer.style.marginBottom = '20px';
+                        mapContainer.style.border = '1px solid var(--border-primary)';
+                        mapContainer.style.borderRadius = '8px';
+                        mapContainer.style.overflow = 'hidden';
+                        
+                        // Add a title/label for each map
+                        const mapLabel = document.createElement('h4');
+                        mapLabel.textContent = map.title || `Map ${index + 1}`;
+                        mapLabel.style.margin = '0';
+                        mapLabel.style.padding = '12px 16px';
+                        mapLabel.style.backgroundColor = 'var(--bg-secondary)';
+                        mapLabel.style.color = 'var(--text-primary)';
+                        mapLabel.style.fontSize = '14px';
+                        mapLabel.style.fontWeight = '600';
+                        mapLabel.style.borderBottom = '1px solid var(--border-primary)';
+                        
+                        const mapIframe = document.createElement('iframe');
+                        mapIframe.style.width = '100%';
+                        mapIframe.style.height = '500px';
+                        mapIframe.style.border = 'none';
+                        mapIframe.style.display = 'block';
+                        
+                        // Use the published_url directly instead of the backend endpoint
+                        if (map.published_url) {
+                            console.log(`Setting map ${index + 1} iframe src to:`, map.published_url);
+                            mapIframe.src = map.published_url;
+                        } else {
+                            console.warn(`No published_url found for map ${index + 1}, trying backend endpoint`);
+                            const mapUrl = `/backend/map-chart?id=${map.id}`;
+                            mapIframe.src = mapUrl;
+                        }
+                        
+                        // Add label and iframe to container
+                        mapContainer.appendChild(mapLabel);
+                        mapContainer.appendChild(mapIframe);
+                        contentContainer.appendChild(mapContainer);
+                    });
+                } else {
+                    console.log('No maps found for metric:', metricId);
+                    
+                    // Add a "no maps" message
+                    const noMapsMessage = document.createElement('div');
+                    noMapsMessage.innerHTML = `
+                        <div style="text-align: center; padding: 20px; color: var(--text-secondary);">
+                            <i class="fas fa-map" style="font-size: 24px; margin-bottom: 10px; display: block;"></i>
+                            <p>No maps have been generated for this metric yet.</p>
+                            <p>Click "Generate Map" below to create a new map.</p>
+                        </div>
+                    `;
+                    contentContainer.appendChild(noMapsMessage);
+                }
+            } catch (error) {
+                console.warn('Failed to fetch maps for metric:', error);
+                
+                // Add error message
+                const errorMessage = document.createElement('div');
+                errorMessage.innerHTML = `
+                    <div style="text-align: center; padding: 20px; color: var(--error);">
+                        <i class="fas fa-exclamation-triangle" style="font-size: 24px; margin-bottom: 10px; display: block;"></i>
+                        <p>Failed to load maps for this metric.</p>
+                        <p>Error: ${error.message}</p>
+                    </div>
+                `;
+                contentContainer.appendChild(errorMessage);
             }
             
-            // Always append the chart iframe immediately
-            contentContainer.appendChild(chartIframe);
             rowChartContent.appendChild(contentContainer);
 
             // Hide loader when chart loads
@@ -2005,7 +2075,7 @@
         }
         
         // Function to show anomaly details modal
-        function showAnomalyDetailsModal(anomaly) {
+        async function showAnomalyDetailsModal(anomaly) {
             console.log('showAnomalyDetailsModal called with:', anomaly);
             // Show the modal
             rowDetailsModal.style.display = 'block';
@@ -2017,6 +2087,13 @@
             
             // Get anomaly chart
             const anomalyId = anomaly.id;
+            const metricId = anomaly.metric_key || anomaly.object_id;
+            
+            // Create container for charts and maps
+            const contentContainer = document.createElement('div');
+            contentContainer.style.display = 'flex';
+            contentContainer.style.flexDirection = 'column';
+            contentContainer.style.gap = '20px';
             
             // Create chart iframe
             const chartIframe = document.createElement('iframe');
@@ -2031,8 +2108,117 @@
             console.log('Setting anomaly chart iframe src to:', chartUrl);
             chartIframe.src = chartUrl;
             
-            // Always append the iframe immediately
-            rowChartContent.appendChild(chartIframe);
+            // Always append the chart iframe first
+            contentContainer.appendChild(chartIframe);
+            
+            // Create map iframes for the anomaly's metric
+            if (metricId) {
+                try {
+                    let mapsResponse;
+                    try {
+                        mapsResponse = await fetch(`/api/all-maps?metric_id=${metricId}`);
+                        if (!mapsResponse.ok) {
+                            throw new Error(`Failed to fetch from main API: ${mapsResponse.status}`);
+                        }
+                    } catch (apiError) {
+                        console.warn('Error using main API endpoint, falling back to backend:', apiError);
+                        mapsResponse = await fetch(`/backend/api/all-maps?metric_id=${metricId}`);
+                        if (!mapsResponse.ok) {
+                            throw new Error(`Failed to fetch maps: ${mapsResponse.status}`);
+                        }
+                    }
+                    
+                    const mapsData = await mapsResponse.json();
+                    console.log('Maps data received for anomaly:', mapsData);
+                    if (mapsData.status === 'success' && mapsData.maps && mapsData.maps.length > 0) {
+                        console.log(`Found ${mapsData.maps.length} maps for anomaly metric:`, metricId);
+                        
+                        // Create a maps section header
+                        const mapsHeader = document.createElement('h3');
+                        mapsHeader.textContent = '🗺️ Generated Maps';
+                        mapsHeader.style.marginTop = '20px';
+                        mapsHeader.style.marginBottom = '15px';
+                        mapsHeader.style.color = 'var(--text-primary)';
+                        mapsHeader.style.fontSize = '18px';
+                        mapsHeader.style.fontWeight = '600';
+                        mapsHeader.style.borderBottom = '2px solid var(--border-primary)';
+                        mapsHeader.style.paddingBottom = '8px';
+                        contentContainer.appendChild(mapsHeader);
+                        
+                        // Create iframes for all available maps
+                        mapsData.maps.forEach((map, index) => {
+                            console.log(`Creating iframe for map ${index + 1}:`, map);
+                            
+                            // Create map container
+                            const mapContainer = document.createElement('div');
+                            mapContainer.style.marginBottom = '20px';
+                            mapContainer.style.border = '1px solid var(--border-primary)';
+                            mapContainer.style.borderRadius = '8px';
+                            mapContainer.style.overflow = 'hidden';
+                            
+                            // Add a title/label for each map
+                            const mapLabel = document.createElement('h4');
+                            mapLabel.textContent = map.title || `Map ${index + 1}`;
+                            mapLabel.style.margin = '0';
+                            mapLabel.style.padding = '12px 16px';
+                            mapLabel.style.backgroundColor = 'var(--bg-secondary)';
+                            mapLabel.style.color = 'var(--text-primary)';
+                            mapLabel.style.fontSize = '14px';
+                            mapLabel.style.fontWeight = '600';
+                            mapLabel.style.borderBottom = '1px solid var(--border-primary)';
+                            
+                            const mapIframe = document.createElement('iframe');
+                            mapIframe.style.width = '100%';
+                            mapIframe.style.height = '500px';
+                            mapIframe.style.border = 'none';
+                            mapIframe.style.display = 'block';
+                            
+                            // Use the published_url directly instead of the backend endpoint
+                            if (map.published_url) {
+                                console.log(`Setting map ${index + 1} iframe src to:`, map.published_url);
+                                mapIframe.src = map.published_url;
+                            } else {
+                                console.warn(`No published_url found for map ${index + 1}, trying backend endpoint`);
+                                const mapUrl = `/backend/map-chart?id=${map.id}`;
+                                mapIframe.src = mapUrl;
+                            }
+                            
+                            // Add label and iframe to container
+                            mapContainer.appendChild(mapLabel);
+                            mapContainer.appendChild(mapIframe);
+                            contentContainer.appendChild(mapContainer);
+                        });
+                    } else {
+                        console.log('No maps found for anomaly metric:', metricId);
+                        
+                        // Add a "no maps" message
+                        const noMapsMessage = document.createElement('div');
+                        noMapsMessage.innerHTML = `
+                            <div style="text-align: center; padding: 20px; color: var(--text-secondary);">
+                                <i class="fas fa-map" style="font-size: 24px; margin-bottom: 10px; display: block;"></i>
+                                <p>No maps have been generated for this metric yet.</p>
+                                <p>Click "Generate Map" below to create a new map.</p>
+                            </div>
+                        `;
+                        contentContainer.appendChild(noMapsMessage);
+                    }
+                } catch (error) {
+                    console.warn('Failed to fetch maps for anomaly metric:', error);
+                    
+                    // Add error message
+                    const errorMessage = document.createElement('div');
+                    errorMessage.innerHTML = `
+                        <div style="text-align: center; padding: 20px; color: var(--error);">
+                            <i class="fas fa-exclamation-triangle" style="font-size: 24px; margin-bottom: 10px; display: block;"></i>
+                            <p>Failed to load maps for this metric.</p>
+                            <p>Error: ${error.message}</p>
+                        </div>
+                    `;
+                    contentContainer.appendChild(errorMessage);
+                }
+            }
+            
+            rowChartContent.appendChild(contentContainer);
 
             // Hide loader when chart loads
             chartIframe.onload = function() {
@@ -2607,7 +2793,7 @@ Can you help me understand:
         let currentReportId = null;
         
         // Function to create a new report
-        function createNewReport() {
+        async function createNewReport() {
             // Show the modal instead of using confirm
             showNewReportModal();
         }
@@ -2617,6 +2803,14 @@ Can you help me understand:
             newReportModal.style.display = 'block';
             reportNameInput.value = '';
             reportNameInput.focus();
+            
+            // Add event listener for Enter key
+            reportNameInput.addEventListener('keypress', function(event) {
+                if (event.key === 'Enter') {
+                    event.preventDefault();
+                    confirmCreateNewReport();
+                }
+            });
         }
         
         // Function to close the new report modal
@@ -2663,10 +2857,8 @@ Can you help me understand:
                     // Select the new report
                     currentReportSelect.value = result.report_id;
                     
-                    // Refresh the table to reset all checkmarks
-                    if (lastMetricData) {
-                        displayCombinedResults(lastMetricData, { positive_anomalies: [], negative_anomalies: [] });
-                    }
+                    // Refresh the table to reset all checkmarks and refetch data
+                    fetchAllData();
                     
                     console.log('New report created successfully:', result);
                 } else {
@@ -2758,8 +2950,23 @@ Can you help me understand:
                         // Refresh the table to show checkmarks
                         console.log('Refreshing table with lastMetricData:', lastMetricData);
                         if (lastMetricData) {
-                            // Use displayCombinedResults to properly refresh the table
-                            displayCombinedResults(lastMetricData, { positive_anomalies: [], negative_anomalies: [] });
+                            // Fetch anomaly data to display alongside metrics
+                            try {
+                                const anomalyResponse = await fetch(`/anomaly-analyzer/api/query-anomalies?period_type=${periodSelect.value || 'month'}&limit=${limitSelect.value || 10}&only_active=true&query_type=by_anomaly_severity&district=${districtSelect.value || '0'}`);
+                                const anomalyData = await anomalyResponse.json();
+                                
+                                if (anomalyData.status === 'success') {
+                                    // Use displayCombinedResults with both metric and anomaly data
+                                    displayCombinedResults(lastMetricData, anomalyData);
+                                } else {
+                                    // Fallback to empty anomaly data if fetch fails
+                                    displayCombinedResults(lastMetricData, { positive_anomalies: [], negative_anomalies: [] });
+                                }
+                            } catch (error) {
+                                console.error('Error fetching anomaly data:', error);
+                                // Fallback to empty anomaly data
+                                displayCombinedResults(lastMetricData, { positive_anomalies: [], negative_anomalies: [] });
+                            }
                         } else {
                             console.log('No lastMetricData available for table refresh');
                         }
@@ -2778,7 +2985,7 @@ Can you help me understand:
         }
         
         // Function to clear all checkmarks
-        function clearAllCheckmarks() {
+        async function clearAllCheckmarks() {
             if (confirm('Clear all checkmarks? This will remove all items from the current report.')) {
                 localStorage.removeItem('addedToMonthlyReport');
                 currentReportId = null;
@@ -2786,7 +2993,20 @@ Can you help me understand:
                 
                 // Refresh the table to reset all checkmarks
                 if (lastMetricData) {
-                    displayCombinedResults(lastMetricData, { positive_anomalies: [], negative_anomalies: [] });
+                    // Fetch anomaly data to display alongside metrics
+                    try {
+                        const anomalyResponse = await fetch(`/anomaly-analyzer/api/query-anomalies?period_type=${periodSelect.value || 'month'}&limit=${limitSelect.value || 10}&only_active=true&query_type=by_anomaly_severity&district=${districtSelect.value || '0'}`);
+                        const anomalyData = await anomalyResponse.json();
+                        
+                        if (anomalyData.status === 'success') {
+                            displayCombinedResults(lastMetricData, anomalyData);
+                        } else {
+                            displayCombinedResults(lastMetricData, { positive_anomalies: [], negative_anomalies: [] });
+                        }
+                    } catch (error) {
+                        console.error('Error fetching anomaly data:', error);
+                        displayCombinedResults(lastMetricData, { positive_anomalies: [], negative_anomalies: [] });
+                    }
                 }
             }
         }

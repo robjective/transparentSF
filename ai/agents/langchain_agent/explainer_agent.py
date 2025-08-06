@@ -385,11 +385,12 @@ class LangChainExplainerAgent:
             )
 
             response = result.get("output", "")
-            self.add_message("assistant", response)
+            cleaned_response = self._extract_clean_response(response)
+            self.add_message("assistant", cleaned_response if cleaned_response else response)
 
             return { 
                 "success": True, 
-                "explanation": response,
+                "explanation": cleaned_response if cleaned_response else response,
                 "execution_trace": execution_callback.execution_trace
             }
         except Exception as e:
@@ -471,7 +472,7 @@ class LangChainExplainerAgent:
                             token = event.get('data', {}).get('token', '')
                             if token:
                                 # Check if this token contains internal agent data patterns
-                                if any(pattern in token.lower() for pattern in ['agent_scratchpad', 'intermediate_steps', 'chat_history']):
+                                if any(pattern in token.lower() for pattern in ['agent_scratchpad', 'intermediate_steps', 'chat_history', 'log=']):
                                     self.logger.info(f"Skipping token with internal data: {token}")
                                     continue
                                 
@@ -495,7 +496,7 @@ class LangChainExplainerAgent:
                             
                             if token:
                                 # Check if this token contains internal agent data patterns
-                                if any(pattern in token.lower() for pattern in ['agent_scratchpad', 'intermediate_steps', 'chat_history']):
+                                if any(pattern in token.lower() for pattern in ['agent_scratchpad', 'intermediate_steps', 'chat_history', 'log=']):
                                     self.logger.info(f"Skipping token with internal data: {token}")
                                     continue
                                 
@@ -571,7 +572,7 @@ class LangChainExplainerAgent:
                             if output:
                                 # Check if this output contains internal agent state - if so, skip it entirely
                                 output_str = str(output)
-                                if any(pattern in output_str for pattern in ['agent_scratchpad', 'intermediate_steps', 'chat_history']):
+                                if any(pattern in output_str for pattern in ['agent_scratchpad', 'intermediate_steps', 'chat_history', 'log=']):
                                     self.logger.info(f"Skipping output with internal agent state: {output_str[:100]}...")
                                     continue
                                 
@@ -602,7 +603,7 @@ class LangChainExplainerAgent:
                                 # Additional check: if the content looks like technical data, don't stream it
                                 if text_content and len(text_content) > 0:
                                     # Check if this looks like technical data that shouldn't be in chat
-                                    technical_indicators = ['status', 'results', 'response', 'data', 'shape', 'columns', 'queryURL', 'tool_call_id']
+                                    technical_indicators = ['status', 'results', 'response', 'data', 'shape', 'columns', 'queryURL', 'tool_call_id', 'log=']
                                     is_technical = any(indicator in text_content.lower() for indicator in technical_indicators)
                                     
                                     if is_technical and len(text_content) < 100:
@@ -717,21 +718,18 @@ class LangChainExplainerAgent:
                     
                     response_content = result.get("output", "")
                     if response_content:
-                        # Handle array format from Anthropic
-                        if isinstance(response_content, list):
-                            if len(response_content) > 0 and isinstance(response_content[0], dict):
-                                response_content = response_content[0].get('text', '')
-                            else:
-                                response_content = str(response_content)
-                        
-                        yield f"data: {json.dumps({'content': response_content})}\n\n"
+                        # Use the cleaning method to extract clean response
+                        cleaned_response = self._extract_clean_response(response_content)
+                        if cleaned_response:
+                            yield f"data: {json.dumps({'content': cleaned_response})}\n\n"
                         
                 except Exception as fallback_error:
                     self.logger.error(f"Fallback also failed: {fallback_error}")
                     yield f"data: {json.dumps({'error': f'Streaming failed: {str(e)}. Fallback also failed: {str(fallback_error)}'})}\n\n"
             
-            # Add assistant message to conversation history
-            self.add_message("assistant", response_content)
+            # Add assistant message to conversation history (use cleaned content)
+            cleaned_response = self._extract_clean_response(response_content)
+            self.add_message("assistant", cleaned_response if cleaned_response else response_content)
             
             # Send completion signal
             self.logger.info("Sending completion signal")
@@ -743,9 +741,63 @@ class LangChainExplainerAgent:
     
     def _extract_clean_response(self, output):
         """Extract clean response text from agent output, filtering out internal state."""
-        if isinstance(output, str):
+        if isinstance(output, dict):
+            # Handle Anthropic format with return_values and log keys
+            if 'return_values' in output and 'log' in output:
+                # Extract the actual response from the log field
+                log_content = output['log']
+                if isinstance(log_content, str):
+                    # Try to parse as JSON if it's a string representation of a list
+                    try:
+                        import ast
+                        parsed_log = ast.literal_eval(log_content)
+                        if isinstance(parsed_log, list) and len(parsed_log) > 0:
+                            # Extract text from the first item
+                            first_item = parsed_log[0]
+                            if isinstance(first_item, dict) and 'text' in first_item:
+                                return first_item['text']
+                    except (ValueError, SyntaxError):
+                        pass
+                    # If parsing fails, try to extract text directly
+                    return log_content
+                elif isinstance(log_content, list) and len(log_content) > 0:
+                    # Direct list format
+                    first_item = log_content[0]
+                    if isinstance(first_item, dict) and 'text' in first_item:
+                        return first_item['text']
+            
+            # Handle other dict formats
+            if 'output' in output:
+                return self._extract_clean_response(output['output'])
+            elif 'response' in output:
+                return self._extract_clean_response(output['response'])
+            elif 'text' in output:
+                return output['text']
+            else:
+                # Convert dict to string and clean
+                return self._extract_clean_response(str(output))
+        elif isinstance(output, str):
             # If it's already a string, try to clean it
             import re
+            
+            # Handle the specific case where the output is a string representation of a dict
+            # like "return_values={'output': [...]} log='[...]'"
+            if 'return_values=' in output and 'log=' in output:
+                # Try to extract the log content
+                log_match = re.search(r"log='([^']*)'", output)
+                if log_match:
+                    log_content = log_match.group(1)
+                    try:
+                        import ast
+                        parsed_log = ast.literal_eval(log_content)
+                        if isinstance(parsed_log, list) and len(parsed_log) > 0:
+                            first_item = parsed_log[0]
+                            if isinstance(first_item, dict) and 'text' in first_item:
+                                return first_item['text']
+                    except (ValueError, SyntaxError):
+                        pass
+            
+            # Continue with normal string cleaning
             # Remove any JSON-like structures that contain internal agent data
             cleaned = re.sub(r'\{[^}]*agent_scratchpad[^}]*\}', '', output)
             cleaned = re.sub(r'\{[^}]*intermediate_steps[^}]*\}', '', cleaned)
@@ -786,7 +838,27 @@ class LangChainExplainerAgent:
             # Remove log= artifacts and response duplication
             cleaned = re.sub(r'log="[^"]*"', '', cleaned)
             cleaned = re.sub(r'log=\s*"[^"]*"', '', cleaned)
-            cleaned = re.sub(r'log=\s*[^\\s]*', '', cleaned)
+            cleaned = re.sub(r'log=\s*[^\s]*', '', cleaned)
+            # More comprehensive log pattern removal
+            cleaned = re.sub(r'log=\s*"[^"]*"', '', cleaned)
+            cleaned = re.sub(r'log=\s*[^\s]*', '', cleaned)
+            # Remove any remaining log= patterns with different spacing
+            cleaned = re.sub(r'log\s*=\s*"[^"]*"', '', cleaned)
+            cleaned = re.sub(r'log\s*=\s*[^\s]*', '', cleaned)
+            # Additional comprehensive log pattern removal
+            cleaned = re.sub(r'log\s*=\s*[^,\s]*', '', cleaned)  # Match until comma or whitespace
+            cleaned = re.sub(r'log\s*=\s*[^}\s]*', '', cleaned)  # Match until closing brace or whitespace
+            cleaned = re.sub(r'log\s*=\s*[^)\s]*', '', cleaned)  # Match until closing parenthesis or whitespace
+            # Remove trailing quotes and braces that might be artifacts
+            cleaned = re.sub(r'"[^"]*"\s*$', '', cleaned)
+            cleaned = re.sub(r'\}\s*$', '', cleaned)
+            # Remove duplicated lines (common pattern where the same line appears twice)
+            lines = cleaned.split('\n')
+            unique_lines = []
+            for line in lines:
+                if line.strip() and line not in unique_lines:  # Don't strip for comparison
+                    unique_lines.append(line)  # Keep original line with whitespace
+            cleaned = '\n'.join(unique_lines)
             
             # Remove ToolAgentAction patterns
             cleaned = re.sub(r'ToolAgentAction\([^)]*\)', '', cleaned)
@@ -803,13 +875,76 @@ class LangChainExplainerAgent:
             cleaned = re.sub(r"^\s*\{\s*", '', cleaned)     # Remove leading braces
             cleaned = re.sub(r"\s*\}\s*$", '', cleaned)     # Remove trailing braces
             
-            # Clean up whitespace and normalize
-            cleaned = re.sub(r'\s+', ' ', cleaned)
-            cleaned = cleaned.strip()
+            # Clean up whitespace and normalize, but preserve newlines for Markdown
+            # First, normalize line endings
+            cleaned = cleaned.replace('\r\n', '\n').replace('\r', '\n')
+            # Then clean up multiple spaces within lines, but preserve newlines and leading spaces for Markdown
+            lines = cleaned.split('\n')
+            cleaned_lines = []
+            for line in lines:
+                # Preserve leading spaces for Markdown (important for lists, code blocks, etc.)
+                leading_spaces = len(line) - len(line.lstrip())
+                # Clean up multiple spaces within each line, but preserve the leading spaces
+                cleaned_line = line[:leading_spaces] + re.sub(r'[ \t]+', ' ', line[leading_spaces:].strip())
+                if cleaned_line.strip():  # Only add non-empty lines
+                    cleaned_lines.append(cleaned_line)
+            cleaned = '\n'.join(cleaned_lines)
+            
+            # Remove duplicated phrases at the end (common pattern where the same phrase appears twice)
+            # This handles cases like "feel free to ask!indings, feel free to ask!"
+            # But be more careful to preserve Markdown structure
+            lines = cleaned.split('\n')
+            if len(lines) > 3:  # Only process if there are enough lines
+                # Look for repeated lines at the end
+                for i in range(len(lines) - 2, 0, -1):
+                    end_lines = lines[i:]
+                    if end_lines == lines[:len(end_lines)]:
+                        # Found duplicate lines at the end, remove them
+                        cleaned = '\n'.join(lines[:i])
+                        break
+            
+            # Additional cleaning for any remaining log artifacts
+            # Remove any text that looks like logging output
+            cleaned = re.sub(r'log\s*=\s*"[^"]*"', '', cleaned)
+            cleaned = re.sub(r'log\s*=\s*[^\s]*', '', cleaned)
+            # Final aggressive log pattern removal
+            cleaned = re.sub(r'log\s*=\s*[^,\s}]*', '', cleaned)  # Match until comma, whitespace, or closing brace
+            cleaned = re.sub(r'log\s*=\s*[^)\s}]*', '', cleaned)  # Match until parenthesis, whitespace, or closing brace
+            # Remove return_values patterns
+            cleaned = re.sub(r'return_values\s*=\s*\{[^}]*\}', '', cleaned)
+            cleaned = re.sub(r'return_values\s*=\s*[^\\s]*', '', cleaned)
+            # Remove any remaining quotes at the end that might be artifacts
+            cleaned = re.sub(r'"[^"]*"\s*$', '', cleaned)
+            # Remove any remaining braces at the end
+            cleaned = re.sub(r'\}\s*$', '', cleaned)
+            # Remove any remaining backslashes or escape characters
+            cleaned = re.sub(r'\\[^\\]*$', '', cleaned)
+            
+            # Handle the specific pattern mentioned by the user
+            # Remove duplicated text at the end like "feel free to ask!indings, feel free to ask!"
+            # This pattern suggests the response got duplicated with some corruption
+            if '!' in cleaned and cleaned.count('!') > 1:
+                # Split by exclamation marks and look for duplication
+                parts = cleaned.split('!')
+                if len(parts) > 2:
+                    # Check if the last part is a duplicate of an earlier part
+                    last_part = parts[-1].strip()
+                    for i in range(len(parts) - 2, 0, -1):
+                        if parts[i].strip() == last_part:
+                            # Found a duplicate, remove everything after the first occurrence
+                            cleaned = '!'.join(parts[:i+1])
+                            break
             
             # If the cleaned result is mostly JSON or technical data, return empty
             if len(cleaned) < 50 and ('{' in cleaned or '}' in cleaned or 'status' in cleaned.lower()):
                 return ""
+            
+            # Final check: remove any log= data that might be at the very end
+            if 'log=' in cleaned:
+                # Split by 'log=' and take only the part before it
+                parts = cleaned.split('log=')
+                if len(parts) > 1:
+                    cleaned = parts[0].rstrip()
             
             return cleaned if cleaned else output
         elif isinstance(output, list):
