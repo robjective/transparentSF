@@ -5,7 +5,7 @@ This version uses a modular system with selective tool inclusion.
 import sys
 import os
 from pathlib import Path
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Union
 import pandas as pd
 import json
 import logging
@@ -23,6 +23,10 @@ from langchain.tools import Tool
 from langchain.schema import BaseMessage, HumanMessage, AIMessage
 from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain.callbacks.base import BaseCallbackHandler
+from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain_core.tools import Tool
+from langchain_core.callbacks import BaseCallbackHandler
 
 # Import our model configuration
 from ..config.models import create_langchain_llm, get_default_model, get_model_config, ModelProvider
@@ -403,6 +407,10 @@ class LangChainExplainerAgent:
             self.logger.info(f"=== Starting explain_change_streaming ===")
             self.logger.info(f"Prompt: {prompt}")
             
+            # Check if this is an Anthropic model and handle it differently
+            is_anthropic = hasattr(self.llm, 'model') and 'claude' in self.llm.model.lower()
+            self.logger.info(f"Is Anthropic model: {is_anthropic}")
+            
             # Create execution trace callback
             execution_callback = ExecutionTraceCallback()
             self.logger.info(f"Created execution callback: {execution_callback}")
@@ -433,40 +441,22 @@ class LangChainExplainerAgent:
             self.logger.info(f"Available tools: {[tool.name for tool in self.tools]}")
             self.logger.info(f"Agent type: {type(self.agent_executor.agent)}")
             
-            # Use direct LLM streaming for real token-by-token output
-            try:
-                # Get the LLM from the agent
-                llm = self.llm
-                self.logger.info(f"Using LLM: {type(llm)}")
+            # For Anthropic models, use a modified agent approach that handles streaming better
+            if is_anthropic:
+                self.logger.info("Using modified agent streaming approach for Anthropic models")
                 
-                # Create a proper streaming callback that inherits from BaseCallbackHandler
-                class StreamingCallback(BaseCallbackHandler):
-                    def __init__(self):
-                        super().__init__()
-                        self.tokens = []
-                        self.logger = logging.getLogger(__name__)
-                    
-                    def on_llm_new_token(self, token: str, **kwargs):
-                        self.tokens.append(token)
-                        self.logger.info(f"Received token: {token}")
-                
-                streaming_callback = StreamingCallback()
-                
-                # Set up the agent with streaming callback
-                if hasattr(self.agent_executor, 'callbacks'):
-                    self.agent_executor.callbacks = [execution_callback, streaming_callback]
-                
-                # Use the agent's invoke method but with streaming enabled
-                # We'll use astream_events to get the actual streaming with version parameter
+                # Use astream_events but with better handling for Anthropic
+                event_count = 0
                 async for event in self.agent_executor.astream_events({
                     "input": prompt,
                     "chat_history": self.messages[:-1]
                 }, version="v1"):
-                    self.logger.info(f"=== Processing event ===")
+                    event_count += 1
+                    self.logger.info(f"=== Anthropic Processing event #{event_count} ===")
                     self.logger.info(f"Event type: {event.get('event')}")
                     self.logger.info(f"Event: {event}")
                     
-                    # Handle LLM streaming events - this is where we get real token-by-token streaming
+                    # Handle LLM streaming events for Anthropic
                     if event.get('event') == 'on_llm_new_token':
                         try:
                             token = event.get('data', {}).get('token', '')
@@ -476,21 +466,45 @@ class LangChainExplainerAgent:
                                     self.logger.info(f"Skipping token with internal data: {token}")
                                     continue
                                 
-                                self.logger.info(f"Yielding token: {token}")
+                                self.logger.info(f"Anthropic yielding token: {token}")
                                 yield f"data: {json.dumps({'content': token})}\n\n"
                                 response_content += token
                         except Exception as e:
-                            self.logger.error(f"Error processing LLM token event: {e}")
+                            self.logger.error(f"Error processing Anthropic LLM token event: {e}")
                     
-                    # Handle chat model streaming events
+                    # Handle chat model streaming events for Anthropic
                     elif event.get('event') == 'on_chat_model_stream':
                         try:
-                            # Extract the token from the event
                             chunk = event.get('data', {}).get('chunk', {})
+                            token = ""
+                            
+                            # Handle Anthropic's content structure which can be a list of content blocks
                             if hasattr(chunk, 'content'):
-                                token = chunk.content
+                                content = chunk.content
+                                if isinstance(content, list):
+                                    # Extract text from content blocks
+                                    for block in content:
+                                        if isinstance(block, dict) and block.get('type') == 'text':
+                                            token += block.get('text', '')
+                                        elif isinstance(block, str):
+                                            token += block
+                                elif isinstance(content, str):
+                                    token = content
+                                else:
+                                    token = str(content)
                             elif isinstance(chunk, dict):
-                                token = chunk.get('content', '')
+                                content = chunk.get('content', '')
+                                if isinstance(content, list):
+                                    # Extract text from content blocks
+                                    for block in content:
+                                        if isinstance(block, dict) and block.get('type') == 'text':
+                                            token += block.get('text', '')
+                                        elif isinstance(block, str):
+                                            token += block
+                                elif isinstance(content, str):
+                                    token = content
+                                else:
+                                    token = str(content)
                             else:
                                 token = str(chunk)
                             
@@ -500,13 +514,13 @@ class LangChainExplainerAgent:
                                     self.logger.info(f"Skipping token with internal data: {token}")
                                     continue
                                 
-                                self.logger.info(f"Yielding token from chat model: {token}")
+                                self.logger.info(f"Anthropic yielding token from chat model: {token}")
                                 yield f"data: {json.dumps({'content': token})}\n\n"
                                 response_content += token
                         except Exception as e:
-                            self.logger.error(f"Error processing chat model stream event: {e}")
+                            self.logger.error(f"Error processing Anthropic chat model stream event: {e}")
                     
-                    # Handle tool call events - these should stream in real-time
+                    # Handle tool call events for Anthropic
                     elif event.get('event') == 'on_tool_start':
                         try:
                             tool_name = event.get('name', 'unknown')
@@ -515,7 +529,7 @@ class LangChainExplainerAgent:
                             
                             # Send tool call start
                             tool_call_data = {'tool_call_start': tool_name, 'tool_id': tool_id}
-                            self.logger.info(f"Yielding tool_call_start from event: {tool_call_data}")
+                            self.logger.info(f"Anthropic yielding tool_call_start from event: {tool_call_data}")
                             yield f"data: {json.dumps(tool_call_data)}\n\n"
                             
                             # Try to get tool arguments from the event
@@ -536,13 +550,13 @@ class LangChainExplainerAgent:
                                         'tool_id': tool_id, 
                                         'arguments': arguments
                                     }
-                                    self.logger.info(f"Yielding tool_call_args from event: {tool_args_data}")
+                                    self.logger.info(f"Anthropic yielding tool_call_args from event: {tool_args_data}")
                                     yield f"data: {json.dumps(tool_args_data)}\n\n"
                             except Exception as e:
-                                self.logger.error(f"Error processing tool arguments from event: {e}")
+                                self.logger.error(f"Error processing Anthropic tool arguments from event: {e}")
                                 
                         except Exception as e:
-                            self.logger.error(f"Error processing tool start event: {e}")
+                            self.logger.error(f"Error processing Anthropic tool start event: {e}")
                     
                     elif event.get('event') == 'on_tool_end':
                         try:
@@ -556,16 +570,16 @@ class LangChainExplainerAgent:
                                 'response': str(output),
                                 'tool_id': tool_id
                             }
-                            self.logger.info(f"Yielding tool_call_complete from event: {tool_call_data}")
+                            self.logger.info(f"Anthropic yielding tool_call_complete from event: {tool_call_data}")
                             yield f"data: {json.dumps(tool_call_data)}\n\n"
                             
                             # Remove from in-progress tracking
                             if tool_name in tool_calls_in_progress:
                                 del tool_calls_in_progress[tool_name]
                         except Exception as e:
-                            self.logger.error(f"Error processing tool end event: {e}")
+                            self.logger.error(f"Error processing Anthropic tool end event: {e}")
                     
-                    # Handle final output events - but only if we haven't streamed the content yet
+                    # Handle final output events for Anthropic
                     elif event.get('event') == 'on_chain_end':
                         try:
                             output = event.get('data', {}).get('output', '')
@@ -582,7 +596,6 @@ class LangChainExplainerAgent:
                                     continue
                                 
                                 # For agent responses, we need to extract only the final text response
-                                # The agent might return a complex object with internal state
                                 if isinstance(output, dict):
                                     # Look for the actual response text in the output
                                     if 'output' in output:
@@ -620,124 +633,385 @@ class LangChainExplainerAgent:
                                     
                                     remaining_content = text_content[len(response_content):]
                                     if remaining_content and len(remaining_content.strip()) > 0:
-                                        self.logger.info(f"Yielding remaining content: {remaining_content[:100]}...")
+                                        self.logger.info(f"Anthropic yielding remaining content: {remaining_content[:100]}...")
                                         yield f"data: {json.dumps({'content': remaining_content})}\n\n"
                                         response_content = text_content
                         except Exception as e:
-                            self.logger.error(f"Error processing chain end event: {e}")
+                            self.logger.error(f"Error processing Anthropic chain end event: {e}")
+                
+                # Also check execution trace for any tool calls that might not be caught by events
+                current_trace_count = len(execution_callback.execution_trace)
+                if current_trace_count > 0:
+                    self.logger.info(f"Processing {current_trace_count} tool traces from execution callback for Anthropic")
                     
-                    # Also check execution trace for any tool calls that might not be caught by events
-                    current_trace_count = len(execution_callback.execution_trace)
-                    if current_trace_count > 0:
-                        self.logger.info(f"Processing {current_trace_count} tool traces from execution callback")
-                        
-                        for i in range(current_trace_count):
-                            try:
-                                trace = execution_callback.execution_trace[i]
-                                self.logger.info(f"Processing trace {i}: {trace}")
+                    for i in range(current_trace_count):
+                        try:
+                            trace = execution_callback.execution_trace[i]
+                            self.logger.info(f"Processing trace {i}: {trace}")
+                            
+                            # Check if trace has the required fields
+                            if not isinstance(trace, dict):
+                                self.logger.warning(f"Trace {i} is not a dict: {trace}")
+                                continue
                                 
-                                # Check if trace has the required fields
-                                if not isinstance(trace, dict):
-                                    self.logger.warning(f"Trace {i} is not a dict: {trace}")
-                                    continue
-                                    
-                                trace_type = trace.get("type")
-                                if not trace_type:
-                                    self.logger.warning(f"Trace {i} has no type: {trace}")
-                                    continue
-                                    
-                                if trace_type == "tool_start":
-                                    tool_name = trace.get('tool', 'unknown')
-                                    tool_id = f"tool_{i + 1}_{int(time.time())}"
-                                    tool_calls_in_progress[tool_name] = tool_id
-                                    
-                                    # Send tool call start
-                                    tool_call_data = {'tool_call_start': tool_name, 'tool_id': tool_id}
-                                    self.logger.info(f"Yielding tool_call_start from trace: {tool_call_data}")
-                                    yield f"data: {json.dumps(tool_call_data)}\n\n"
-                                    
-                                    # Send tool arguments if available
-                                    tool_input = trace.get('input', '')
-                                    if tool_input:
-                                        try:
-                                            # Try to parse as JSON if it's a string
-                                            if isinstance(tool_input, str):
-                                                try:
-                                                    arguments = json.loads(tool_input)
-                                                except json.JSONDecodeError:
-                                                    arguments = tool_input
-                                            else:
+                            trace_type = trace.get("type")
+                            if not trace_type:
+                                self.logger.warning(f"Trace {i} has no type: {trace}")
+                                continue
+                                
+                            if trace_type == "tool_start":
+                                tool_name = trace.get('tool', 'unknown')
+                                tool_id = f"tool_{i + 1}_{int(time.time())}"
+                                tool_calls_in_progress[tool_name] = tool_id
+                                
+                                # Send tool call start
+                                tool_call_data = {'tool_call_start': tool_name, 'tool_id': tool_id}
+                                self.logger.info(f"Anthropic yielding tool_call_start from trace: {tool_call_data}")
+                                yield f"data: {json.dumps(tool_call_data)}\n\n"
+                                
+                                # Send tool arguments if available
+                                tool_input = trace.get('input', '')
+                                if tool_input:
+                                    try:
+                                        # Try to parse as JSON if it's a string
+                                        if isinstance(tool_input, str):
+                                            try:
+                                                arguments = json.loads(tool_input)
+                                            except json.JSONDecodeError:
                                                 arguments = tool_input
-                                            
-                                            tool_args_data = {
-                                                'tool_call_args': tool_name, 
-                                                'tool_id': tool_id, 
-                                                'arguments': arguments
-                                            }
-                                            self.logger.info(f"Yielding tool_call_args from trace: {tool_args_data}")
-                                            yield f"data: {json.dumps(tool_args_data)}\n\n"
-                                        except Exception as e:
-                                            self.logger.error(f"Error processing tool arguments from trace: {e}")
-                                    
-                                elif trace_type == "tool_end":
-                                    tool_name = trace.get('tool', 'unknown')
-                                    success = trace.get('successful', True)
-                                    output = trace.get('output', '')
-                                    tool_id = tool_calls_in_progress.get(tool_name, f"tool_{tool_name}")
-                                    
-                                    tool_call_data = {
-                                        'tool_call_complete': tool_name, 
-                                        'success': success, 
-                                        'response': output,
-                                        'tool_id': tool_id
-                                    }
-                                    self.logger.info(f"Yielding tool_call_complete from trace: {tool_call_data}")
-                                    yield f"data: {json.dumps(tool_call_data)}\n\n"
-                                    
-                                    # Remove from in-progress tracking
-                                    if tool_name in tool_calls_in_progress:
-                                        del tool_calls_in_progress[tool_name]
+                                        else:
+                                            arguments = tool_input
                                         
-                            except Exception as e:
-                                self.logger.error(f"Error processing trace {i}: {e}")
+                                        tool_args_data = {
+                                            'tool_call_args': tool_name, 
+                                            'tool_id': tool_id, 
+                                            'arguments': arguments
+                                        }
+                                        self.logger.info(f"Anthropic yielding tool_call_args from trace: {tool_args_data}")
+                                        yield f"data: {json.dumps(tool_args_data)}\n\n"
+                                    except Exception as e:
+                                        self.logger.error(f"Error processing Anthropic tool arguments from trace: {e}")
+                                
+                            elif trace_type == "tool_end":
+                                tool_name = trace.get('tool', 'unknown')
+                                success = trace.get('successful', True)
+                                output = trace.get('output', '')
+                                tool_id = tool_calls_in_progress.get(tool_name, f"tool_{tool_name}")
+                                
+                                tool_call_data = {
+                                    'tool_call_complete': tool_name, 
+                                    'success': success, 
+                                    'response': output,
+                                    'tool_id': tool_id
+                                }
+                                self.logger.info(f"Anthropic yielding tool_call_complete from trace: {tool_call_data}")
+                                yield f"data: {json.dumps(tool_call_data)}\n\n"
+                                
+                                # Remove from in-progress tracking
+                                if tool_name in tool_calls_in_progress:
+                                    del tool_calls_in_progress[tool_name]
+                                    
+                        except Exception as e:
+                            self.logger.error(f"Error processing Anthropic trace {i}: {e}")
+                            continue
+                
+                # Add assistant message to conversation history (use cleaned content)
+                cleaned_response = self._extract_clean_response(response_content)
+                self.add_message("assistant", cleaned_response if cleaned_response else response_content)
+                
+                # Send completion signal
+                self.logger.info("Sending completion signal")
+                yield f"data: {json.dumps({'completed': True})}\n\n"
+                return
+            
+            # For non-Anthropic models, use the existing agent-based approach
+            self.logger.info("Using agent-based streaming for non-Anthropic models")
+            
+            # Use the agent's invoke method but with streaming enabled
+            # We'll use astream_events to get the actual streaming with version parameter
+            self.logger.info("Starting astream_events with agent executor")
+            event_count = 0
+            
+            # Try a different approach - use the LLM's streaming directly
+            self.logger.info("Trying direct LLM streaming approach")
+            try:
+                # Get the LLM and try direct streaming
+                messages = [HumanMessage(content=prompt)]
+                self.logger.info(f"Direct streaming with messages: {messages}")
+                
+                # Use the LLM's astream method directly
+                async for chunk in self.llm.astream(messages):
+                    if hasattr(chunk, 'content') and chunk.content:
+                        token = chunk.content
+                        self.logger.info(f"Direct LLM streaming token: {token}")
+                        yield f"data: {json.dumps({'content': token})}\n\n"
+                        response_content += token
+                
+                # If we get here, direct streaming worked
+                self.logger.info("Direct LLM streaming completed successfully")
+                return
+                
+            except Exception as direct_error:
+                self.logger.warning(f"Direct LLM streaming failed: {direct_error}")
+                self.logger.info("Falling back to agent astream_events")
+            
+            # Fallback to agent astream_events
+            async for event in self.agent_executor.astream_events({
+                "input": prompt,
+                "chat_history": self.messages[:-1]
+            }, version="v1"):
+                event_count += 1
+                self.logger.info(f"=== Processing event #{event_count} ===")
+                self.logger.info(f"Event type: {event.get('event')}")
+                self.logger.info(f"Event: {event}")
+                
+                # Handle LLM streaming events - this is where we get real token-by-token streaming
+                if event.get('event') == 'on_llm_new_token':
+                    try:
+                        token = event.get('data', {}).get('token', '')
+                        if token:
+                            # Check if this token contains internal agent data patterns
+                            if any(pattern in token.lower() for pattern in ['agent_scratchpad', 'intermediate_steps', 'chat_history', 'log=']):
+                                self.logger.info(f"Skipping token with internal data: {token}")
                                 continue
                             
-            except Exception as e:
-                self.logger.error(f"Error in streaming loop: {e}")
-                self.logger.error(f"Error type: {type(e)}")
-                import traceback
-                self.logger.error(f"Traceback: {traceback.format_exc()}")
+                            self.logger.info(f"Yielding token: {token}")
+                            yield f"data: {json.dumps({'content': token})}\n\n"
+                            response_content += token
+                    except Exception as e:
+                        self.logger.error(f"Error processing LLM token event: {e}")
                 
-                # Fallback: try non-streaming approach
-                try:
-                    self.logger.info("Trying fallback non-streaming approach...")
-                    result = self.agent_executor.invoke({
-                        "input": prompt,
-                        "chat_history": self.messages[:-1]
-                    })
-                    
-                    response_content = result.get("output", "")
-                    if response_content:
-                        # Use the cleaning method to extract clean response
-                        cleaned_response = self._extract_clean_response(response_content)
-                        if cleaned_response:
-                            yield f"data: {json.dumps({'content': cleaned_response})}\n\n"
+                # Handle chat model streaming events
+                elif event.get('event') == 'on_chat_model_stream':
+                    try:
+                        # Extract the token from the event
+                        chunk = event.get('data', {}).get('chunk', {})
+                        if hasattr(chunk, 'content'):
+                            token = chunk.content
+                        elif isinstance(chunk, dict):
+                            token = chunk.get('content', '')
+                        else:
+                            token = str(chunk)
                         
-                except Exception as fallback_error:
-                    self.logger.error(f"Fallback also failed: {fallback_error}")
-                    yield f"data: {json.dumps({'error': f'Streaming failed: {str(e)}. Fallback also failed: {str(fallback_error)}'})}\n\n"
-            
-            # Add assistant message to conversation history (use cleaned content)
-            cleaned_response = self._extract_clean_response(response_content)
-            self.add_message("assistant", cleaned_response if cleaned_response else response_content)
-            
-            # Send completion signal
-            self.logger.info("Sending completion signal")
-            yield f"data: {json.dumps({'completed': True})}\n\n"
-            
+                        if token:
+                            # Check if this token contains internal agent data patterns
+                            if any(pattern in token.lower() for pattern in ['agent_scratchpad', 'intermediate_steps', 'chat_history', 'log=']):
+                                self.logger.info(f"Skipping token with internal data: {token}")
+                                continue
+                            
+                            self.logger.info(f"Yielding token from chat model: {token}")
+                            yield f"data: {json.dumps({'content': token})}\n\n"
+                            response_content += token
+                    except Exception as e:
+                        self.logger.error(f"Error processing chat model stream event: {e}")
+                
+                # Handle tool call events - these should stream in real-time
+                elif event.get('event') == 'on_tool_start':
+                    try:
+                        tool_name = event.get('name', 'unknown')
+                        tool_id = f"tool_{tool_name}_{int(time.time())}"
+                        tool_calls_in_progress[tool_name] = tool_id
+                        
+                        # Send tool call start
+                        tool_call_data = {'tool_call_start': tool_name, 'tool_id': tool_id}
+                        self.logger.info(f"Yielding tool_call_start from event: {tool_call_data}")
+                        yield f"data: {json.dumps(tool_call_data)}\n\n"
+                        
+                        # Try to get tool arguments from the event
+                        try:
+                            tool_input = event.get('data', {}).get('input', '')
+                            if tool_input:
+                                # Try to parse as JSON if it's a string
+                                if isinstance(tool_input, str):
+                                    try:
+                                        arguments = json.loads(tool_input)
+                                    except json.JSONDecodeError:
+                                        arguments = tool_input
+                                else:
+                                    arguments = tool_input
+                                
+                                tool_args_data = {
+                                    'tool_call_args': tool_name, 
+                                    'tool_id': tool_id, 
+                                    'arguments': arguments
+                                }
+                                self.logger.info(f"Yielding tool_call_args from event: {tool_args_data}")
+                                yield f"data: {json.dumps(tool_args_data)}\n\n"
+                        except Exception as e:
+                            self.logger.error(f"Error processing tool arguments from event: {e}")
+                            
+                    except Exception as e:
+                        self.logger.error(f"Error processing tool start event: {e}")
+                
+                elif event.get('event') == 'on_tool_end':
+                    try:
+                        tool_name = event.get('name', 'unknown')
+                        output = event.get('data', {}).get('output', '')
+                        tool_id = tool_calls_in_progress.get(tool_name, f"tool_{tool_name}")
+                        
+                        tool_call_data = {
+                            'tool_call_complete': tool_name, 
+                            'success': True, 
+                            'response': str(output),
+                            'tool_id': tool_id
+                        }
+                        self.logger.info(f"Yielding tool_call_complete from event: {tool_call_data}")
+                        yield f"data: {json.dumps(tool_call_data)}\n\n"
+                        
+                        # Remove from in-progress tracking
+                        if tool_name in tool_calls_in_progress:
+                            del tool_calls_in_progress[tool_name]
+                    except Exception as e:
+                        self.logger.error(f"Error processing tool end event: {e}")
+                
+                # Handle final output events - but only if we haven't streamed the content yet
+                elif event.get('event') == 'on_chain_end':
+                    try:
+                        output = event.get('data', {}).get('output', '')
+                        if output:
+                            # Check if this output contains internal agent state - if so, skip it entirely
+                            output_str = str(output)
+                            if any(pattern in output_str for pattern in ['agent_scratchpad', 'intermediate_steps', 'chat_history', 'log=']):
+                                self.logger.info(f"Skipping output with internal agent state: {output_str[:100]}...")
+                                continue
+                            
+                            # Check if this output contains tool response data - if so, skip it entirely
+                            if any(pattern in output_str for pattern in ['"status": "success"', '"results": {', 'ToolAgentAction', 'tool_call_id']):
+                                self.logger.info(f"Skipping output with tool response data: {output_str[:100]}...")
+                                continue
+                            
+                            # For agent responses, we need to extract only the final text response
+                            # The agent might return a complex object with internal state
+                            if isinstance(output, dict):
+                                # Look for the actual response text in the output
+                                if 'output' in output:
+                                    final_text = output['output']
+                                elif 'response' in output:
+                                    final_text = output['response']
+                                elif 'text' in output:
+                                    final_text = output['text']
+                                else:
+                                    # If it's a dict but no clear text field, convert to string and clean
+                                    final_text = str(output)
+                            else:
+                                final_text = output
+                            
+                            # Use the new cleaning method to extract clean response text
+                            text_content = self._extract_clean_response(final_text)
+                            
+                            # Additional check: if the content looks like technical data, don't stream it
+                            if text_content and len(text_content) > 0:
+                                # Check if this looks like technical data that shouldn't be in chat
+                                technical_indicators = ['status', 'results', 'response', 'data', 'shape', 'columns', 'queryURL', 'tool_call_id', 'log=']
+                                is_technical = any(indicator in text_content.lower() for indicator in technical_indicators)
+                                
+                                if is_technical and len(text_content) < 100:
+                                    self.logger.info(f"Skipping technical data: {text_content[:50]}...")
+                                    continue
+                            
+                            # Only stream if we haven't already streamed this content and it's not empty
+                            if text_content and text_content != response_content and len(text_content.strip()) > 0:
+                                # Check for duplication - if the new content is just a repeat of what we already have
+                                if response_content and text_content.startswith(response_content):
+                                    # This is a duplicate, skip it
+                                    self.logger.info(f"Skipping duplicate content: {text_content[:50]}...")
+                                    continue
+                                
+                                remaining_content = text_content[len(response_content):]
+                                if remaining_content and len(remaining_content.strip()) > 0:
+                                    self.logger.info(f"Yielding remaining content: {remaining_content[:100]}...")
+                                    yield f"data: {json.dumps({'content': remaining_content})}\n\n"
+                                    response_content = text_content
+                    except Exception as e:
+                        self.logger.error(f"Error processing chain end event: {e}")
+                
+                # Also check execution trace for any tool calls that might not be caught by events
+                current_trace_count = len(execution_callback.execution_trace)
+                if current_trace_count > 0:
+                    self.logger.info(f"Processing {current_trace_count} tool traces from execution callback")
+                    
+                    for i in range(current_trace_count):
+                        try:
+                            trace = execution_callback.execution_trace[i]
+                            self.logger.info(f"Processing trace {i}: {trace}")
+                            
+                            # Check if trace has the required fields
+                            if not isinstance(trace, dict):
+                                self.logger.warning(f"Trace {i} is not a dict: {trace}")
+                                continue
+                                
+                            trace_type = trace.get("type")
+                            if not trace_type:
+                                self.logger.warning(f"Trace {i} has no type: {trace}")
+                                continue
+                                
+                            if trace_type == "tool_start":
+                                tool_name = trace.get('tool', 'unknown')
+                                tool_id = f"tool_{i + 1}_{int(time.time())}"
+                                tool_calls_in_progress[tool_name] = tool_id
+                                
+                                # Send tool call start
+                                tool_call_data = {'tool_call_start': tool_name, 'tool_id': tool_id}
+                                self.logger.info(f"Yielding tool_call_start from trace: {tool_call_data}")
+                                yield f"data: {json.dumps(tool_call_data)}\n\n"
+                                
+                                # Send tool arguments if available
+                                tool_input = trace.get('input', '')
+                                if tool_input:
+                                    try:
+                                        # Try to parse as JSON if it's a string
+                                        if isinstance(tool_input, str):
+                                            try:
+                                                arguments = json.loads(tool_input)
+                                            except json.JSONDecodeError:
+                                                arguments = tool_input
+                                        else:
+                                            arguments = tool_input
+                                        
+                                        tool_args_data = {
+                                            'tool_call_args': tool_name, 
+                                            'tool_id': tool_id, 
+                                            'arguments': arguments
+                                        }
+                                        self.logger.info(f"Yielding tool_call_args from trace: {tool_args_data}")
+                                        yield f"data: {json.dumps(tool_args_data)}\n\n"
+                                    except Exception as e:
+                                        self.logger.error(f"Error processing tool arguments from trace: {e}")
+                                
+                            elif trace_type == "tool_end":
+                                tool_name = trace.get('tool', 'unknown')
+                                success = trace.get('successful', True)
+                                output = trace.get('output', '')
+                                tool_id = tool_calls_in_progress.get(tool_name, f"tool_{tool_name}")
+                                
+                                tool_call_data = {
+                                    'tool_call_complete': tool_name, 
+                                    'success': success, 
+                                    'response': output,
+                                    'tool_id': tool_id
+                                }
+                                self.logger.info(f"Yielding tool_call_complete from trace: {tool_call_data}")
+                                yield f"data: {json.dumps(tool_call_data)}\n\n"
+                                
+                                # Remove from in-progress tracking
+                                if tool_name in tool_calls_in_progress:
+                                    del tool_calls_in_progress[tool_name]
+                                    
+                        except Exception as e:
+                            self.logger.error(f"Error processing trace {i}: {e}")
+                            continue
+                
         except Exception as e:
             self.logger.error(f"Error in explain_change_streaming: {e}")
             yield f"data: {json.dumps({'error': str(e)})}\n\n"
+        
+        # Add assistant message to conversation history (use cleaned content)
+        cleaned_response = self._extract_clean_response(response_content)
+        self.add_message("assistant", cleaned_response if cleaned_response else response_content)
+        
+        # Send completion signal
+        self.logger.info("Sending completion signal")
+        yield f"data: {json.dumps({'completed': True})}\n\n"
     
     def _extract_clean_response(self, output):
         """Extract clean response text from agent output, filtering out internal state."""
@@ -838,10 +1112,10 @@ class LangChainExplainerAgent:
             # Remove log= artifacts and response duplication
             cleaned = re.sub(r'log="[^"]*"', '', cleaned)
             cleaned = re.sub(r'log=\s*"[^"]*"', '', cleaned)
-            cleaned = re.sub(r'log=\s*[^\s]*', '', cleaned)
+            cleaned = re.sub(r'log\s*=\s*[^\s]*', '', cleaned)
             # More comprehensive log pattern removal
-            cleaned = re.sub(r'log=\s*"[^"]*"', '', cleaned)
-            cleaned = re.sub(r'log=\s*[^\s]*', '', cleaned)
+            cleaned = re.sub(r'log\s*=\s*"[^"]*"', '', cleaned)
+            cleaned = re.sub(r'log\s*=\s*[^\s]*', '', cleaned)
             # Remove any remaining log= patterns with different spacing
             cleaned = re.sub(r'log\s*=\s*"[^"]*"', '', cleaned)
             cleaned = re.sub(r'log\s*=\s*[^\s]*', '', cleaned)

@@ -1086,7 +1086,7 @@ Your response MUST be returned as a properly formatted JSON object with the foll
 
 DO NOT include any additional content, headers, or formatting outside of this JSON structure. The data will be extracted directly for use in a report."""
             
-            logger.info(f"Prompt for explainer agent: {prompt[:200]}...")
+            # logger.info(f"Prompt for explainer agent: {prompt[:200]}...")  # Commented out to stop logging explainer prompts
             
             # Process with the agent
             try:
@@ -1866,7 +1866,7 @@ def proofread_and_revise_report(report_path):
 
         prompt += json_instruction
 
-        # Use the AGENT_MODEL directly with higher max_tokens
+        # Use the AGENT_MODEL directly with much higher max_tokens to handle large newsletters
         logger.info("Using AGENT_MODEL for proofreading with increased token limit")
         response = client.chat.completions.create(
             model=AGENT_MODEL,
@@ -1875,7 +1875,7 @@ def proofread_and_revise_report(report_path):
                 {"role": "user", "content": prompt}
             ],
             temperature=0.1,
-            max_tokens=4000,  # Request more tokens in the response
+            max_tokens=16000,  # Significantly increased to handle large newsletters
             response_format={"type": "json_object"}  # Expect JSON response
         )
         response_content = response.choices[0].message.content
@@ -1900,40 +1900,61 @@ def proofread_and_revise_report(report_path):
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse proofread response as JSON: {e}")
             logger.error(f"Raw response: {response_content[:500]}...")
-            # Attempt to recover newsletter, headlines, and feedback using regex
-            # Improved regex patterns to better handle incomplete JSON
-            newsletter_match = re.search(r'"newsletter"\s*:\s*"(.*?)("|}|\Z)', response_content, re.DOTALL)
+            
+            # Enhanced recovery logic for malformed JSON
+            revised_newsletter_content = None
+            proofread_feedback = None
+            headlines = None
+            
+            # Try to extract newsletter content with better regex
+            newsletter_match = re.search(r'"newsletter"\s*:\s*"(.*?)"', response_content, re.DOTALL)
+            if not newsletter_match:
+                # Try alternative pattern for truncated content
+                newsletter_match = re.search(r'"newsletter"\s*:\s*"(.*?)(?="|$)', response_content, re.DOTALL)
+            
             if newsletter_match:
-                # Get the content but remove any trailing characters if we matched end of string
                 newsletter_content = newsletter_match.group(1)
-                if newsletter_match.group(2) != '"':
-                    # If we didn't match the closing quote, we need to handle a truncated string
-                    logger.warning("Newsletter content appears to be truncated - trying to recover")
-                    # Add closing quote if missing
-                    newsletter_content += '"'
+                # Handle JSON escaping
+                newsletter_content = newsletter_content.replace('\\"', '"')
+                newsletter_content = newsletter_content.replace('\\n', '\n')
+                newsletter_content = newsletter_content.replace('\\r', '\r')
+                newsletter_content = newsletter_content.replace('\\t', '\t')
+                newsletter_content = newsletter_content.replace('\\\\', '\\')
+                revised_newsletter_content = newsletter_content
+                logger.info("Successfully extracted newsletter content from malformed JSON")
             else:
-                newsletter_content = None
+                logger.error("Could not extract newsletter content from malformed JSON")
                 
-            feedback_match = re.search(r'"proofread_feedback"\s*:\s*"(.*?)("|}|\Z)', response_content, re.DOTALL)
+            # Try to extract feedback content
+            feedback_match = re.search(r'"proofread_feedback"\s*:\s*"(.*?)"', response_content, re.DOTALL)
+            if not feedback_match:
+                # Try alternative pattern for truncated content
+                feedback_match = re.search(r'"proofread_feedback"\s*:\s*"(.*?)(?="|$)', response_content, re.DOTALL)
+            
             if feedback_match:
-                # Get the content but remove any trailing characters if we matched end of string
                 feedback_content = feedback_match.group(1)
-                if feedback_match.group(2) != '"':
-                    # If we didn't match the closing quote, we need to handle a truncated string
-                    logger.warning("Feedback content appears to be truncated - trying to recover")
+                # Handle JSON escaping
+                feedback_content = feedback_content.replace('\\"', '"')
+                feedback_content = feedback_content.replace('\\n', '\n')
+                feedback_content = feedback_content.replace('\\r', '\r')
+                feedback_content = feedback_content.replace('\\t', '\t')
+                feedback_content = feedback_content.replace('\\\\', '\\')
+                proofread_feedback = feedback_content
+                logger.info("Successfully extracted feedback content from malformed JSON")
             else:
-                feedback_content = None
+                logger.warning("Could not extract feedback content from malformed JSON")
                 
+            # Try to extract headlines
             headlines_match = re.search(r'"headlines"\s*:\s*(\[.*?\])', response_content, re.DOTALL)
-            
-            revised_newsletter_content = newsletter_content
-            proofread_feedback = feedback_content
-            
-            try:
-                headlines = json.loads(headlines_match.group(1)) if headlines_match else None
-            except Exception as headlines_error:
-                logger.error(f"Error parsing headlines: {headlines_error}")
-                headlines = None
+            if headlines_match:
+                try:
+                    headlines = json.loads(headlines_match.group(1))
+                    logger.info("Successfully extracted headlines from malformed JSON")
+                except Exception as headlines_error:
+                    logger.error(f"Error parsing headlines: {headlines_error}")
+                    headlines = None
+            else:
+                logger.warning("Could not extract headlines from malformed JSON")
                 
             logger.warning("Recovered fields from malformed JSON: newsletter=%s, feedback=%s, headlines=%s", 
                           bool(revised_newsletter_content), bool(proofread_feedback), bool(headlines))
@@ -1943,17 +1964,6 @@ def proofread_and_revise_report(report_path):
                 report_path_obj = Path(report_path)
                 revised_filename = f"{report_path_obj.stem}_revised{report_path_obj.suffix}"
                 revised_path = report_path_obj.parent / revised_filename
-                
-                # The newsletter content might have escaped quotes we need to unescape
-                try:
-                    # Try to handle common JSON escape sequences
-                    revised_newsletter_content = revised_newsletter_content.replace('\\"', '"')
-                    revised_newsletter_content = revised_newsletter_content.replace('\\n', '\n')
-                    revised_newsletter_content = revised_newsletter_content.replace('\\r', '\r')
-                    revised_newsletter_content = revised_newsletter_content.replace('\\t', '\t')
-                    revised_newsletter_content = revised_newsletter_content.replace('\\\\', '\\')
-                except Exception as unescape_error:
-                    logger.error(f"Error unescaping content: {unescape_error}")
                 
                 with open(revised_path, 'w', encoding='utf-8') as f:
                     f.write(revised_newsletter_content)
@@ -1999,11 +2009,16 @@ def proofread_and_revise_report(report_path):
                 SET revised_filename = %s, proofread_feedback = %s, headlines = %s, updated_at = CURRENT_TIMESTAMP
                 WHERE id = %s
             """
-            cursor.execute(update_query, (revised_filename, proofread_feedback, json.dumps(headlines) if headlines else None, report_id))
+            cursor.execute(update_query, (
+                revised_filename,
+                proofread_feedback,
+                json.dumps(headlines) if headlines else None,
+                report_id
+            ))
             connection.commit()
-            logger.info(f"Updated report ID {report_id} with revised filename, proofread feedback, and headlines.")
+            logger.info(f"Updated report record {report_id} with revised filename and feedback")
             return True
-
+        
         update_db_result = execute_with_connection(
             operation=update_report_record_operation,
             db_host=DB_HOST,
@@ -2016,14 +2031,14 @@ def proofread_and_revise_report(report_path):
         if update_db_result["status"] != "success" or not update_db_result["result"]:
             logger.error(f"Failed to update report table: {update_db_result.get('message')}")
             # Continue, but log the error. The file is saved.
+            return {"status": "partial", "revised_report_path": str(revised_path), "proofread_feedback": proofread_feedback, "headlines": headlines, "message": "Proofreading completed but database update failed"}
 
-        logger.info(f"Revised newsletter saved to {revised_path}")
-        return {"status": "success", "revised_report_path": str(revised_path)}
-        
+        logger.info(f"Successfully proofread and revised newsletter: {revised_path}")
+        return {"status": "success", "revised_report_path": str(revised_path), "proofread_feedback": proofread_feedback, "headlines": headlines}
+            
     except Exception as e:
-        error_msg = f"Error in proofread_and_revise_report: {str(e)}"
-        logger.error(error_msg, exc_info=True)
-        return {"status": "error", "message": error_msg}
+        logger.error(f"Error during proofreading: {str(e)}", exc_info=True)
+        return {"status": "error", "message": f"Error during proofreading: {str(e)}"}
 
 def get_perplexity_context(report_items):
     """
@@ -4702,6 +4717,7 @@ def regenerate_explanations_for_report(filename):
             report_items = []
             for item in items:
                 report_items.append({
+                    "id": item["id"],  # Include the database ID
                     "metric": item["metric_name"],
                     "group": item["group_value"],
                     "recent_mean": item["recent_mean"],
@@ -4738,44 +4754,63 @@ def regenerate_explanations_for_report(filename):
                     updated_count = 0
                     
                     for item in context_result["report_items"]:
-                        # Find the corresponding database item
-                        cursor.execute("""
-                            SELECT id, metadata FROM monthly_reporting 
-                            WHERE metric_name = %s AND group_value = %s AND id = ANY(%s)
-                        """, (item["metric"], item["group"], item_ids))
+                        item_id = item.get("id")
+                        metric_name = item["metric"]
+                        group_value = item["group"]
                         
-                        db_item = cursor.fetchone()
-                        if db_item:
-                            item_id, current_metadata = db_item
+                        logger.info(f"Processing item: ID={item_id}, metric={metric_name}, group={group_value}")
+                        logger.info(f"Item keys: {list(item.keys())}")
+                        logger.info(f"Metadata keys: {list(item.get('metadata', {}).keys())}")
+                        
+                        if not item_id:
+                            logger.warning(f"No item ID found for {metric_name} - {group_value}, skipping update")
+                            continue
+                        
+                        # Get current metadata from database
+                        cursor.execute("""
+                            SELECT metadata FROM monthly_reporting 
+                            WHERE id = %s
+                        """, (item_id,))
+                        
+                        result = cursor.fetchone()
+                        if not result:
+                            logger.warning(f"Database item not found for ID {item_id}, skipping update")
+                            continue
                             
-                            # Parse existing metadata
-                            if current_metadata:
-                                if isinstance(current_metadata, str):
-                                    try:
-                                        metadata = json.loads(current_metadata)
-                                    except:
-                                        metadata = {}
-                                else:
-                                    metadata = current_metadata
+                        current_metadata = result[0]
+                        logger.info(f"Found database item: ID={item_id}")
+                        
+                        # Parse existing metadata
+                        if current_metadata:
+                            if isinstance(current_metadata, str):
+                                try:
+                                    metadata = json.loads(current_metadata)
+                                except:
+                                    metadata = {}
                             else:
-                                metadata = {}
-                            
-                            # Add perplexity context
-                            if "perplexity_context" in item.get("metadata", {}):
-                                metadata["perplexity_context"] = item["metadata"]["perplexity_context"]
-                            
-                            # Add perplexity response data
-                            if "perplexity_response" in item.get("metadata", {}):
-                                metadata["perplexity_response"] = item["metadata"]["perplexity_response"]
-                            
-                            # Update the database
-                            cursor.execute("""
-                                UPDATE monthly_reporting 
-                                SET metadata = %s 
-                                WHERE id = %s
-                            """, (json.dumps(metadata), item_id))
-                            
-                            updated_count += 1
+                                metadata = current_metadata
+                        else:
+                            metadata = {}
+                        
+                        # Add perplexity context
+                        if "perplexity_context" in item.get("metadata", {}):
+                            metadata["perplexity_context"] = item["metadata"]["perplexity_context"]
+                            logger.info(f"Added perplexity_context for item ID {item_id} (length: {len(item['metadata']['perplexity_context'])})")
+                        
+                        # Add perplexity response data
+                        if "perplexity_response" in item.get("metadata", {}):
+                            metadata["perplexity_response"] = item["metadata"]["perplexity_response"]
+                            logger.info(f"Added perplexity_response for item ID {item_id}: {json.dumps(item['metadata']['perplexity_response'])[:100]}...")
+                        
+                        # Update the database
+                        cursor.execute("""
+                            UPDATE monthly_reporting 
+                            SET metadata = %s 
+                            WHERE id = %s
+                        """, (json.dumps(metadata), item_id))
+                        
+                        updated_count += 1
+                        logger.info(f"Updated item ID {item_id} with perplexity context")
                     
                     connection.commit()
                     cursor.close()

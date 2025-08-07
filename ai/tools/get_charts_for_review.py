@@ -7,6 +7,7 @@ Queries time_series_metadata, anomalies, and maps tables to provide chart option
 import logging
 from datetime import datetime, timedelta
 from typing import Dict, List, Any, Optional
+import json
 
 try:
     from .db_utils import execute_with_connection
@@ -15,6 +16,36 @@ except ImportError:
     from .db_utils import execute_with_connection
 
 logger = logging.getLogger(__name__)
+
+def extract_caption_from_metadata(metadata: Any) -> str:
+    """
+    Extract caption from metadata if available.
+    
+    Args:
+        metadata: Metadata object (could be JSON string, dict, or None)
+        
+    Returns:
+        Caption string or empty string if not found
+    """
+    if not metadata:
+        return ""
+    
+    try:
+        # If metadata is a string, try to parse it as JSON
+        if isinstance(metadata, str):
+            metadata_dict = json.loads(metadata)
+        elif isinstance(metadata, dict):
+            metadata_dict = metadata
+        else:
+            return ""
+        
+        # Look for caption in various possible locations
+        caption = metadata_dict.get('caption') or metadata_dict.get('description') or metadata_dict.get('title')
+        
+        return caption if caption else ""
+        
+    except (json.JSONDecodeError, AttributeError, TypeError):
+        return ""
 
 def get_charts_for_review(
     context_variables: Dict[str, Any],
@@ -137,10 +168,15 @@ def get_charts_for_review(
             
             if time_series_result['status'] == 'success':
                 for row in time_series_result['result']:
+                    # Extract additional caption from metadata if available
+                    metadata_caption = extract_caption_from_metadata(row[10])
+                    base_caption = row[2] or "No caption available"
+                    enhanced_caption = f"{base_caption} {metadata_caption}".strip() if metadata_caption else base_caption
+                    
                     chart_info = {
                         'chart_id': row[0],
                         'title': row[1] or f"Time Series Chart {row[0]}",
-                        'caption': row[2] or "No caption available",
+                        'caption': enhanced_caption,
                         'object_type': row[3],
                         'object_name': row[4],
                         'field_name': row[5],
@@ -148,7 +184,6 @@ def get_charts_for_review(
                         'period_type': row[7],
                         'district': row[8],
                         'created_at': row[9].isoformat() if row[9] else None,
-                        'metadata': row[10],
                         'executed_query_url': row[11],
                         'chart_type': 'time_series',
                         'chart_reference': f"[CHART:time_series_id:{row[0]}]"
@@ -215,10 +250,15 @@ def get_charts_for_review(
             
             if anomaly_result['status'] == 'success':
                 for row in anomaly_result['result']:
+                    # Extract additional caption from metadata if available
+                    metadata_caption = extract_caption_from_metadata(row[10])
+                    base_caption = row[1] or "No caption available"
+                    enhanced_caption = f"{base_caption} {metadata_caption}".strip() if metadata_caption else base_caption
+                    
                     chart_info = {
                         'chart_id': row[0],
                         'title': f"Anomaly Detection: {row[6] or 'Unknown'} - {row[7] or 'Unknown Field'}",
-                        'caption': row[1] or "No caption available", 
+                        'caption': enhanced_caption,
                         'group_value': row[2],
                         'group_field_name': row[3],
                         'period_type': row[4],
@@ -227,7 +267,6 @@ def get_charts_for_review(
                         'field_name': row[7],
                         'district': row[8],
                         'created_at': row[9].isoformat() if row[9] else None,
-                        'metadata': row[10],
                         'executed_query_url': row[11],
                         'recent_mean': row[12],
                         'comparison_mean': row[13],
@@ -302,14 +341,18 @@ def get_charts_for_review(
                 
                 if maps_result['status'] == 'success':
                     for row in maps_result['result']:
+                        # Extract caption from metadata if available
+                        metadata_caption = extract_caption_from_metadata(row[4])
+                        base_caption = "No description available"  # Default since no description column
+                        enhanced_caption = metadata_caption if metadata_caption else base_caption
+                        
                         chart_info = {
                             'chart_id': row[0],  # id (integer)
                             'title': row[1] or f"Map {row[0]}",  # title
-                            'caption': "No description available",  # Default since no description column
+                            'caption': enhanced_caption,
                             'map_type': row[2],  # type
                             'district': None,  # No district column in maps table
                             'created_at': row[5].isoformat() if row[5] else None,  # created_at
-                            'metadata': row[4],  # metadata
                             'published_url': row[6],  # published_url
                             'location_data': row[3],  # location_data
                             'metric_id': row[8],  # metric_id

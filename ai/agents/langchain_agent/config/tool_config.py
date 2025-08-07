@@ -127,7 +127,7 @@ class ToolConfig:
                 group=ToolGroup.ANALYSIS,
                 required_prompt_sections=["core_tools", "charts"],
                 examples=[
-                    "get_charts_for_review(context_variables, limit=20, days_back=30, district_filter='2')",
+                    "get_charts_for_review(context_variables, limit=20, days_back=30, district_filter='2', metric_id='3')",
                     "Use this to find relevant charts and maps that support your explanations"
                 ]
             ),
@@ -168,7 +168,17 @@ class ToolConfig:
                     "Use this to get complete information about a metric by ID or key"
                 ]
             ),
-
+            ToolDefinition(
+                name="list_categories",
+                function=None,
+                description="Get all available metric categories and subcategories",
+                group=ToolGroup.METRICS,
+                required_prompt_sections=["metrics_tools"],
+                examples=[
+                    "list_categories(context_variables)",
+                    "Use this to see what categories of metrics are available"
+                ]
+            ),
             ToolDefinition(
                 name="get_dashboard_metrics",
                 function=None,
@@ -246,7 +256,39 @@ class ToolConfig:
                     "Use this to see what metrics are built on a particular dataset"
                 ]
             ),
-
+            ToolDefinition(
+                name="get_crime_metrics",
+                function=None,
+                description="Get all crime-related metrics",
+                group=ToolGroup.METRICS,
+                required_prompt_sections=["metrics_tools"],
+                examples=[
+                    "get_crime_metrics(context_variables)",
+                    "Convenience function to get all metrics in the crime category"
+                ]
+            ),
+            ToolDefinition(
+                name="get_safety_metrics",
+                function=None,
+                description="Get all safety-related metrics",
+                group=ToolGroup.METRICS,
+                required_prompt_sections=["metrics_tools"],
+                examples=[
+                    "get_safety_metrics(context_variables)",
+                    "Convenience function to get all metrics in the safety category"
+                ]
+            ),
+            ToolDefinition(
+                name="get_economy_metrics",
+                function=None,
+                description="Get all economy-related metrics",
+                group=ToolGroup.METRICS,
+                required_prompt_sections=["metrics_tools"],
+                examples=[
+                    "get_economy_metrics(context_variables)",
+                    "Convenience function to get all metrics in the economy category"
+                ]
+            )
         ]
         
         # Data analysis tools

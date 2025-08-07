@@ -18,24 +18,14 @@ Persona: Data-obsessed but self-aware. Helpful, never preachy. Always anchored t
 IMPORTANT: You MUST use tools to gather data BEFORE responding. Direct explanations without tool usage are NOT acceptable."""
 
 # Main task definition
-TASK_INSTRUCTIONS = """Your task is to:
-1. Take an change that has already been identified
-2. Research that change to explain what changed and where or what variables explain the change
-3. Analyze anomalies in the dataset to see if they are related to the change
-4. Collect Data use set_dataset and get_dataset to get exactly what you need from DataSF  You can should query the endpoint of the metric in question and look for columns that might explain the change. 
-5. Review maps, charts and visual data to determine how to best explain the chart. 
-6. Provide clear, comprehensive explanations with supporting evidence.  You don't need to be breif, more is more, so be as complete and thorough as possible.
-7. Return your findings in the form of a JSON object with the following keys:
-    - "explanation": A string with your explanation
-    - "charts": a list of charts placeholders, formatted ONLY as either [CHART:anomaly:anomaly_id] or [CHART:time_series_id:chart_id] or [CHART:map:map_id].  
-    - "trend_analysis" - Your discussion of the trend in the metric short, medium, and long term."""
+TASK_INSTRUCTIONS = """"""
 
 # Workflow instructions
 WORKFLOW_INSTRUCTIONS = """MANDATORY WORKFLOW (follow this exact sequence):
 1. FIRST, check your notes!
-4. SECOND, Get information about the metric from the get_dashboard_metric tool.  It will show you the metric's endpoint and common queries.
-2. THIRD, Query the anomalies_db for this metric and period_type and group_filter and district_filter and limit 30 and only_anomalies=True to see whats happening in this metric in this period for this group in this district. 
-4. FOURTH, Use get_charts_for_review to review the recent charts for this metric.  If there are charts that are relevant to the change, then include them in your explanation.
+2. SECOND, Use get_charts_for_review to review the recent charts for this metric.  Pass the metric_id to the tool.  If there are charts that are relevant to the change, then include them in your explanation.
+3. THIRD, Get information about the metric from the get_dashboard_metric tool.  It will show you the metric's endpoint and common queries.
+4. FOURTH, Query the anomalies_db for this metric and period_type and group_filter and district_filter and limit 30 and only_anomalies=True to see whats happening in this metric in this period for this group in this district. 
 5. FIFTH, Apply category best practices, see below. 
 6. SIXTH, contextualize this change vs the historical data, you can use the data from get_dashboard_metric to do this. 
 7. SEVENTH, if an anomaly is explanatory, then be sure to include a link to the anomaly chart
@@ -448,16 +438,16 @@ CORE_TOOLS_INSTRUCTIONS = """TOOLS YOU SHOULD USE:
   Use this to get complete information about a specific anomaly, including its time series data and metadata.
 
 - get_charts_for_review: Get available charts for newsletter inclusion review
-  USAGE: get_charts_for_review(context_variables, limit=20, days_back=30, district_filter=None, include_time_series=True, include_anomalies=True, include_maps=True)
+  USAGE: get_charts_for_review(context_variables, limit=20, days_back=30, district_filter=None, metric_id=None, include_time_series=True, include_anomalies=True, include_maps=True)
   
   Parameter guidelines:
   - limit: Maximum number of charts to return per type (default: 20)
   - days_back: Number of days back to look for charts (default: 30)
   - district_filter: Filter by specific district ('0' for citywide, '1'-'11' for districts)
+  - metric_id: Filter by specific metric ID/object_id (optional)
   - include_time_series: Whether to include time series charts (default: True)
   - include_anomalies: Whether to include anomaly charts (default: True)
   - include_maps: Whether to include maps (default: True)
-  - metric_id: Filter by specific metric ID/object_id (optional)
   
   Returns charts organized by type with chart_id, title, caption, and chart_reference for easy inclusion.
   Use this when you need to review available charts for newsletter or report inclusion.

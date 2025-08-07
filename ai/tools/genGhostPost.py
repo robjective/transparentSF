@@ -59,7 +59,7 @@ def publish_newsletter_to_ghost(filename, title=None):
             return f"Error: File not found: {filename}"
         
         # Check if an email-compatible version exists
-        email_filename = filename.replace('.html', '_email.html')
+        email_filename = filename.replace('.html', '_revised_email.html')
         email_file_path = os.path.join(reports_dir, email_filename)
         
         if os.path.exists(email_file_path):

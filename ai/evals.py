@@ -414,7 +414,7 @@ def test_does_not_call_set_dataset_when_not_asked(query):
 @pytest.mark.parametrize(
     "query, model_key",
     [
-        ("who made this model", "gpt-4o"),
+        ("who made this model", "gpt-4.1"),
         ("who made this model", "gemini-pro"),
     ]
 )

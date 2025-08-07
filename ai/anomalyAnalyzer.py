@@ -96,7 +96,7 @@ swarm_client = Swarm()
 
 # Set models
 EMBEDDING_MODEL = "text-embedding-3-large"
-AGENT_MODEL = "gpt-4o"
+AGENT_MODEL = "gpt-4.1"
 
 # Session management
 sessions = {}

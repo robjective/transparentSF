@@ -17,7 +17,7 @@ openai_api_key = os.getenv("OPENAI_API_KEY")
 if not openai_api_key:
     raise ValueError("OpenAI API key not found in environment variables.")
 client = Swarm()
-GPT_MODEL = 'gpt-4o'
+GPT_MODEL = 'gpt-4.1'
 
 # ------------------------------
 # Utility Functions

@@ -168,12 +168,34 @@ def generate_report_text(report_ids, execute_with_connection, load_prompts, AGEN
             )
 
             # Log the prompt before sending to LLM
-            # Log prompt to report_prompt file
+            # Log prompt to report_prompt file with detailed field lengths
             try:
-                report_prompt_file = os.path.join(project_root,'ai', 'logs', 'report_prompt')
+                logs_dir = os.path.join(project_root,'ai', 'logs')
+                os.makedirs(logs_dir, exist_ok=True)
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                report_prompt_file = os.path.join(logs_dir, f'report_prompt_{timestamp}.log')
+                
                 with open(report_prompt_file, 'w', encoding='utf-8') as f:
-                    f.write(f"Prompt for report_id {report_id}:\n{prompt}")
-                logger.info(f"Saved prompt to {report_prompt_file}")
+                    f.write(f"Timestamp: {datetime.now().isoformat()}\n")
+                    f.write(f"Report ID: {report_id}\n")
+                    f.write(f"Metric: {item.get('metric_name', '') if isinstance(item, dict) else item['metric_name']}\n")
+                    f.write(f"\n{'='*60}\n")
+                    f.write("FIELD LENGTHS:\n")
+                    f.write(f"rationale: {len(rationale)} characters\n")
+                    f.write(f"explanation: {len(explanation)} characters\n")
+                    f.write(f"trend_analysis: {len(trend_analysis)} characters\n")
+                    f.write(f"follow_up: {len(follow_up)} characters\n")
+                    f.write(f"charts_str: {len(charts_str)} characters\n")
+                    f.write(f"citations_str: {len(citations_str)} characters\n")
+                    f.write(f"perplexity_context: {len(perplexity_context)} characters\n")
+                    f.write(f"citywide_changes: {len(citywide_changes)} characters\n")
+                    f.write(f"TOTAL PROMPT: {len(prompt)} characters\n")
+                    f.write(f"\n{'='*60}\n")
+                    f.write("FULL PROMPT:\n")
+                    f.write(prompt)
+                    f.write(f"\n{'='*60}\n")
+                
+                logger.info(f"Saved detailed prompt to {report_prompt_file} (total length: {len(prompt)} characters)")
             except Exception as e:
                 logger.error(f"Failed to write prompt to report_prompt file: {e}")
 

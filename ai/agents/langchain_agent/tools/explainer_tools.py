@@ -303,7 +303,7 @@ def get_dataset_columns_tool(endpoint: str) -> Dict[str, Any]:
         logger.exception("Error in get_dataset_columns_tool")
         return {'error': f'Error retrieving dataset columns: {str(e)}'}
 
-def get_charts_for_review_tool(limit: int = 20, days_back: int = 30, district_filter: str = None) -> Dict[str, Any]:
+def get_charts_for_review_tool(limit: int = 20, days_back: int = 30, district_filter: str = None, metric_id: str = None) -> Dict[str, Any]:
     """
     Get available charts for newsletter inclusion review.
     
@@ -311,6 +311,7 @@ def get_charts_for_review_tool(limit: int = 20, days_back: int = 30, district_fi
         limit: Maximum number of charts to return
         days_back: Number of days to look back
         district_filter: District filter
+        metric_id: Filter by specific metric ID/object_id (optional)
         
     Returns:
         Dictionary with chart information
@@ -319,13 +320,14 @@ def get_charts_for_review_tool(limit: int = 20, days_back: int = 30, district_fi
     logger.info(f"Limit: {limit}")
     logger.info(f"Days back: {days_back}")
     logger.info(f"District filter: {district_filter}")
+    logger.info(f"Metric ID: {metric_id}")
     
     try:
         # Import the original function and call it
         from ai.tools.get_charts_for_review import get_charts_for_review
         
         # Call the original function with empty context
-        result = get_charts_for_review({}, limit=limit, days_back=days_back, district_filter=district_filter)
+        result = get_charts_for_review({}, limit=limit, days_back=days_back, district_filter=district_filter, metric_id=metric_id)
         
         logger.info("Charts for review retrieved successfully")
         return {'status': 'success', 'charts': result}

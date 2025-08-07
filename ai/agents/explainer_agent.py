@@ -118,7 +118,8 @@ function_mapping = {
 
 # Load environment variables
 from .config.models import get_default_model
-AGENT_MODEL = get_default_model()
+# Use gpt-4.1 as the default model for explainer agent
+AGENT_MODEL = os.getenv("AGENT_MODEL", "gpt-4.1")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 if not OPENAI_API_KEY:
@@ -385,8 +386,15 @@ class ExplainerAgent:
         try:
             self.logger.info(f"Running explainer agent with prompt: {prompt}")
             
+            # Clear conversation history to prevent token limit issues
+            self.clear_conversation_history()
+            
             # Add user message to conversation history
             self.add_message("user", prompt)
+            
+            # Set a maximum number of tool calls to prevent token accumulation
+            max_tool_calls = 5
+            tool_call_count = 0
             
             # Use the stored conversation history
             messages = self.messages.copy()

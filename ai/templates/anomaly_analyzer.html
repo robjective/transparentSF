@@ -1187,7 +1187,7 @@
                 <label for="report-name-input">Report Name:</label>
                 <input type="text" id="report-name-input" placeholder="Enter report name..." style="width: 100%; padding: 8px; margin: 10px 0;">
                 <div class="modal-actions">
-                    <button onclick="confirmCreateNewReport()" class="action-btn primary-btn">Create Report</button>
+                    <button id="confirm-create-report-btn" class="action-btn primary-btn">Create Report</button>
                     <button onclick="closeNewReportModal()" class="action-btn">Cancel</button>
                 </div>
             </div>
@@ -1261,6 +1261,14 @@
         loadReportButton.addEventListener('click', loadExistingReport);
         clearCheckmarksButton.addEventListener('click', clearAllCheckmarks);
         currentReportSelect.addEventListener('change', handleReportChange);
+        
+        // Add event listener for the confirm create report button
+        document.addEventListener('DOMContentLoaded', function() {
+            const confirmCreateReportBtn = document.getElementById('confirm-create-report-btn');
+            if (confirmCreateReportBtn) {
+                confirmCreateReportBtn.addEventListener('click', confirmCreateNewReport);
+            }
+        });
         
         // Close modal when clicking the X
         modalClose.addEventListener('click', function() {
@@ -2791,6 +2799,7 @@ Can you help me understand:
         
         // Report Management Functions
         let currentReportId = null;
+        let isCreatingReport = false; // Flag to prevent duplicate API calls
         
         // Function to create a new report
         async function createNewReport() {
@@ -2803,14 +2812,6 @@ Can you help me understand:
             newReportModal.style.display = 'block';
             reportNameInput.value = '';
             reportNameInput.focus();
-            
-            // Add event listener for Enter key
-            reportNameInput.addEventListener('keypress', function(event) {
-                if (event.key === 'Enter') {
-                    event.preventDefault();
-                    confirmCreateNewReport();
-                }
-            });
         }
         
         // Function to close the new report modal
@@ -2820,12 +2821,20 @@ Can you help me understand:
         
         // Function to confirm creating a new report
         async function confirmCreateNewReport() {
+            // Prevent duplicate calls
+            if (isCreatingReport) {
+                console.log('Report creation already in progress, ignoring duplicate call');
+                return;
+            }
+            
             const reportName = reportNameInput.value.trim();
             
             if (!reportName) {
                 alert('Please enter a report name.');
                 return;
             }
+            
+            isCreatingReport = true;
             
             try {
                 // Create the report via API
@@ -2867,6 +2876,9 @@ Can you help me understand:
             } catch (error) {
                 console.error('Error creating new report:', error);
                 alert('Error creating new report. Please try again.');
+            } finally {
+                // Reset the flag to allow future calls
+                isCreatingReport = false;
             }
         }
         

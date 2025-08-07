@@ -125,7 +125,7 @@ class EvalRunner:
                 "execution_time": execution_time
             }
     
-    def _execute_eval(self, eval_data: Dict[str, Any], model_name: str = "gpt-4o") -> Dict[str, Any]:
+    def _execute_eval(self, eval_data: Dict[str, Any], model_name: str = "gpt-4.1") -> Dict[str, Any]:
         """
         Execute a single eval using the real AI agent and evaluate the results.
         
