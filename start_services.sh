@@ -2,8 +2,7 @@
 
 export LD_LIBRARY_PATH="/nix/store/qxfi4d8dfc8rpdk3y0dlmdc28nad02pd-zlib-1.2.13/lib:/nix/store/22nxhmsfcv2q2rpkmfvzwg2w5z1l231z-gcc-13.3.0-lib/lib:$LD_LIBRARY_PATH"
 
-# Ensure we're using PostgreSQL 14
-export PATH="/nix/store/0rcrmxk4y6w0gl96a2nzjb78gv8r8vyv-postgresql-14.11/bin:$PATH"
+# Use system PostgreSQL (don't force version 14)
 
 # Load environment variables from .env file if it exists
 if [ -f .env ]; then
@@ -137,6 +136,11 @@ start_postgres() {
         # Create data directory and initialize if needed
         if [ ! -d "$PGDATA/base" ]; then
             echo "Initializing PostgreSQL data directory at $PGDATA..."
+            # Remove any existing corrupted data directory
+            if [ -d "$PGDATA" ]; then
+                echo "Removing corrupted PostgreSQL data directory..."
+                rm -rf "$PGDATA"
+            fi
             mkdir -p "$PGDATA" # Ensure the parent PGDATA directory exists
             initdb -D "$PGDATA"
             
@@ -157,7 +161,62 @@ start_postgres() {
                 echo "external_pid_file = '$HOME/postgres.pid'" >> "$CONF_FILE"
             fi
         else
-            echo "Using existing PostgreSQL data directory at $PGDATA"
+            echo "Checking existing PostgreSQL data directory at $PGDATA..."
+            # Check if the data directory is compatible with current PostgreSQL version
+            NEEDS_REINIT=false
+            
+            # First check if it's a valid PostgreSQL cluster
+            if ! pg_controldata "$PGDATA" > /dev/null 2>&1; then
+                echo "Existing PostgreSQL data directory is corrupted, reinitializing..."
+                NEEDS_REINIT=true
+            else
+                # Check PostgreSQL version compatibility
+                if [ -f "$PGDATA/PG_VERSION" ]; then
+                    DATA_VERSION=$(cat "$PGDATA/PG_VERSION")
+                    CURRENT_MAJOR=$(echo "$PG_VERSION" | cut -d. -f1)
+                    DATA_MAJOR=$(echo "$DATA_VERSION" | cut -d. -f1)
+                    
+                    if [ "$CURRENT_MAJOR" != "$DATA_MAJOR" ]; then
+                        echo "PostgreSQL version mismatch: data directory is version $DATA_VERSION, but running version $PG_VERSION"
+                        echo "Major version upgrade required, reinitializing data directory..."
+                        NEEDS_REINIT=true
+                    else
+                        echo "PostgreSQL versions compatible: data=$DATA_VERSION, current=$PG_VERSION"
+                    fi
+                else
+                    echo "Cannot determine data directory PostgreSQL version, reinitializing..."
+                    NEEDS_REINIT=true
+                fi
+            fi
+            
+            if [ "$NEEDS_REINIT" = true ]; then
+                echo "Backing up and reinitializing PostgreSQL data directory..."
+                if [ -d "$PGDATA.backup" ]; then
+                    rm -rf "$PGDATA.backup"
+                fi
+                mv "$PGDATA" "$PGDATA.backup" 2>/dev/null || rm -rf "$PGDATA"
+                mkdir -p "$PGDATA"
+                initdb -D "$PGDATA"
+                
+                CONF_FILE="$PGDATA/postgresql.conf"
+                echo "Configuring PostgreSQL socket and PID locations in $CONF_FILE..."
+
+                # Ensure unix_socket_directories is set correctly
+                if grep -q "^#*unix_socket_directories" "$CONF_FILE"; then
+                    sed -i "s|^#*unix_socket_directories.*|unix_socket_directories = '$HOME'|" "$CONF_FILE"
+                else
+                    echo "unix_socket_directories = '$HOME'" >> "$CONF_FILE"
+                fi
+                
+                # Ensure external_pid_file is set correctly
+                if grep -q "^#*external_pid_file" "$CONF_FILE"; then
+                    sed -i "s|^#*external_pid_file.*|external_pid_file = '$HOME/postgres.pid'|" "$CONF_FILE"
+                else
+                    echo "external_pid_file = '$HOME/postgres.pid'" >> "$CONF_FILE"
+                fi
+            else
+                echo "Using existing PostgreSQL data directory at $PGDATA"
+            fi
         fi
 
         # Check for stale pid file
@@ -170,14 +229,58 @@ start_postgres() {
         fi
 
         echo "Starting PostgreSQL..."
-        pg_ctl -D "$PGDATA" -l "$HOME/postgres_log" start
+        if ! pg_ctl -D "$PGDATA" -l "$HOME/postgres_log" start; then
+            echo "Failed to start PostgreSQL. Checking log file..."
+            if [ -f "$HOME/postgres_log" ]; then
+                echo "=== PostgreSQL Log Output ==="
+                tail -20 "$HOME/postgres_log"
+                echo "=== End Log Output ==="
+            fi
+            echo "Attempting to reinitialize PostgreSQL data directory due to startup failure..."
+            
+            # Force reinitialize if startup failed
+            rm -rf "$PGDATA"
+            mkdir -p "$PGDATA"
+            initdb -D "$PGDATA"
+            
+            CONF_FILE="$PGDATA/postgresql.conf"
+            echo "Reconfiguring PostgreSQL socket and PID locations..."
+            
+            # Ensure unix_socket_directories is set correctly
+            if grep -q "^#*unix_socket_directories" "$CONF_FILE"; then
+                sed -i "s|^#*unix_socket_directories.*|unix_socket_directories = '$HOME'|" "$CONF_FILE"
+            else
+                echo "unix_socket_directories = '$HOME'" >> "$CONF_FILE"
+            fi
+            
+            # Ensure external_pid_file is set correctly
+            if grep -q "^#*external_pid_file" "$CONF_FILE"; then
+                sed -i "s|^#*external_pid_file.*|external_pid_file = '$HOME/postgres.pid'|" "$CONF_FILE"
+            else
+                echo "external_pid_file = '$HOME/postgres.pid'" >> "$CONF_FILE"
+            fi
+            
+            echo "Attempting to start PostgreSQL after reinitialization..."
+            if ! pg_ctl -D "$PGDATA" -l "$HOME/postgres_log" start; then
+                echo "PostgreSQL still failed to start after reinitialization. Check logs:"
+                if [ -f "$HOME/postgres_log" ]; then
+                    cat "$HOME/postgres_log"
+                fi
+                exit 1
+            fi
+        fi
 
         echo "Waiting for PostgreSQL to be ready..."
         max_attempts=30
         attempt=1
         while ! pg_isready -p 5432 -h localhost > /dev/null 2>&1; do
             if [ $attempt -ge $max_attempts ]; then
-                echo "PostgreSQL failed to start after $max_attempts attempts"
+                echo "PostgreSQL failed to be ready after $max_attempts attempts"
+                if [ -f "$HOME/postgres_log" ]; then
+                    echo "=== Latest PostgreSQL Log Output ==="
+                    tail -20 "$HOME/postgres_log"
+                    echo "=== End Log Output ==="
+                fi
                 exit 1
             fi
             echo "Attempt $attempt: PostgreSQL not ready yet..."
