@@ -7,7 +7,7 @@ import logging
 import os
 import re
 import io
-from .db_utils import get_postgres_connection, execute_with_connection
+from ai.tools.db_utils import get_postgres_connection, execute_with_connection
 import subprocess
 import tempfile
 
