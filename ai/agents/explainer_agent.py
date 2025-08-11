@@ -118,8 +118,8 @@ function_mapping = {
 
 # Load environment variables
 from .config.models import get_default_model
-# Use gpt-4.1 as the default model for explainer agent
-AGENT_MODEL = os.getenv("AGENT_MODEL", "gpt-4.1")
+# Use gpt-5 as the default model for explainer agent
+AGENT_MODEL = os.getenv("AGENT_MODEL", "gpt-5")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 if not OPENAI_API_KEY:
@@ -560,14 +560,66 @@ class ExplainerAgent:
                                         result = function_to_call(context_variables, **arguments_json)
                                     
                                     self.logger.info(f"Tool result: {str(result)[:200]}...")
-                                    
+
+                                    # Determine success by inspecting the result content
+                                    success_flag = True
+                                    error_message = None
+                                    try:
+                                        if isinstance(result, dict):
+                                            status_val = str(result.get('status', '')).lower()
+                                            if 'error' in result:
+                                                success_flag = False
+                                                error_message = str(result.get('error'))
+                                            elif status_val and status_val != 'success':
+                                                success_flag = False
+                                                error_message = f"status={result.get('status')}"
+                                            elif 'error_type' in result:
+                                                success_flag = False
+                                                error_message = str(result.get('error_type'))
+                                        elif isinstance(result, str):
+                                            # Attempt to parse a dict-like string
+                                            try:
+                                                parsed = json.loads(result)
+                                            except Exception:
+                                                try:
+                                                    import ast
+                                                    parsed = ast.literal_eval(result)
+                                                except Exception:
+                                                    parsed = None
+                                            if isinstance(parsed, dict):
+                                                status_val = str(parsed.get('status', '')).lower()
+                                                if 'error' in parsed:
+                                                    success_flag = False
+                                                    error_message = str(parsed.get('error'))
+                                                elif status_val and status_val != 'success':
+                                                    success_flag = False
+                                                    error_message = f"status={parsed.get('status')}"
+                                                elif 'error_type' in parsed:
+                                                    success_flag = False
+                                                    error_message = str(parsed.get('error_type'))
+                                            else:
+                                                lower = result.lower()
+                                                indicators = [
+                                                    'error', 'exception', 'failed', 'failure', 'invalid',
+                                                    'no-such-column', 'query coordinator error', 'soql error',
+                                                    '400 client error', 'bad request', 'could not parse',
+                                                    'expected', 'table identifier'
+                                                ]
+                                                if any(ind in lower for ind in indicators):
+                                                    success_flag = False
+                                                    error_message = result
+                                    except Exception as e:
+                                        self.logger.warning(f"Could not determine tool success reliably: {e}")
+
                                     # Send tool call completion notification as structured data
                                     tool_complete_data = {
-                                        'tool_call_complete': current_function_name, 
-                                        'tool_id': tool_id, 
-                                        'success': True,
+                                        'tool_call_complete': current_function_name,
+                                        'tool_id': tool_id,
+                                        'success': success_flag,
                                         'response': make_json_serializable(result)
                                     }
+                                    if not success_flag and error_message:
+                                        tool_complete_data['error'] = error_message
                                     yield f"data: {json.dumps(tool_complete_data)}\n\n"
                                     
                                     # Check if this is an agent transfer function

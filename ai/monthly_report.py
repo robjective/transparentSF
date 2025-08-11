@@ -697,7 +697,6 @@ def prioritize_deltas(deltas, max_items=10):
             model=AGENT_MODEL,
             messages=[{"role": "system", "content": system_message},
                      {"role": "user", "content": prompt}],
-            temperature=0.1,
             response_format={"type": "json_object"}
         )
 
@@ -1306,26 +1305,88 @@ def generate_monthly_report(report_date=None, district="0", original_filename=No
     def generate_report_operation(connection):
         cursor = connection.cursor(cursor_factory=psycopg2.extras.DictCursor)
         
-        # Get all report items for this date and district, ordered by priority
-        cursor.execute("""
-            SELECT *, 
-                   metadata->>'anomaly_id' as anomaly_id, -- Extract potential anomaly_id from metadata
-                   metadata->>'perplexity_context' as perplexity_context,
-                   metadata->'perplexity_response' as perplexity_response_json,
-                   metadata->'perplexity_response'->'citations' as perplexity_citations,
-                   metadata->>'trend_analysis' as trend_analysis, -- Extract trend_analysis from metadata
-                   metadata->>'charts' as charts, -- Extract charts from metadata
-                   metadata->>'follow_up' as follow_up, -- Extract follow_up from metadata
-                   metric_id -- Placeholder for metric_id, needs proper retrieval logic
-            FROM monthly_reporting 
-            WHERE report_date = %s AND district = %s
-            ORDER BY priority
-        """, (report_date, district))
+        # Prefer selecting items by report_id if we can resolve it from the provided original filename
+        selected_report_id = None
+        if original_filename:
+            try:
+                cursor.execute(
+                    """
+                    SELECT id, district
+                    FROM reports
+                    WHERE original_filename = %s OR revised_filename = %s
+                    ORDER BY created_at DESC
+                    LIMIT 1
+                    """,
+                    (original_filename, original_filename),
+                )
+                report_row = cursor.fetchone()
+                if report_row:
+                    selected_report_id = report_row["id"]
+                    # If we resolved a report by filename, prefer the district from that report
+                    try:
+                        district = report_row["district"]
+                    except Exception:
+                        pass
+            except Exception as e:
+                logger.warning(f"Failed to resolve report_id from filename '{original_filename}': {e}")
+        
+        if selected_report_id is not None:
+            # Pull items by report_id
+            cursor.execute(
+                """
+                SELECT *,
+                       metadata->>'anomaly_id' as anomaly_id,
+                       metadata->>'perplexity_context' as perplexity_context,
+                       metadata->'perplexity_response' as perplexity_response_json,
+                       metadata->'perplexity_response'->'citations' as perplexity_citations,
+                       metadata->>'trend_analysis' as trend_analysis,
+                       metadata->>'charts' as charts,
+                       metadata->>'follow_up' as follow_up,
+                       metric_id
+                FROM monthly_reporting
+                WHERE report_id = %s
+                ORDER BY priority
+                """,
+                (selected_report_id,),
+            )
+        else:
+            # Fallback to date + district for backward compatibility
+            cursor.execute(
+                """
+                SELECT *, 
+                       metadata->>'anomaly_id' as anomaly_id, -- Extract potential anomaly_id from metadata
+                       metadata->>'perplexity_context' as perplexity_context,
+                       metadata->'perplexity_response' as perplexity_response_json,
+                       metadata->'perplexity_response'->'citations' as perplexity_citations,
+                       metadata->>'trend_analysis' as trend_analysis, -- Extract trend_analysis from metadata
+                       metadata->>'charts' as charts, -- Extract charts from metadata
+                       metadata->>'follow_up' as follow_up, -- Extract follow_up from metadata
+                       metric_id -- Placeholder for metric_id, needs proper retrieval logic
+                FROM monthly_reporting 
+                WHERE report_date = %s AND district = %s
+                ORDER BY priority
+                """,
+                (report_date, district),
+            )
         
         items = cursor.fetchall()
-        logger.info(f"Found {len(items)} report items for date {report_date} and district {district}")
+        if selected_report_id is not None:
+            logger.info(
+                f"Found {len(items)} report items for report_id {selected_report_id}"
+            )
+        else:
+            logger.info(
+                f"Found {len(items)} report items for date {report_date} and district {district}"
+            )
         if not items:
-            logger.warning(f"No report items found for date {report_date} and district {district}")
+            if selected_report_id is not None:
+                logger.warning(
+                    f"No report items found for report_id {selected_report_id}"
+                )
+            else:
+                logger.warning(
+                    f"No report items found for date {report_date} and district {district}"
+                )
             cursor.close()
             return None
         
@@ -1659,7 +1720,6 @@ def generate_monthly_report(report_date=None, district="0", original_filename=No
             model=AGENT_MODEL,
             messages=[{"role": "system", "content": system_message},
                      {"role": "user", "content": prompt}],
-            temperature=0.2
         )
 
         report_text = response.choices[0].message.content
@@ -1874,8 +1934,7 @@ def proofread_and_revise_report(report_path):
                 {"role": "system", "content": system_message},
                 {"role": "user", "content": prompt}
             ],
-            temperature=0.1,
-            max_tokens=16000,  # Significantly increased to handle large newsletters
+            max_completion_tokens=16000,  # Significantly increased to handle large newsletters
             response_format={"type": "json_object"}  # Expect JSON response
         )
         response_content = response.choices[0].message.content
@@ -3854,8 +3913,7 @@ def generate_narrated_report(report_path, output_path=None):
             messages=[
                 {"role": "system", "content": system_message},
                 {"role": "user", "content": prompt}
-            ],
-            temperature=0.1
+            ]
         )
         
         audio_script = response.choices[0].message.content

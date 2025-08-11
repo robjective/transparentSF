@@ -249,6 +249,84 @@ class LangChainExplainerAgent:
         self.logger.info(f"  Tools: {[tool.name for tool in self.tools]}")
         self.logger.info(f"  Include all sections: {self.include_all_sections}")
 
+    def _make_json_serializable(self, obj):
+        """Best-effort conversion to JSON-serializable objects."""
+        try:
+            import json
+            json.dumps(obj)
+            return obj
+        except Exception:
+            return str(obj)
+
+    def _parse_possible_dict_string(self, s: str):
+        """Parse a string that may contain JSON or Python dict representation."""
+        try:
+            import json
+            return json.loads(s)
+        except Exception:
+            try:
+                import ast
+                return ast.literal_eval(s)
+            except Exception:
+                return None
+
+    from typing import Tuple
+    def _determine_tool_success(self, output) -> Tuple[bool, Optional[str], object]:
+        """
+        Determine if a tool output indicates success.
+        Returns (success, error_message, normalized_response)
+        """
+        error_message = None
+        normalized = output
+        success = True
+        try:
+            # If dict-like
+            if isinstance(output, dict):
+                normalized = output
+                status_val = str(output.get('status', '')).lower()
+                if 'error' in output:
+                    success = False
+                    error_message = str(output.get('error'))
+                elif status_val and status_val != 'success':
+                    success = False
+                    error_message = f"status={output.get('status')}"
+                elif 'error_type' in output:
+                    success = False
+                    error_message = str(output.get('error_type'))
+            elif isinstance(output, str):
+                # Try to parse JSON or python dict string
+                parsed = self._parse_possible_dict_string(output)
+                if isinstance(parsed, dict):
+                    normalized = parsed
+                    status_val = str(parsed.get('status', '')).lower()
+                    if 'error' in parsed:
+                        success = False
+                        error_message = str(parsed.get('error'))
+                    elif status_val and status_val != 'success':
+                        success = False
+                        error_message = f"status={parsed.get('status')}"
+                    elif 'error_type' in parsed:
+                        success = False
+                        error_message = str(parsed.get('error_type'))
+                else:
+                    # Heuristic string checks
+                    lower = output.lower()
+                    error_indicators = [
+                        'error', 'exception', 'failed', 'failure', 'invalid',
+                        'no-such-column', 'query coordinator error', 'soql error',
+                        '400 client error', 'bad request', 'could not parse',
+                        'expected', 'table identifier'
+                    ]
+                    if any(ind in lower for ind in error_indicators):
+                        success = False
+                        error_message = output
+            else:
+                normalized = output
+        except Exception as e:
+            # Fallback to marking as success unless clear failure
+            self.logger.warning(f"Error determining tool success: {e}")
+        return success, error_message, self._make_json_serializable(normalized)
+
     def _create_tools(self) -> List[Tool]:
         """Create LangChain tools based on the configured tool groups."""
         tools = tool_factory.create_tools_for_groups(self.tool_groups)
@@ -563,13 +641,16 @@ class LangChainExplainerAgent:
                             tool_name = event.get('name', 'unknown')
                             output = event.get('data', {}).get('output', '')
                             tool_id = tool_calls_in_progress.get(tool_name, f"tool_{tool_name}")
-                            
+                            # Determine success from output content
+                            success, error_message, normalized = self._determine_tool_success(output)
                             tool_call_data = {
-                                'tool_call_complete': tool_name, 
-                                'success': True, 
-                                'response': str(output),
+                                'tool_call_complete': tool_name,
+                                'success': success,
+                                'response': normalized,
                                 'tool_id': tool_id
                             }
+                            if not success and error_message:
+                                tool_call_data['error'] = error_message
                             self.logger.info(f"Anthropic yielding tool_call_complete from event: {tool_call_data}")
                             yield f"data: {json.dumps(tool_call_data)}\n\n"
                             
@@ -697,13 +778,18 @@ class LangChainExplainerAgent:
                                 success = trace.get('successful', True)
                                 output = trace.get('output', '')
                                 tool_id = tool_calls_in_progress.get(tool_name, f"tool_{tool_name}")
-                                
+                                # Normalize response and attach error if present
+                                success2, error_message, normalized = self._determine_tool_success(output)
+                                # Prefer callback success if available, but fall back to parsed result
+                                final_success = success if success is not None else success2
                                 tool_call_data = {
-                                    'tool_call_complete': tool_name, 
-                                    'success': success, 
-                                    'response': output,
+                                    'tool_call_complete': tool_name,
+                                    'success': final_success,
+                                    'response': self._make_json_serializable(normalized),
                                     'tool_id': tool_id
                                 }
+                                if not final_success and error_message:
+                                    tool_call_data['error'] = error_message
                                 self.logger.info(f"Anthropic yielding tool_call_complete from trace: {tool_call_data}")
                                 yield f"data: {json.dumps(tool_call_data)}\n\n"
                                 
@@ -724,38 +810,12 @@ class LangChainExplainerAgent:
                 yield f"data: {json.dumps({'completed': True})}\n\n"
                 return
             
-            # For non-Anthropic models, use the existing agent-based approach
-            self.logger.info("Using agent-based streaming for non-Anthropic models")
+            # For non-Anthropic models, stream via LangChain agent events to ensure tools and identity are applied
+            self.logger.info("Using LangChain agent astream_events for non-Anthropic models")
             
-            # Use the agent's invoke method but with streaming enabled
-            # We'll use astream_events to get the actual streaming with version parameter
+            # Use astream_events to get token and tool streaming with prompts and tools injected
             self.logger.info("Starting astream_events with agent executor")
             event_count = 0
-            
-            # Try a different approach - use the LLM's streaming directly
-            self.logger.info("Trying direct LLM streaming approach")
-            try:
-                # Get the LLM and try direct streaming
-                messages = [HumanMessage(content=prompt)]
-                self.logger.info(f"Direct streaming with messages: {messages}")
-                
-                # Use the LLM's astream method directly
-                async for chunk in self.llm.astream(messages):
-                    if hasattr(chunk, 'content') and chunk.content:
-                        token = chunk.content
-                        self.logger.info(f"Direct LLM streaming token: {token}")
-                        yield f"data: {json.dumps({'content': token})}\n\n"
-                        response_content += token
-                
-                # If we get here, direct streaming worked
-                self.logger.info("Direct LLM streaming completed successfully")
-                return
-                
-            except Exception as direct_error:
-                self.logger.warning(f"Direct LLM streaming failed: {direct_error}")
-                self.logger.info("Falling back to agent astream_events")
-            
-            # Fallback to agent astream_events
             async for event in self.agent_executor.astream_events({
                 "input": prompt,
                 "chat_history": self.messages[:-1]
@@ -848,13 +908,16 @@ class LangChainExplainerAgent:
                         tool_name = event.get('name', 'unknown')
                         output = event.get('data', {}).get('output', '')
                         tool_id = tool_calls_in_progress.get(tool_name, f"tool_{tool_name}")
-                        
+                        # Determine success from output content
+                        success, error_message, normalized = self._determine_tool_success(output)
                         tool_call_data = {
-                            'tool_call_complete': tool_name, 
-                            'success': True, 
-                            'response': str(output),
+                            'tool_call_complete': tool_name,
+                            'success': success,
+                            'response': normalized,
                             'tool_id': tool_id
                         }
+                        if not success and error_message:
+                            tool_call_data['error'] = error_message
                         self.logger.info(f"Yielding tool_call_complete from event: {tool_call_data}")
                         yield f"data: {json.dumps(tool_call_data)}\n\n"
                         
@@ -983,13 +1046,17 @@ class LangChainExplainerAgent:
                                 success = trace.get('successful', True)
                                 output = trace.get('output', '')
                                 tool_id = tool_calls_in_progress.get(tool_name, f"tool_{tool_name}")
-                                
+                                # Normalize response and attach error if present
+                                success2, error_message, normalized = self._determine_tool_success(output)
+                                final_success = success if success is not None else success2
                                 tool_call_data = {
-                                    'tool_call_complete': tool_name, 
-                                    'success': success, 
-                                    'response': output,
+                                    'tool_call_complete': tool_name,
+                                    'success': final_success,
+                                    'response': self._make_json_serializable(normalized),
                                     'tool_id': tool_id
                                 }
+                                if not final_success and error_message:
+                                    tool_call_data['error'] = error_message
                                 self.logger.info(f"Yielding tool_call_complete from trace: {tool_call_data}")
                                 yield f"data: {json.dumps(tool_call_data)}\n\n"
                                 

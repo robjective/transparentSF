@@ -8,6 +8,7 @@ import sys
 import pandas as pd
 import re
 import uuid
+import math
 from openai import OpenAI
 import qdrant_client
 from qdrant_client.http import models as rest
@@ -23,6 +24,24 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from tools.data_fetcher import set_dataset, fetch_data_from_api
 from tools.db_utils import get_postgres_connection
 from tools.genChart import generate_ytd_trend_chart
+
+def clean_nan_values(obj):
+    """
+    Recursively clean NaN and infinity values from data structures to make them JSON-serializable.
+    Replaces NaN/inf with None (which becomes null in JSON).
+    """
+    if isinstance(obj, dict):
+        return {key: clean_nan_values(value) for key, value in obj.items()}
+    elif isinstance(obj, list):
+        return [clean_nan_values(item) for item in obj]
+    elif isinstance(obj, float):
+        if math.isnan(obj) or math.isinf(obj):
+            return None
+        return obj
+    elif pd.isna(obj):  # Handle pandas NaN types
+        return None
+    else:
+        return obj
 from tools.store_time_series import store_time_series_in_db
 
 # Create logs directory if it doesn't exist
@@ -1580,7 +1599,8 @@ def generate_ytd_metrics(queries_data, output_dir, target_date=None):
                             metric_data["district_breakdown"] = district_breakdown
 
                     with open(metric_file, 'w', encoding='utf-8') as f:
-                        json.dump(metric_data, f, indent=2)
+                        clean_data = clean_nan_values(metric_data)
+                        json.dump(clean_data, f, indent=2)
                     logger.info(f"Metric {file_id} (original id: {metric['id']}) saved to {metric_file}")
                 
                 district_data['categories'].append(category_copy)
@@ -1588,13 +1608,15 @@ def generate_ytd_metrics(queries_data, output_dir, target_date=None):
             # Save top_level.json to district subfolder
             top_level_file = os.path.join(district_dir, 'top_level.json')
             with open(top_level_file, 'w', encoding='utf-8') as f:
-                json.dump(district_data, f, indent=2)
+                clean_data = clean_nan_values(district_data)
+                json.dump(clean_data, f, indent=2)
             logger.info(f"District {district_str} top_level metrics saved to {top_level_file}")
             
             # Save to history directory with timestamp
             history_file = os.path.join(history_dir, f'district_{district_str}_{datetime.now().strftime("%Y%m%d")}.json')
             with open(history_file, 'w', encoding='utf-8') as f:
-                json.dump(district_data, f, indent=2)
+                clean_data = clean_nan_values(district_data)
+                json.dump(clean_data, f, indent=2)
             logger.info(f"District {district_str} metrics history saved to {history_file}")
     
     return metrics
@@ -1999,7 +2021,8 @@ def process_single_metric(metric_id, period_type='ytd'):
         # Save top_level.json
         top_level_file = os.path.join(district_dir, 'top_level.json')
         with open(top_level_file, 'w', encoding='utf-8') as f:
-            json.dump(district_data, f, indent=2)
+            clean_data = clean_nan_values(district_data)
+            json.dump(clean_data, f, indent=2)
         logging.info(f"Created new top_level.json for district {district_str}")
         
         # Save to history directory with timestamp
@@ -2007,7 +2030,8 @@ def process_single_metric(metric_id, period_type='ytd'):
         os.makedirs(history_dir, exist_ok=True)
         history_file = os.path.join(history_dir, f'district_{district_str}_{datetime.now().strftime("%Y%m%d")}.json')
         with open(history_file, 'w', encoding='utf-8') as f:
-            json.dump(district_data, f, indent=2)
+            clean_data = clean_nan_values(district_data)
+            json.dump(clean_data, f, indent=2)
         logging.info(f"District {district_str} metrics history saved to {history_file}")
     
     return metrics_result

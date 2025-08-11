@@ -1444,6 +1444,7 @@
                         <div class="explainer-controls">
                             <select id="explainer-model-select" class="explainer-model-select">
                                 <!-- OpenAI Models -->
+                                 <option value="gpt-5">GPT-5 (OpenAI)</option>
                                 <option value="gpt-4o">GPT-4o (OpenAI)</option>
                                 <option value="gpt-4">GPT-4 (OpenAI)</option>
                                 <option value="gpt-4-turbo">GPT-4 Turbo (OpenAI)</option>
@@ -2335,8 +2336,7 @@
                     
                     // Format the metric change information
                     const metricName = metric.object_name || 'Unknown Metric';
-                    const metricId = metric.object_id || metric.id || metric.ID || 'Unknown ID';
-                    const metricKey = metric.object_id || 'Unknown Key';
+                    const metricId = metric.metric_id || metric.id || metric.object_id || metric.ID || metric.metric_key || 'Unknown ID';
                     const district = metric.district === '0' ? 'citywide' : `District ${metric.district}`;
                     const previousValue = formatValue(metric.previous_value);
                     const recentValue = formatValue(metric.recent_value);
@@ -2346,20 +2346,12 @@
                     const recentPeriod = metric.recent_period || 'recent period';
                     const direction = parseFloat(metric.delta || 0) > 0 ? 'increased' : 'decreased';
                     
-                    // Create a formatted prompt explaining the change
+                    // Create a concise prompt asking for an explanation
                     let prompt;
                     if (metric.group_value) {
-                        prompt = `The metric "${metricName}" (ID: ${metricId}) for ${district} in ${metric.group_name} "${metric.group_value}" has ${direction} from ${previousValue} in ${previousPeriod} to ${recentValue} in ${recentPeriod}, an absolute change of ${delta} and a percentage change of ${percentChange}%.
-
-Can you help me understand:
-1. What might have caused this change?
-2. Is this part of a broader trend?`;
+                        prompt = `The metric "${metricName}" (ID: ${metricId}) for ${district} in ${metric.group_name} "${metric.group_value}" ${direction} from ${previousValue} in ${previousPeriod} to ${recentValue} in ${recentPeriod} (Δ ${delta}, ${percentChange}%). Please explain this change.`;
                     } else {
-                        prompt = `The metric "${metricName}" (ID: ${metricId}) for ${district} has ${direction} from ${previousValue} in ${previousPeriod} to ${recentValue} in ${recentPeriod}, an absolute change of ${delta} and a percentage change of ${percentChange}%.
-
-Can you help me understand:
-1. What might have caused this change?
-2. Is this part of a broader trend?`;
+                        prompt = `The metric "${metricName}" (ID: ${metricId}) for ${district} ${direction} from ${previousValue} in ${previousPeriod} to ${recentValue} in ${recentPeriod} (Δ ${delta}, ${percentChange}%). Please explain this change.`;
                     }
 
                     // Send the prompt to Seymour after a brief delay to ensure the panel is open

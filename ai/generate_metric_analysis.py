@@ -1296,6 +1296,29 @@ def determine_date_field_name(query, date_field, period_type):
     else:
         return date_field
 
+def extract_aggregation_function(query):
+    """Extract the aggregation function (COUNT(*), SUM(count), etc.) from a query."""
+    # Look for common aggregation patterns - be more specific to avoid false matches
+    aggregation_patterns = [
+        r'(SUM\s*\(\s*count\s*\))',  # SUM(count) - most specific first
+        r'(COUNT\s*\(\s*\*\s*\))',   # COUNT(*)
+        r'(SUM\s*\([^)]+\))',        # SUM(field)
+        r'(AVG\s*\([^)]+\))',        # AVG(field)
+        r'(MAX\s*\([^)]+\))',        # MAX(field)
+        r'(MIN\s*\([^)]+\))',        # MIN(field)
+    ]
+    
+    for pattern in aggregation_patterns:
+        match = re.search(pattern, query, re.IGNORECASE)
+        if match:
+            aggregation_func = match.group(1)
+            logging.info(f"Extracted aggregation function: {aggregation_func}")
+            return aggregation_func
+    
+    # Default fallback to COUNT(*)
+    logging.warning("Could not extract aggregation function, using default COUNT(*)")
+    return 'COUNT(*)'
+
 def transform_query_for_period(original_query, date_field, category_fields, period_type, recent_period, comparison_period, district=None):
     """
     Transform a query for monthly or annual analysis by:
@@ -1304,6 +1327,7 @@ def transform_query_for_period(original_query, date_field, category_fields, peri
     3. Adding category fields to GROUP BY
     4. Creating appropriate period fields
     5. Adding district filter if specified
+    6. Preserving the original aggregation function (COUNT(*) vs SUM(count))
     
     Args:
         original_query (str): The original SQL query
@@ -1317,6 +1341,8 @@ def transform_query_for_period(original_query, date_field, category_fields, peri
     Returns:
         str: Transformed SQL query
     """
+    # Extract the aggregation function from the original query
+    aggregation_func = extract_aggregation_function(original_query)
     # Format date strings for SQL
     recent_start = recent_period['start'].isoformat()
     recent_end = recent_period['end'].isoformat()
@@ -1550,12 +1576,12 @@ def transform_query_for_period(original_query, date_field, category_fields, peri
                 date_range += f" AND supervisor_district = '{district}'"
                 logging.info(f"Added district filter to query: supervisor_district = '{district}'")
         
-        # Build the complete transformed query - simplified to just count records
+        # Build the complete transformed query - use the original aggregation function
         # Note: In Socrata API, we don't need a FROM clause
         transformed_query = f"""
         SELECT 
             {date_transform},
-            COUNT(*) as value,
+            {aggregation_func} as value,
             CASE 
                 WHEN Report_Datetime >= '{recent_start}' AND Report_Datetime <= '{recent_end}' THEN 'recent'
                 ELSE 'comparison'
@@ -1670,11 +1696,11 @@ def transform_query_for_period(original_query, date_field, category_fields, peri
         # Log the GROUP BY clause
         logging.info(f"GROUP BY clause: {group_by}, period_type")
         
-        # Build the complete transformed query - simplified to just count records
+        # Build the complete transformed query - use the original aggregation function
         transformed_query = f"""
         SELECT 
             {date_transform},
-            COUNT(*) as value
+            {aggregation_func} as value
             {period_type_select}
             {category_select}
         FROM {from_clause}

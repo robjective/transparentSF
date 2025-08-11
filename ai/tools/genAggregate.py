@@ -135,7 +135,7 @@ def aggregate_data(
             'week': 'W',
             'month': 'ME',  # Changed from 'M' to 'ME'
             'quarter': 'Q',
-            'year': 'YE'  # Changed from 'A' to 'YE'
+            'year': 'YS'  # Use Year-Start so annual points land on Jan 1
         }.get(aggregation_period.lower(), 'D')
 
         logging.debug("Resampling with rule: %s", resample_rule)

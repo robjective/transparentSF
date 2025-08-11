@@ -106,7 +106,7 @@ qdrant = qdrant_client.QdrantClient(host="localhost", port=6333)
 EMBEDDING_MODEL = "text-embedding-3-large"
 # AGENT_MODEL = "gpt-3.5-turbo-16k"
 # AGENT_MODEL = "gpt-3.5-turbo-16k"
-AGENT_MODEL = "gpt-4.1"
+AGENT_MODEL = "gpt-5"
 
 # Set Qdrant collection
 collection_name = "SFPublicData"

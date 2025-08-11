@@ -96,7 +96,7 @@ swarm_client = Swarm()
 
 # Set models
 EMBEDDING_MODEL = "text-embedding-3-large"
-AGENT_MODEL = "gpt-4.1"
+AGENT_MODEL = "gpt-4o"
 
 # Session management
 sessions = {}
@@ -3069,110 +3069,93 @@ async def generate_map_endpoint(request: Request):
                 logger.info("Rebuilding query for mapping detail records")
                 logger.info(f"Original decoded SQL: {decoded_sql[:200]}...")
                 
-                # Extract the actual date field from the original query
-                actual_date_field = "incident_date"  # Default fallback
-                if "requested_datetime" in decoded_sql:
-                    actual_date_field = "requested_datetime"
-                elif "incident_date" in decoded_sql:
-                    actual_date_field = "incident_date"
-                elif "created_date" in decoded_sql:
-                    actual_date_field = "created_date"
-                elif "date_trunc_ym(" in decoded_sql:
-                    # Extract field from date_trunc_ym function
-                    import re
-                    match = re.search(r'date_trunc_ym\(([^)]+)\)', decoded_sql)
-                    if match:
-                        actual_date_field = match.group(1).strip()
-                        logger.info(f"Extracted date field from date_trunc_ym: {actual_date_field}")
+                # Use date field from metadata if available, otherwise extract from original query
+                metric_metadata = metric.get("metadata", {})
+                if isinstance(metric_metadata, str):
+                    try:
+                        import json
+                        metric_metadata = json.loads(metric_metadata)
+                    except json.JSONDecodeError:
+                        logger.warning(f"Could not parse metric metadata as JSON: {metric_metadata}")
+                        metric_metadata = {}
                 
-                logger.info(f"Using date field from original query: {actual_date_field}")
+                map_filters = metric_metadata.get("map_filters", {})
+                actual_date_field = map_filters.get("date_field")
+                
+                if actual_date_field:
+                    logger.info(f"Using date field from metric metadata: {actual_date_field}")
+                else:
+                    # Fallback to extracting from original query
+                    actual_date_field = "incident_date"  # Default fallback
+                    if "requested_datetime" in decoded_sql:
+                        actual_date_field = "requested_datetime"
+                    elif "incident_date" in decoded_sql:
+                        actual_date_field = "incident_date"
+                    elif "created_date" in decoded_sql:
+                        actual_date_field = "created_date"
+                    elif "date_trunc_ym(" in decoded_sql:
+                        # Extract field from date_trunc_ym function
+                        import re
+                        match = re.search(r'date_trunc_ym\(([^)]+)\)', decoded_sql)
+                        if match:
+                            actual_date_field = match.group(1).strip()
+                            logger.info(f"Extracted date field from date_trunc_ym: {actual_date_field}")
+                    
+                    logger.info(f"Using date field from original query: {actual_date_field}")
                 
                 # Get table/endpoint info from metric
                 endpoint = metric.get("endpoint", "")
                 if endpoint:
-                    # Extract the original WHERE clause from the decoded SQL to identify non-date filters
-                    original_where_clause = ""
-                    non_date_filters = []
-                    if "WHERE" in decoded_sql.upper():
-                        # Extract the WHERE clause from the original query
-                        logger.info(f"Attempting to extract WHERE clause from: {decoded_sql[:200]}...")
-                        where_match = re.search(r'WHERE\s+(.+?)(?:\s+GROUP\s+BY|\s+ORDER\s+BY|\s+LIMIT|$)', decoded_sql, re.IGNORECASE | re.DOTALL)
-                        if where_match:
-                            original_where_clause = where_match.group(1).strip()
-                            logger.info(f"Extracted original WHERE clause: {original_where_clause}")
-                        else:
-                            logger.warning(f"Failed to extract WHERE clause from complex query")
-                            # Try a simpler approach - just look for WHERE and take everything after it
-                            where_start = decoded_sql.upper().find('WHERE')
-                            if where_start != -1:
-                                # Find the end of the WHERE clause by looking for GROUP BY, ORDER BY, or LIMIT
-                                where_content = decoded_sql[where_start + 5:]  # Skip "WHERE"
-                                # Find the first occurrence of GROUP BY, ORDER BY, or LIMIT
-                                end_markers = ['GROUP BY', 'ORDER BY', 'LIMIT']
-                                end_pos = len(where_content)
-                                for marker in end_markers:
-                                    pos = where_content.upper().find(marker)
-                                    if pos != -1 and pos < end_pos:
-                                        end_pos = pos
-                                
-                                original_where_clause = where_content[:end_pos].strip()
-                                # Clean up any trailing parts that might have been included
-                                if original_where_clause:
-                                    # Remove any trailing parts that look like GROUP BY, ORDER BY, etc.
-                                    for marker in end_markers:
-                                        marker_pos = original_where_clause.upper().find(marker)
-                                        if marker_pos != -1:
-                                            original_where_clause = original_where_clause[:marker_pos].strip()
-                                            break
-                                
-                                # Clean up URL encoding
-                                original_where_clause = original_where_clause.replace('+', ' ')
-                                logger.info(f"Extracted WHERE clause using fallback method: {original_where_clause}")
-                            else:
-                                logger.warning("No WHERE clause found in query")
-                                original_where_clause = ""
-                            
-                            # Extract specific filters we want to preserve from the WHERE clause
-                            # Look for Incident_Category filter
-                            if "Incident_Category" in original_where_clause:
-                                # Extract the Incident_Category condition
-                                import re
-                                incident_match = re.search(r"Incident_Category\s*=\s*'[^']*'", original_where_clause, re.IGNORECASE)
-                                if incident_match:
-                                    filter_text = incident_match.group(0)
-                                    non_date_filters.append(filter_text)
-                                    logger.info(f"Preserving Incident_Category filter: {filter_text}")
-                            
-                            # Look for supervisor_district filter
-                            if "supervisor_district" in original_where_clause:
-                                # Extract the supervisor_district condition
-                                district_match = re.search(r"supervisor_district\s*=\s*'[^']*'", original_where_clause, re.IGNORECASE)
-                                if district_match:
-                                    filter_text = district_match.group(0)
-                                    non_date_filters.append(filter_text)
-                                    logger.info(f"Preserving supervisor_district filter: {filter_text}")
-                            
-                            # Look for other common filters
-                            if "incident_category" in original_where_clause:
-                                # Extract the incident_category condition
-                                category_match = re.search(r"incident_category\s*=\s*'[^']*'", original_where_clause, re.IGNORECASE)
-                                if category_match:
-                                    filter_text = category_match.group(0)
-                                    non_date_filters.append(filter_text)
-                                    logger.info(f"Preserving incident_category filter: {filter_text}")
-                            
-                            if not non_date_filters:
-                                logger.info("No specific filters found to preserve")
+                    # Use stored filter metadata from the metric instead of parsing complex WHERE clauses
+                    logger.info("Using stored filter metadata from metric instead of parsing WHERE clause")
                     
-                    # Create a detail query with preserved non-date filters and period_type field
-                    # We'll add the period_type field and time filters after we have the date field and time periods
+                    # Check if metric has map_filters in metadata
+                    metric_metadata = metric.get("metadata", {})
+                    if isinstance(metric_metadata, str):
+                        try:
+                            import json
+                            metric_metadata = json.loads(metric_metadata)
+                        except json.JSONDecodeError:
+                            logger.warning(f"Could not parse metric metadata as JSON: {metric_metadata}")
+                            metric_metadata = {}
+                    
+                    map_filters = metric_metadata.get("map_filters", {})
+                    stored_filters = []
+                    
+                    if map_filters:
+                        logger.info(f"Found map_filters in metric metadata: {map_filters}")
+                        
+                        # Process stored filters
+                        for filter_name, filter_config in map_filters.items():
+                            if filter_name == "date_field":
+                                continue  # Handle date field separately
+                                
+                            if isinstance(filter_config, dict):
+                                field = filter_config.get("field")
+                                operator = filter_config.get("operator", "=")
+                                values = filter_config.get("values", []) if filter_config.get("values") else [filter_config.get("value")]
+                                
+                                if field and values:
+                                    if operator.upper() == "IN" and len(values) > 1:
+                                        # Create IN clause
+                                        values_str = "', '".join(str(v) for v in values)
+                                        filter_clause = f"{field} IN ('{values_str}')"
+                                        stored_filters.append(filter_clause)
+                                        logger.info(f"Added IN filter: {filter_clause}")
+                                    elif len(values) == 1:
+                                        # Create equality clause
+                                        filter_clause = f"{field} {operator} '{values[0]}'"
+                                        stored_filters.append(filter_clause)
+                                        logger.info(f"Added filter: {filter_clause}")
+                    
+                    # Create a clean detail query with stored filters
                     decoded_sql = "SELECT *"
-                    if non_date_filters:
-                        non_date_where = ' AND '.join(non_date_filters)
-                        decoded_sql += f" WHERE {non_date_where}"
-                        logger.info(f"Created detail query with preserved non-date filters: {decoded_sql}")
+                    if stored_filters:
+                        filters_where = ' AND '.join(stored_filters)
+                        decoded_sql += f" WHERE {filters_where}"
+                        logger.info(f"Created detail query with stored filters: {decoded_sql}")
                     else:
-                        logger.info(f"Created clean SOQL detail query (no non-date filters to preserve): {decoded_sql}")
+                        logger.info(f"No stored filters found, creating clean detail query")
                 else:
                     logger.warning("No endpoint found, cannot rebuild query")
                 
@@ -3183,19 +3166,19 @@ async def generate_map_endpoint(request: Request):
                     # Build additional WHERE conditions for the filters
                     additional_where_conditions = []
                     
-                    # Handle district filter - only add if not already in preserved non-date filters
+                    # Handle district filter - only add if not already in stored filters
                     if anomaly_filters.get("district"):
                         district = anomaly_filters["district"]
                         if district != "0":  # Skip if district is "0" (all districts)
-                            # Check if district filter is already in the preserved non-date filters
-                            district_already_filtered = f"supervisor_district = '{district}'" in non_date_filters or f"supervisor_district='{district}'" in non_date_filters
-                            if not district_already_filtered:
-                                additional_where_conditions.append(f"supervisor_district = '{district}'")
-                                logger.info(f"Adding district filter: supervisor_district = '{district}'")
+                            # Check if district filter is already in the stored filters
+                            district_filter = f"supervisor_district = '{district}'"
+                            if district_filter not in stored_filters:
+                                additional_where_conditions.append(district_filter)
+                                logger.info(f"Adding district filter: {district_filter}")
                             else:
-                                logger.info(f"District filter already present in preserved filters, skipping")
+                                logger.info(f"District filter already present in stored filters, skipping")
                     
-                    # Handle group_field and field_value filter - only add if not already in preserved non-date filters
+                    # Handle group_field and field_value filter - only add if not already in stored filters
                     if anomaly_filters.get("group_field") and anomaly_filters.get("field_value"):
                         group_field = anomaly_filters["group_field"]
                         field_value = anomaly_filters["field_value"]
@@ -3203,12 +3186,12 @@ async def generate_map_endpoint(request: Request):
                         field_value = field_value.replace("'", "''")
                         field_filter = f"{group_field} = '{field_value}'"
                         
-                        # Check if this filter is already in the preserved non-date filters
-                        if field_filter not in non_date_filters:
+                        # Check if this filter is already in the stored filters
+                        if field_filter not in stored_filters:
                             additional_where_conditions.append(field_filter)
                             logger.info(f"Adding group field filter: {field_filter}")
                         else:
-                            logger.info(f"Group field filter already present in preserved filters, skipping")
+                            logger.info(f"Group field filter already present in stored filters, skipping")
                     elif anomaly_filters.get("group_field"):
                         logger.info(f"Group field found but no field_value: {anomaly_filters['group_field']}")
                     
@@ -3310,23 +3293,17 @@ async def generate_map_endpoint(request: Request):
                                     # Use date range for the month instead of extract functions
                                     month_start = f"{year}-{month}-01"
                                     month_end = f"{year}-{month}-31"  # SOQL will handle month boundaries
-                                    time_condition = f"({date_field} >= '{month_start}' AND {date_field} <= '{month_end}')"
-                                    if time_condition not in original_where_clause:
-                                        additional_where_conditions.append(f"{date_field} >= '{month_start}'")
-                                        additional_where_conditions.append(f"{date_field} <= '{month_end}'")
-                                        logger.info(f"Adding month time filter: {date_field} >= '{month_start}' AND {date_field} <= '{month_end}'")
-                                    else:
-                                        logger.info(f"Time filter already present in original WHERE clause, skipping")
+                                    # Always add time filters since we're using stored filters approach
+                                    additional_where_conditions.append(f"{date_field} >= '{month_start}'")
+                                    additional_where_conditions.append(f"{date_field} <= '{month_end}'")
+                                    logger.info(f"Adding month time filter: {date_field} >= '{month_start}' AND {date_field} <= '{month_end}'")
                                 elif period_type == "year":
                                     year_start = f"{year}-01-01"
                                     year_end = f"{year}-12-31"
-                                    time_condition = f"({date_field} >= '{year_start}' AND {date_field} <= '{year_end}')"
-                                    if time_condition not in original_where_clause:
-                                        additional_where_conditions.append(f"{date_field} >= '{year_start}'")
-                                        additional_where_conditions.append(f"{date_field} <= '{year_end}'")
-                                        logger.info(f"Adding year time filter: {date_field} >= '{year_start}' AND {date_field} <= '{year_end}'")
-                                    else:
-                                        logger.info(f"Time filter already present in original WHERE clause, skipping")
+                                    # Always add time filters since we're using stored filters approach
+                                    additional_where_conditions.append(f"{date_field} >= '{year_start}'")
+                                    additional_where_conditions.append(f"{date_field} <= '{year_end}'")
+                                    logger.info(f"Adding year time filter: {date_field} >= '{year_start}' AND {date_field} <= '{year_end}'")
                     else:
                         logger.warning("No time period information found, using default time filter")
                         # Add a default time filter for the last 2 months

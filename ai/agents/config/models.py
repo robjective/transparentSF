@@ -64,6 +64,7 @@ class ModelConfig:
 # Predefined model configurations
 MODEL_CONFIGS = {
     # OpenAI Models
+    "gpt-5": ModelConfig(ModelProvider.OPENAI, "gpt-5"),
     "gpt-4o": ModelConfig(ModelProvider.OPENAI, "gpt-4o"),
     "gpt-4.1": ModelConfig(ModelProvider.OPENAI, "gpt-4.1"),
     "gpt-4": ModelConfig(ModelProvider.OPENAI, "gpt-4"),
@@ -110,7 +111,7 @@ def get_available_models() -> Dict[str, ModelConfig]:
 
 def get_default_model() -> str:
     """Get the default model from environment or fallback."""
-    return os.getenv("AGENT_MODEL", "gpt-4.1")
+    return os.getenv("AGENT_MODEL", "gpt-5")
 
 def create_langchain_llm(model_key: Optional[str] = None):
     """Create a LangChain LLM instance for the specified model."""

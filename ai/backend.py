@@ -6734,7 +6734,7 @@ async def langchain_explainer_streaming_api(request: Request):
     Expected JSON payload:
     {
         "prompt": "Explain the change in metric X for district Y",
-        "model_key": "gpt-4.1",
+        "model_key": "gpt-5",
         "tool_groups": ["core", "analysis", "metrics"],
         "session_data": {
             "session_id": "unique_session_id"  // Optional, will create new if not provided
@@ -6747,7 +6747,7 @@ async def langchain_explainer_streaming_api(request: Request):
         
         data = await request.json()
         prompt = data.get("prompt")
-        model_key = data.get("model_key", "gpt-4.1")
+        model_key = data.get("model_key", "gpt-5")
         tool_groups = data.get("tool_groups", ["core"])
         session_data = data.get("session_data", {})
         session_id = session_data.get("session_id")

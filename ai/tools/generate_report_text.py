@@ -203,7 +203,6 @@ def generate_report_text(report_ids, execute_with_connection, load_prompts, AGEN
                 model=AGENT_MODEL,
                 messages=[{"role": "system", "content": system_message},
                          {"role": "user", "content": prompt}],
-                temperature=0.2
             )
             report_text = response.choices[0].message.content
             # Log prompt and response to file
