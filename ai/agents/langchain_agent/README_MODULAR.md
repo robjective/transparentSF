@@ -18,7 +18,6 @@ The system organizes tools into logical groups:
 ### Core Tools (`ToolGroup.CORE`)
 Essential tools for basic data operations:
 - `set_dataset` - Set dataset for analysis by querying DataSF
-- `get_dataset` - Get information about any dataset that's been loaded
 - `query_docs` - Search for additional context in documentation
 
 ### Analysis Tools (`ToolGroup.ANALYSIS`)
@@ -34,14 +33,13 @@ Tools for anomaly analysis and investigation:
 Tools for managing and querying metrics:
 - `query_metrics` - Search and filter metrics
 - `get_metric_details` - Get metric details
-- `list_categories` - List metric categories
+
 - `get_dashboard_metrics` - Get dashboard metrics
 - `create_new_metric` - Create new metrics
 - `edit_metric` - Edit existing metrics
 - `disable_metric` / `enable_metric` - Manage metric status
 - `get_metrics_overview` - Get metrics summary
 - `find_metrics_by_endpoint` - Find metrics by endpoint
-- Category-specific tools (`get_crime_metrics`, `get_safety_metrics`, `get_economy_metrics`)
 
 ### Data Analysis Tools (`ToolGroup.DATA_ANALYSIS`)
 Tools for data querying and analysis:

@@ -82,7 +82,7 @@ class ModularPromptBuilder:
         
         return f"""You are being asked to explain a change in the following metric:
 - Name: {name}
-- Description: {description}
+- Description: {description}  
 - Summary: {summary}
 - Map Type: {map_type}"""
     

@@ -17,7 +17,7 @@ sys.path.insert(0, str(grandparent_dir))
 from tools.metrics_manager import (
     get_all_metrics, get_metric_by_id, get_metric_by_key, search_metrics,
     add_metric, update_metric, deactivate_metric, activate_metric,
-    get_categories, get_metrics_summary
+    get_categories, get_metrics_summary, search_metrics_by_endpoint
 )
 
 def query_metrics(

@@ -3148,14 +3148,29 @@ async def generate_map_endpoint(request: Request):
                                         stored_filters.append(filter_clause)
                                         logger.info(f"Added filter: {filter_clause}")
                     
-                    # Create a clean detail query with stored filters
+                    # Create a clean detail query with stored filters OR extract from metric_query
                     decoded_sql = "SELECT *"
                     if stored_filters:
                         filters_where = ' AND '.join(stored_filters)
                         decoded_sql += f" WHERE {filters_where}"
                         logger.info(f"Created detail query with stored filters: {decoded_sql}")
                     else:
-                        logger.info(f"No stored filters found, creating clean detail query")
+                        # No stored filters found - extract WHERE clause from metric's original query
+                        logger.info(f"No stored filters found, extracting WHERE clause from metric_query")
+                        metric_query = metric.get("metric_query", "")
+                        if metric_query:
+                            logger.info(f"Original metric_query: {metric_query}")
+                            # Extract WHERE clause from the metric query
+                            import re
+                            where_match = re.search(r'WHERE\s+(.*?)(?:GROUP BY|ORDER BY|LIMIT|$)', metric_query, re.IGNORECASE | re.DOTALL)
+                            if where_match:
+                                original_where_clause = where_match.group(1).strip()
+                                logger.info(f"Extracted WHERE clause from metric_query: {original_where_clause}")
+                                decoded_sql += f" WHERE {original_where_clause}"
+                            else:
+                                logger.info(f"No WHERE clause found in metric_query")
+                        else:
+                            logger.info(f"No metric_query available, using clean detail query")
                 else:
                     logger.warning("No endpoint found, cannot rebuild query")
                 
@@ -3355,7 +3370,7 @@ async def generate_map_endpoint(request: Request):
                         logger.info(f"SOQL query after adding WHERE: {decoded_sql}")
                         logger.info(f"Additional WHERE clause: {where_clause}")
                 else:
-                    logger.info("No additional WHERE conditions to add - using original query filters")
+                    logger.info("No additional WHERE conditions to add - using preserved original query filters")
                 
                 logger.info(f"Applied filters to SQL query")
                 
@@ -3386,16 +3401,34 @@ async def generate_map_endpoint(request: Request):
             logger.info("Creating clean SQL query for mapping detail records")
             
             # Since we don't have an original query URL in this case, we'll build from scratch
-            # but still apply the anomaly filters intelligently
+            # but preserve the original metric's WHERE clause and apply the anomaly filters
             modified_sql = "SELECT *"
-            logger.info(f"Created clean SOQL detail query: {modified_sql}")
+            
+            # First, try to preserve the original metric's WHERE clause
+            metric_query = metric.get("metric_query", "")
+            original_where_conditions = []
+            
+            if metric_query:
+                logger.info(f"Original metric_query: {metric_query}")
+                # Extract WHERE clause from the metric query
+                import re
+                where_match = re.search(r'WHERE\s+(.*?)(?:GROUP BY|ORDER BY|LIMIT|$)', metric_query, re.IGNORECASE | re.DOTALL)
+                if where_match:
+                    original_where_clause = where_match.group(1).strip()
+                    logger.info(f"Extracted WHERE clause from metric_query: {original_where_clause}")
+                    original_where_conditions.append(f"({original_where_clause})")
+                else:
+                    logger.info(f"No WHERE clause found in metric_query")
+            else:
+                logger.info(f"No metric_query available")
+            
+            logger.info(f"Created SOQL detail query base: {modified_sql}")
             
             # Apply anomaly filters to the query
+            where_conditions = []  # Initialize here so it's available even if no anomaly filters
+            
             if anomaly_filters:
                 logger.info(f"Applying anomaly filters to SQL query: {anomaly_filters}")
-                
-                # Build WHERE conditions for the filters
-                where_conditions = []
                 
                 # Get metadata from anomaly details if we have original_anomaly_id
                 metadata = {}
@@ -3493,18 +3526,21 @@ async def generate_map_endpoint(request: Request):
                             "date_field": actual_date_field
                         }
                 
-                # Add WHERE conditions to the SOQL query
-                if where_conditions:
-                    logger.info(f"Adding WHERE conditions: {where_conditions}")
-                    # Since we built the query as "SELECT *", we can cleanly add WHERE  
-                    where_clause = ' AND '.join(where_conditions)
-                    modified_sql = f"{modified_sql} WHERE {where_clause}"
-                    logger.info(f"SOQL query after adding WHERE: {modified_sql}")
-                    logger.info(f"WHERE clause: {where_clause}")
-                else:
-                    logger.info("No WHERE conditions to add - using basic SELECT *")
-                
-                logger.info(f"Applied filters to SQL query")
+                logger.info(f"Applied anomaly filters to SQL query")
+            
+            # Combine original WHERE conditions with anomaly filters (happens even without anomaly filters)
+            all_where_conditions = original_where_conditions + where_conditions
+            
+            # Add WHERE conditions to the SOQL query
+            if all_where_conditions:
+                logger.info(f"Adding combined WHERE conditions: {all_where_conditions}")
+                # Since we built the query as "SELECT *", we can cleanly add WHERE  
+                where_clause = ' AND '.join(all_where_conditions)
+                modified_sql = f"{modified_sql} WHERE {where_clause}"
+                logger.info(f"SOQL query after adding WHERE: {modified_sql}")
+                logger.info(f"WHERE clause: {where_clause}")
+            else:
+                logger.info("No WHERE conditions to add - using basic SELECT *")
             
             # Add limit for mapping performance  
             # Use higher limit since we'll choose chart type based on results

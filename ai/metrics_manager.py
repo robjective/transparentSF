@@ -5,7 +5,8 @@ Metrics Manager - Database-only endpoints for metric control functionality
 import json
 import logging
 import os
-from fastapi import APIRouter, HTTPException, Request
+import tempfile
+from fastapi import APIRouter, HTTPException, Request, File, UploadFile
 from fastapi.responses import JSONResponse, FileResponse
 import psycopg2.extras
 
@@ -1369,39 +1370,65 @@ async def get_metrics_overview():
 
 
 @router.post("/api/restore-metrics-from-backup")
-async def restore_metrics_from_backup_api():
-    """Run the metrics table restore script."""
+async def restore_metrics_from_backup_api(backup_file: UploadFile = File(...)):
+    """Run the metrics table restore script with uploaded file."""
     try:
-        logger.info("Starting metrics table restore via API")
+        logger.info(f"Starting metrics table restore via API with file: {backup_file.filename}")
         
-        # Import and run the restore function
-        import sys
-        import os
-        
-        # Add the tools directory to the Python path
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        tools_dir = os.path.join(script_dir, 'tools')
-        if tools_dir not in sys.path:
-            sys.path.insert(0, tools_dir)
-        
+        # Save the uploaded file to a temporary location
+        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".sql")
         try:
-            from migrate_dashboard_to_metrics import restore_metrics_from_backup
+            content = await backup_file.read()
+            temp_file.write(content)
+            temp_file.flush()
+            temp_file.close()
             
-            # Run the restore
-            success = restore_metrics_from_backup()
+            logger.info(f"Saved uploaded file to temporary location: {temp_file.name}")
             
-            if success:
-                logger.info("Metrics table restore completed successfully")
-                return JSONResponse({
-                    "status": "success",
-                    "message": "Metrics table successfully restored from backup"
-                })
-            else:
-                logger.error("Metrics table restore failed")
-                return JSONResponse({
-                    "status": "error",
-                    "message": "Metrics table restore failed - check logs for details"
-                }, status_code=500)
+            # Import and run the restore function
+            import sys
+            import os
+            
+            # Add the tools directory to the Python path
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            tools_dir = os.path.join(script_dir, 'tools')
+            if tools_dir not in sys.path:
+                sys.path.insert(0, tools_dir)
+            
+            try:
+                from migrate_dashboard_to_metrics import restore_metrics_from_backup
+                
+                # Run the restore with the uploaded file
+                success = restore_metrics_from_backup(temp_file.name)
+                
+                if success:
+                    logger.info("Metrics table restore completed successfully")
+                    return JSONResponse({
+                        "status": "success",
+                        "message": f"Metrics table successfully restored from {backup_file.filename}"
+                    })
+                else:
+                    logger.error("Metrics table restore failed")
+                    return JSONResponse({
+                        "status": "error",
+                        "message": "Metrics table restore failed - check logs for details"
+                    }, status_code=500)
+            finally:
+                # Clean up temporary file
+                try:
+                    os.unlink(temp_file.name)
+                    logger.debug(f"Cleaned up temporary file: {temp_file.name}")
+                except Exception as e:
+                    logger.warning(f"Failed to clean up temporary file {temp_file.name}: {e}")
+                    
+        except Exception as e:
+            # Make sure to close temp file on error
+            try:
+                temp_file.close()
+                os.unlink(temp_file.name)
+            except:
+                pass
+            raise e
                 
         except ImportError as e:
             logger.error(f"Could not import restore script: {str(e)}")

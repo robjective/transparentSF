@@ -27,7 +27,7 @@ from tools.generate_map import generate_map, get_map_by_id, get_recent_maps
 
 # Import new clean tools
 from .explainer_tools import (
-    set_dataset_tool, get_dataset_tool, query_docs_tool,
+    set_dataset_tool, query_docs_tool,
     get_notes_tool, get_dashboard_metric_tool, query_anomalies_db_tool,
     get_anomaly_details_tool, get_dataset_columns_tool, get_charts_for_review_tool
 )
@@ -46,7 +46,6 @@ class ToolFactory:
         return {
             # Core tools (simplified set) - using new clean tools
             "set_dataset": set_dataset_tool,
-            "get_dataset": get_dataset_tool,
             "query_docs": query_docs_tool,
             
             # Analysis tools

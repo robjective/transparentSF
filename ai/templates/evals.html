@@ -1085,7 +1085,10 @@
             const groupsHtml = filteredGroups.map(group => `
                 <div class="eval-group-card">
                     <div class="eval-group-header">
-                        <div class="eval-group-title">${group.name}</div>
+                        <div style="display: flex; align-items: center; gap: 15px; flex: 1;">
+                            <div class="eval-group-title">${group.name}</div>
+                            <button onclick="runGroup(${group.id})" class="btn-small btn-success">Run Group</button>
+                        </div>
                         <div class="eval-group-category">${group.category}</div>
                             </div>
                     <div class="eval-group-description">${group.description || 'No description provided.'}</div>
@@ -1132,7 +1135,6 @@
                                 </div>
                             <div class="eval-actions">
                                 <button onclick="runEval(${eval.id})" class="btn-small">Run</button>
-                                <button onclick="runGroup(${eval.group_id})" class="btn-small btn-secondary">Run Group</button>
                                 <button onclick="viewEvalDetails(${eval.id})" class="btn-small btn-secondary">Details</button>
                                 <button onclick="editEval(${eval.id})" class="btn-small btn-secondary">Edit</button>
                                 <button onclick="deleteEval(${eval.id})" class="btn-small" style="background-color: #dc3545;">Delete</button>

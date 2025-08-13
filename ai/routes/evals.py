@@ -1,5 +1,6 @@
 import os
 import json
+import math
 from datetime import datetime, timedelta, date
 from fastapi import APIRouter, Request, HTTPException
 from fastapi.responses import JSONResponse
@@ -7,15 +8,44 @@ from fastapi.templating import Jinja2Templates
 import logging
 
 class DateAwareJSONEncoder(json.JSONEncoder):
-    """JSON encoder that handles date and datetime objects."""
+    """JSON encoder that handles date, datetime objects, and NaN values."""
     def default(self, obj):
         if isinstance(obj, (date, datetime)):
             return obj.isoformat()
         return super().default(obj)
+    
+    def encode(self, obj):
+        """Override encode to handle NaN and infinity values."""
+        return super().encode(self._sanitize_for_json(obj))
+    
+    def _sanitize_for_json(self, obj):
+        """Recursively sanitize an object for JSON serialization."""
+        if isinstance(obj, dict):
+            return {k: self._sanitize_for_json(v) for k, v in obj.items()}
+        elif isinstance(obj, list):
+            return [self._sanitize_for_json(item) for item in obj]
+        elif isinstance(obj, float):
+            if math.isnan(obj):
+                return None
+            elif math.isinf(obj):
+                return None if obj > 0 else None
+            return obj
+        elif obj is None:
+            return None
+        elif hasattr(obj, 'item'):  # Handle numpy scalars
+            return self._sanitize_for_json(obj.item())
+        else:
+            return obj
 
 def make_json_serializable(obj):
     """Convert an object to JSON serializable format."""
-    return json.loads(json.dumps(obj, cls=DateAwareJSONEncoder))
+    try:
+        return json.loads(json.dumps(obj, cls=DateAwareJSONEncoder))
+    except (ValueError, TypeError) as e:
+        # If there's still an issue, try a more aggressive sanitization
+        logger.warning(f"JSON serialization failed, attempting fallback: {str(e)}")
+        sanitized = DateAwareJSONEncoder()._sanitize_for_json(obj)
+        return json.loads(json.dumps(sanitized, cls=DateAwareJSONEncoder))
 
 # Set up logging
 logger = logging.getLogger(__name__)

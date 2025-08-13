@@ -111,27 +111,6 @@ def set_dataset_tool(endpoint: str, query: str) -> Dict[str, Any]:
             'error_type': 'unexpected_error'
         }
 
-def get_dataset_tool() -> Dict[str, Any]:
-    """
-    Get information about the last dataset that was loaded.
-    Note: This tool requires that set_dataset_tool was called first.
-    
-    Returns:
-        Dictionary with dataset information
-    """
-    logger.info("=== Starting get_dataset_tool ===")
-    
-    try:
-        # Since we don't have persistent state, we'll return a helpful message
-        return {
-            'status': 'info',
-            'message': 'No dataset currently loaded. Use set_dataset_tool first to load data from DataSF.',
-            'usage': 'Call set_dataset_tool with an endpoint and query to load data, then call this tool to get information about the loaded data.'
-        }
-        
-    except Exception as e:
-        logger.exception("Error in get_dataset_tool")
-        return {'error': f'Error retrieving dataset info: {str(e)}'}
 
 def query_docs_tool(collection_name: str, query: str) -> Dict[str, Any]:
     """

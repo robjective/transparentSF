@@ -5,17 +5,41 @@ Handles database operations for evals, eval groups, and eval results.
 """
 
 import json
+import math
 import logging
 from typing import Dict, List, Any, Optional
 from datetime import datetime, date
 from .db_utils import get_postgres_connection, execute_with_connection
 
 class DateAwareJSONEncoder(json.JSONEncoder):
-    """JSON encoder that handles date and datetime objects."""
+    """JSON encoder that handles date, datetime objects, and NaN values."""
     def default(self, obj):
         if isinstance(obj, (date, datetime)):
             return obj.isoformat()
         return super().default(obj)
+    
+    def encode(self, obj):
+        """Override encode to handle NaN and infinity values."""
+        return super().encode(self._sanitize_for_json(obj))
+    
+    def _sanitize_for_json(self, obj):
+        """Recursively sanitize an object for JSON serialization."""
+        if isinstance(obj, dict):
+            return {k: self._sanitize_for_json(v) for k, v in obj.items()}
+        elif isinstance(obj, list):
+            return [self._sanitize_for_json(item) for item in obj]
+        elif isinstance(obj, float):
+            if math.isnan(obj):
+                return None
+            elif math.isinf(obj):
+                return None if obj > 0 else None
+            return obj
+        elif obj is None:
+            return None
+        elif hasattr(obj, 'item'):  # Handle numpy scalars
+            return self._sanitize_for_json(obj.item())
+        else:
+            return obj
 
 logger = logging.getLogger(__name__)
 

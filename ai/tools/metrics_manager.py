@@ -515,6 +515,45 @@ def get_metrics_summary() -> Dict[str, Any]:
     else:
         return result
 
+def search_metrics_by_endpoint(endpoint: str) -> Dict[str, Any]:
+    """
+    Search metrics by DataSF endpoint.
+    
+    Args:
+        endpoint: The DataSF endpoint identifier to search for
+        
+    Returns:
+        dict: Result with status and matching metrics
+    """
+    def search_operation(connection):
+        cursor = connection.cursor(cursor_factory=RealDictCursor)
+        
+        query = """
+            SELECT * FROM metrics 
+            WHERE endpoint = %s 
+            AND is_active = TRUE
+            ORDER BY category, subcategory, metric_name
+        """
+        
+        cursor.execute(query, (endpoint,))
+        metrics = cursor.fetchall()
+        
+        # Convert to list of dicts
+        metrics_list = [dict(metric) for metric in metrics]
+        
+        return {
+            "status": "success",
+            "count": len(metrics_list),
+            "metrics": metrics_list
+        }
+    
+    result = execute_with_connection(search_operation)
+    
+    if result["status"] == "success":
+        return result["result"]
+    else:
+        return result
+
 # Convenience functions for common operations
 def list_all_metrics():
     """List all active metrics with basic info."""

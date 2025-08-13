@@ -53,12 +53,17 @@ def extract_copy_data(sql_content):
         return copy_match.group(1)
     return None
 
-def restore_metrics_from_backup():
+def restore_metrics_from_backup(backup_file_path=None):
     """Restores the metrics table by handing the SQL file directly to psql."""
     logger.info("Starting direct restore of metrics table using psql.")
 
-    # Path to the backup file
-    backup_file = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'metrics_backup.sql')
+    # Use provided backup file path or default to metrics_backup.sql
+    if backup_file_path:
+        backup_file = backup_file_path
+        logger.info(f"Using provided backup file: {backup_file}")
+    else:
+        backup_file = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'metrics_backup.sql')
+        logger.info(f"Using default backup file: {backup_file}")
 
     if not os.path.exists(backup_file):
         logger.error(f"Backup file not found at: {backup_file}")

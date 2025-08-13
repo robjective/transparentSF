@@ -22,7 +22,7 @@ TASK_INSTRUCTIONS = """Your task is to:
 1. Take an change that has already been identified
 2. Research that change to explain what changed and where or what variables explain the change
 3. Analyze anomalies in the dataset to see if they are related to the change
-4. Collect Data use set_dataset and get_dataset to get exactly what you need from DataSF  You can should query the endpoint of the metric in question and look for columns that might explain the change. 
+4. Collect Data use set_dataset to get exactly what you need from DataSF. You can should query the endpoint of the metric in question and look for columns that might explain the change. 
 5. Review maps, charts and visual data to determine how to best explain the chart. 
 6. Provide clear, comprehensive explanations with supporting evidence.  You don't need to be breif, more is more, so be as complete and thorough as possible.
 7. Return your findings in the form of a JSON object with the following keys:
@@ -39,7 +39,7 @@ WORKFLOW_INSTRUCTIONS = """MANDATORY WORKFLOW (follow this exact sequence):
 5. FIFTH, Apply category best practices, see below. 
 6. SIXTH, contextualize this change vs the historical data, you can use the data from get_dashboard_metric to do this. 
 7. SEVENTH, if an anomaly is explanatory, then be sure to include a link to the anomaly chart
-8. EIGHTH, if you still don't have enough information to understand the data, then use set_dataset and get_dataset to get exactly what you need from DataSF.  You can use the queries that you see in the get_dashboard_metric tool data as a starting point, make sure to use the righ fieldNames with the right case.  Read more about htat in the set_dataset() tool. 
+8. EIGHTH, if you still don't have enough information to understand the data, then use set_dataset to get exactly what you need from DataSF. You can use the queries that you see in the get_dashboard_metric tool data as a starting point, make sure to use the right fieldNames with the right case. Read more about that in the set_dataset() tool. 
 9. NINTH, if the data has a strong geographic component, create a map visualization to show spatial patterns using the generate_map function.  If there are a small number of datapoints in the month (say 30 or fewer, it can be helpful to plot them out on a locator map.  Use the location point, address or intersection, see below)"""
 
 # Category-specific best practices
@@ -48,7 +48,11 @@ CATEGORY_BEST_PRACTICES = """Best Practices for explaining certain categories:
 set_dataset
 Arguments: {{ "endpoint": "j67f-aayr", "query": "SELECT building_address as address, number_of_units_certified as value,   building_address || ': ' || document_type || ' (' || number_of_units_certified || ' units)' as description, document_type as description, document_type as series WHERE date_issued >= '2025-04-27' ORDER BY date_issued DESC" }}
 
-2. If you are being asked to explain a change in business registrations or closures, then you should query for the actual businesses that have opened or closed, and include the DBA name, and the date of opening or closure in your explanation.
+2. If you are being asked to explain a change in business registrations or closures, then you should query for the actual businesses that have opened or closed, and include the DBA name, and the date of opening or closure in your explanation.  You can sort the openings / closing by BAN (business level openings) and by LIN (location level openings). Easiest way to think about this is that Starbucks has one BAN but many LINs. LINs will be most useful for commercial corridors.
+Sort by License Type - H24, H25, H26 are restaurant codes. Compare trends of restaurant openings / closings to other business types.
+Our data includes businesses of all types - someone who sells something on Etsy, a short term rental, an entrepreneur with an idea who registers (they dont need to do this but they do!), a lawyer working for themeselves from home. It's very difficult to separate out street level commercial activity in this dataset! 
+One noisy thing in the data is that a business who changes corporation type needs to close business and reopen. So sometimes you will see the same business close and open on the same day - that's often why. You will also see businesses add a new location for a new DBA or trade name. 
+
 set_dataset
 Arguments: {{ "endpoint": "g8m3-pdis", "query": "SELECT dba_name, location, dba_start_date, naic_code_description, supervisor_district ORDER BY dba_start_date DESC LIMIT 10" }}
 
@@ -90,9 +94,9 @@ For example: [CHART:map:123]"""
 
 # Map generation instructions
 GENERATE_MAP_INSTRUCTIONS = """- generate_map: Create a map visualization for geographic data with support for different colored series
-  USAGE: generate_map(context_variables, map_title="Title", map_type="supervisor_district", map_metadata={"description": "Description"}, series_field=None, color_palette=None)
+  USAGE: generate_map(context_variables, map_title="Title", map_type="supervisor_district", map_metadata={{"description": "Description"}}, series_field=None, color_palette=None)
   
-  RETURNS: {"map_id": 123, "edit_url": "https://...", "publish_url": "https://..."}
+  RETURNS: {{"map_id": 123, "edit_url": "https://...", "publish_url": "https://..."}}
   The map_id is an integer that you use to reference the map in your explanations as [CHART:map:123].  Don't link to the URLS, show the reference.
   
   Parameter guidelines:
@@ -107,10 +111,10 @@ GENERATE_MAP_INSTRUCTIONS = """- generate_map: Create a map visualization for ge
        number of units, dollar amounts). Point/address/intersection maps do NOT support scaling — choose
        "symbol" instead.
   - map_metadata: Dictionary with additional information about the map
-     * For change/delta maps, use: {"map_type": "delta", "description": "Change from previous period"}
-     * For basic density maps, use: {"description": "Current values by district"}
+     * For change/delta maps, use: {{"map_type": "delta", "description": "Change from previous period"}}
+     * For basic density maps, use: {{"description": "Current values by district"}}
      * For point/address/intersection maps, you can specify view settings:
-       {"description": "Description", "center_lat": 37.7749, "center_lon": -122.4194, "zoom": 12}
+       {{"description": "Description", "center_lat": 37.7749, "center_lon": -122.4194, "zoom": 12}}
   - series_field: Optional field name for grouping markers into different colored series (only for point/address/intersection maps)
      * Use "series" if your data has a "series" field for categorization
      * Use "category", "type", "status", "priority", or any other field name that contains categorical data
@@ -221,7 +225,7 @@ DATASF_MAP_EXAMPLES = """SERIES MAPS WITH DATASF DATA - PRACTICAL EXAMPLES:
        context_variables,
        map_title="Business Closures by District",
        map_type="supervisor_district",
-       map_metadata={"description": "Number of business closures in the last 30 days"}
+       map_metadata={{"description": "Number of business closures in the last 30 days"}}
    )
    ```
 
@@ -325,21 +329,17 @@ CORE_TOOLS_INSTRUCTIONS = """TOOLS YOU SHOULD USE:
   Use this to query DataSF datasets for analysis. Both parameters are required.
   
   Parameter guidelines:
-  - endpoint: The dataset identifier WITHOUT the .json extension (e.g., 'ubvf-ztfx')
-  - query: The complete SoQL query string using standard SQL syntax
+  - endpoint: The dataset identifier WITHOUT the .json extension (e.g., 'ubvf-ztfx').  This is essentially the from clause of the query, and is used to identify the dataset.
+  - query: The complete SoQL query string using standard SQL syntax. No FROM clause is needed, the endpoint is used for that.
   
   IMPORTANT: You MUST use the EXACT function call format shown below with named arguments:
-  
+  If you don't already know the columns in the dataset, use get_dataset_columns to get them.
   ```
   set_dataset(
       endpoint="g8m3-pdis", 
       query="select dba_name where supervisor_district = '2' AND naic_code_description = 'Retail Trade' order by business_start_date desc limit 5"
   )
   ```
-
-- get_dataset: Get information about the last dataset that was loaded
-  USAGE: get_dataset()
-  Use this to see what data is available for further analysis.
 
 - query_docs: Search for additional context in documentation
   USAGE: query_docs(collection_name="collection-name", query="search-query")
@@ -357,6 +357,19 @@ CORE_TOOLS_INSTRUCTIONS = """TOOLS YOU SHOULD USE:
       query="information about police misconduct"
   )
   ```
+
+- get_dataset_columns: Get column information for a dataset endpoint
+  USAGE: get_dataset_columns(endpoint="dataset-id")
+  Use this to explore what columns are available in a specific dataset before writing queries.
+  
+  Parameter guidelines:
+  - endpoint: The dataset identifier WITHOUT the .json extension (e.g., 'wg3w-h783')
+  
+  IMPORTANT: Use this tool when you need to understand the structure of a dataset:
+  
+  ```
+  get_dataset_columns(endpoint="g8m3-pdis")
+  ```
 """
 
 # Metrics management tools
@@ -368,7 +381,7 @@ When you are asked about metrics, you should follow this workflow:
 2. use get_metric_details() to get detailed information about a specific metric. If there are no metrics that are currently similar to the one that the user is asking about, you can create a new metric using create_new_metric(). If there are metrics that are similar, you can edit them using edit_metric().
 3. When creating or editing a metric, first ensure that the query you are going to use works.  You can do this by using the set_dataset to query the data using a narrow date range.  
 4. use get_dataset to show the resutls to the user and ask the if they was to reate or edut the metric before you do it. 
-5. When editing a metric use the metric's numeric identifier, not the key.
+5. When editing a metric use the metrics's numeric identifier, not the key.
 
 - query_metrics: Search and filter metrics in the database
   USAGE: query_metrics(context_variables, category="crime", search_term="police", active_only=True, dashboard_only=False)
@@ -376,30 +389,28 @@ When you are asked about metrics, you should follow this workflow:
   Categories include: "crime", "safety", "economy"
   
 - get_metric_details: Get detailed information about a specific metric
-  USAGE: get_metric_details(context_variables, metric_identifier=1) or get_metric_details(context_variables, metric_identifier="metric_key")
-  Use this to get complete information about a metric by ID or key.
-  
+  USAGE: get_metric_details(metric_identifier=1) 
+  Use this to get complete information about a metric by ID 
 
-  
 - get_metrics_overview: Get summary statistics about the metrics system
   USAGE: get_metrics_overview(context_variables)
   Use this to get high-level information about total metrics, active metrics, etc.
   
 - create_new_metric: Add a new metric to the database
   USAGE: create_new_metric(
-    context_variables,
-    name="🚗 Vehicle Thefts",
-    key="vehicle_thefts",
+    
+    name="🚨 Violent Crime Incidents",
+    key="violent_violent_crime_incidents_2",
     category="crime",
     endpoint="wg3w-h783",
-    summary="Count of reported vehicle theft incidents",
-    definition="Vehicle thefts include all reported incidents of motor vehicle theft, including cars, trucks, motorcycles, and other motorized vehicles.",
+    summary="Count of reported violent crime incidents, including assaults, homicides, rapes, robberies, human trafficking, weapons offenses, and offenses against family/children.",
+    definition="Count of reported violent crime incidents. Violent crimes are defined as incidents categorized as: Assault, Homicide, Rape, Robbery, Human Trafficking (Commercial Sex Acts and Involuntary Servitude), Offences Against The Family And Children, and Weapons Offenses.",
     data_sf_url="https://data.sfgov.org/Public-Safety/Police-Department-Incident-Reports-2018-to-Present/wg3w-h783",
-    ytd_query="SELECT COUNT(*) as count FROM incidents WHERE incident_category = 'Motor Vehicle Theft' AND incident_date >= DATE_TRUNC('year', CURRENT_DATE) AND incident_date < CURRENT_DATE",
-    metric_query="SELECT COUNT(*) as count FROM incidents WHERE incident_category = 'Motor Vehicle Theft' AND incident_date >= DATE_TRUNC('month', CURRENT_DATE) AND incident_date < CURRENT_DATE",
+    ytd_query="SELECT date_trunc_ymd(Report_Datetime) as date, COUNT(*) as value WHERE Report_Datetime >= last_year_start AND Report_Datetime <= current_date AND Incident_Category IN (''Assault'', ''Homicide'', ''Rape'', ''Robbery'', ''Human Trafficking (A), Commercial Sex Acts'', ''Human Trafficking, Commercial Sex Acts'', ''Human Trafficking (B), Involuntary Servitude'', ''Offences Against The Family And Children'', ''Weapons Carrying Etc'', ''Weapons Offense'', ''Weapons Offence'') GROUP BY date ORDER BY date",
+    metric_query="SELECT ''Violent Crime'' as label, max(Report_Datetime) as max_date, COUNT(CASE WHEN Report_Datetime >= this_year_start AND Report_Datetime <= this_year_end AND Incident_Category IN (''Assault'', ''Homicide'', ''Rape'', ''Robbery'', ''Human Trafficking (A), Commercial Sex Acts'', ''Human Trafficking, Commercial Sex Acts'', ''Human Trafficking (B), Involuntary Servitude'', ''Offences Against The Family And Children'', ''Weapons Carrying Etc'', ''Weapons Offense'', ''Weapons Offence'') THEN 1 END) as this_year, COUNT(CASE WHEN Report_Datetime >= last_year_start AND Report_Datetime <= last_year_end AND Incident_Category IN (''Assault'', ''Homicide'', ''Rape'', ''Robbery'', ''Human Trafficking (A), Commercial Sex Acts'', ''Human Trafficking, Commercial Sex Acts'', ''Human Trafficking (B), Involuntary Servitude'', ''Offences Against The Family And Children'', ''Weapons Carrying Etc'', ''Weapons Offense'', ''Weapons Offence'') THEN 1 END) as last_year, (COUNT(CASE WHEN Report_Datetime >= this_year_start AND Report_Datetime <= this_year_end AND Incident_Category IN (''Assault'', ''Homicide'', ''Rape'', ''Robbery'', ''Human Trafficking (A), Commercial Sex Acts'', ''Human Trafficking, Commercial Sex Acts'', ''Human Trafficking (B), Involuntary Servitude'', ''Offences Against The Family And Children'', ''Weapons Carrying Etc'', ''Weapons Offense'', ''Weapons Offence'') THEN 1 END) - COUNT(CASE WHEN Report_Datetime >= last_year_start AND Report_Datetime <= last_year_end AND Incident_Category IN (''Assault'', ''Homicide'', ''Rape'', ''Robbery'', ''Human Trafficking (A), Commercial Sex Acts'', ''Human Trafficking, Commercial Sex Acts'', ''Human Trafficking (B), Involuntary Servitude'', ''Offences Against The Family And Children'', ''Weapons Carrying Etc'', ''Weapons Offense'', ''Weapons Offence'') THEN 1 END)) as delta, ((COUNT(CASE WHEN Report_Datetime >= this_year_start AND Report_Datetime <= this_year_end AND Incident_Category IN (''Assault'', ''Homicide'', ''Rape'', ''Robbery'', ''Human Trafficking (A), Commercial Sex Acts'', ''Human Trafficking, Commercial Sex Acts'', ''Human Trafficking (B), Involuntary Servitude'', ''Offences Against The Family And Children'', ''Weapons Carrying Etc'', ''Weapons Offense'', ''Weapons Offence'') THEN 1 END) - COUNT(CASE WHEN Report_Datetime >= last_year_start AND Report_Datetime <= last_year_end AND Incident_Category IN (''Assault'', ''Homicide'', ''Rape'', ''Robbery'', ''Human Trafficking (A), Commercial Sex Acts'', ''Human Trafficking, Commercial Sex Acts'', ''Human Trafficking (B), Involuntary Servitude'', ''Offences Against The Family And Children'', ''Weapons Carrying Etc'', ''Weapons Offense'', ''Weapons Offence'') THEN 1 END)) * 100.0 / NULLIF(COUNT(CASE WHEN Report_Datetime >= last_year_start AND Report_Datetime <= last_year_end AND Incident_Category IN (''Assault'', ''Homicide'', ''Rape'', ''Robbery'', ''Human Trafficking (A), Commercial Sex Acts'', ''Human Trafficking, Commercial Sex Acts'', ''Human Trafficking (B), Involuntary Servitude'', ''Offences Against The Family And Children'', ''Weapons Carrying Etc'', ''Weapons Offense'', ''Weapons Offence'') THEN 1 END), 0)) as perc_diff, supervisor_district group by supervisor_district",
     dataset_title="Police Department Incident Reports",
     dataset_category="Public Safety",
-    show_on_dash=True,
+    show_on_dash=False,
     item_noun="Incidents",
     greendirection="down",
     location_fields=[
@@ -410,10 +421,25 @@ When you are asked about metrics, you should follow this workflow:
         {{"name": "incident_category", "fieldName": "incident_category", "description": "Category of the incident"}},
         {{"name": "incident_subcategory", "fieldName": "incident_subcategory", "description": "Subcategory of the incident"}}
     ]
-  )
+    )
   Use this to add new metrics to the system. Required fields: name, key, category, endpoint.
+ 
   The ytd_query should calculate year-to-date totals, while metric_query should calculate current period totals.
   Location fields and category fields are optional but recommended for better data analysis.
+  By default, lets set show_on_dash to False. 
+  DATE SUBSTITUTION VARIABLES:
+  The system automatically substitutes date variables in queries at runtime. Use these variables in your queries:
+  - last_year_start: Start of the previous year (e.g., '2024-01-01')
+  - last_year_end: End of the previous year (e.g., '2024-12-31')
+  - this_year_start: Start of the current year (e.g., '2025-01-01')
+  - this_year_end: End of the current year (e.g., '2025-12-31')
+  - current_date: Current date when the query is executed
+  - last_month_start: Start of the previous month
+  - last_month_end: End of the previous month
+  - this_month_start: Start of the current month
+  - this_month_end: End of the current month
+  
+  These variables are automatically replaced with actual date values when queries are executed, allowing for dynamic date ranges without hardcoding dates.
   
 - edit_metric: Update an existing metric
   USAGE: edit_metric(context_variables, metric_identifier=1, updates={{"summary": "Updated summary", "show_on_dash": False}})
@@ -557,181 +583,4 @@ def write_prompts_to_file():
         print(f"Error writing prompts to file: {str(e)}")
         return False 
 
-CATEGORIES_INSTRUCTIONS = """Best Practices for explaining certain categories: 
-1. Housing - If the you are being asked to explain is in housing, then you should query for the actual properties that have new units, and include the address, and the units certified in your explanation.
-set_dataset
-Arguments: {{ "endpoint": "j67f-aayr", "query": "SELECT building_address as address, number_of_units_certified as value,   building_address || ': ' || document_type || ' (' || number_of_units_certified || ' units)' as description, document_type as description, document_type as series WHERE date_issued >= '2025-04-27' ORDER BY date_issued DESC" }}
 
-2. If you are being asked to explain a change in business registrations or closures, then you should query for the actual businesses that have opened or closed, and include the DBA name, and the date of opening or closure in your explanation.
-set_dataset
-Arguments: {{ "endpoint": "g8m3-pdis", "query": "SELECT dba_name, location, dba_start_date, naic_code_description, supervisor_district ORDER BY dba_start_date DESC LIMIT 10" }}
-
-3. I fyou are being asked about crime data, then you should query for the actual crimes that have occurred, and include the crime type, the date of the crime, and the location of the crime in your explanation.
-set_dataset
-Arguments:
-{{
-    "endpoint": "wg3w-h783",
-    "query": "SELECT report_datetime, incident_category, supervisor_district, latitude, longitude WHERE supervisor_district='2' AND (incident_category='Homicide') ORDER BY report_datetime DESC LIMIT 5"
-}}"""
-
-CHARTS_INSTRUCTIONS = """IMPORTANT CHART GENERATION RULES:
-
-To do this, you should use the get_charts_for_review tool to get a list of charts that are available.  
-When selecting the best visutal to use: 
-
-If the explanation is geographic, a Maps helps.  If you are talking about the absolute value show a density map, if you are taling about a chage show a change map.
-If the explanation is temporal, charts help.  choose the most simple chart that can show the change.  
-If the explanation is that a specific category spiked in an anomaly, then perhaps show the time series of the metric and the anomaly explaining it. 
-
-If the explanation is that a particuarly group_field category went up or down, then show the time series for that group_field. Remember, if you are explaining a change in a district, don't show a chart that shows citywide data. 
-
-You can refer to the chart like this: 
-
-For Time Series Charts:
-[CHART:time_series_id:chart_id]
-For example: [time_series_id:44323]  
-
-For Anomaly Charts:
-[CHART:anomaly:anomaly_id]
-For example: [CHART:anomaly:27338]
-
-For Maps: 
-[CHART:map:map_id]
-For example: [CHART:map:123]"""
-
-DATASF_MAPS_INSTRUCTIONS = """SERIES MAPS WITH DATASF DATA - PRACTICAL EXAMPLES:
-
-1. BUSINESS DATA (endpoint: g8m3-pdis):
-   Example 1: Map of new businesses by industry type
-   ```python
-   # First, query the business data
-   set_dataset(context_variables, 
-              endpoint="g8m3-pdis",
-              query="SELECT location, 
-                    location, 
-                    dba_name || ' - ' || naic_code_description as description,
-                    naic_code_description as series
-                    WHERE dba_start_date >= CURRENT_DATE - INTERVAL '30 days'
-                    ORDER BY dba_start_date DESC")
-   
-   # Then create the map
-   result = generate_map(
-       context_variables,
-       map_title="New Business Registrations by Industry",
-       map_type="point",
-       series_field="series",
-       color_palette="categorical"
-   )
-   ```
-
-   Example 2: Map of business closures by district
-   ```python
-   # First, query the business data aggregated by district
-   set_dataset(context_variables,
-              endpoint="g8m3-pdis",
-              query="SELECT supervisor_district, 
-                    COUNT(*) as value
-                    WHERE location_end_date >= CURRENT_DATE - INTERVAL '30 days'
-                    GROUP BY supervisor_district")
-   
-   # Then create the map
-   result = generate_map(
-       context_variables,
-       map_title="Business Closures by District",
-       map_type="supervisor_district",
-       map_metadata={"description": "Number of business closures in the last 30 days"}
-   )
-   ```
-
-2. CRIME DATA (endpoint: wg3w-h783):
-   Example 1: Map of recent crimes by type
-   ```python
-   # First, query the crime data
-   set_dataset(context_variables,
-              endpoint="wg3w-h783",
-              query="SELECT incident_description as title,
-                    latitude,
-                    longitude,
-                    incident_category as description,
-                    incident_category as series
-                    WHERE report_datetime >= CURRENT_DATE - INTERVAL '7 days'
-                    ORDER BY report_datetime DESC")
-   
-   # Then create the map
-   result = generate_map(
-       context_variables,
-       map_title="Recent Crimes by Category",
-       map_type="point",
-       series_field="series",
-       color_palette="categorical"
-   )
-   ```
-
-   Example 2: Map of crime rate changes by district
-   ```python
-   # First, query the crime data with change calculations
-   set_dataset(context_variables,
-              endpoint="wg3w-h783",
-              query="SELECT supervisor_district,
-                    COUNT(*) as current_value,
-                    LAG(COUNT(*)) OVER (PARTITION BY supervisor_district ORDER BY date_trunc_ym(report_datetime)) as previous_value,
-                    COUNT(*) - LAG(COUNT(*)) OVER (PARTITION BY supervisor_district ORDER BY date_trunc_ym(report_datetime)) as delta,
-                    (COUNT(*) - LAG(COUNT(*)) OVER (PARTITION BY supervisor_district ORDER BY date_trunc_ym(report_datetime)))::float / 
-                    NULLIF(LAG(COUNT(*)) OVER (PARTITION BY supervisor_district ORDER BY date_trunc_ym(report_datetime)), 0) as percent_change
-                    WHERE date_trunc_ym(report_datetime) >= date_trunc_ym(CURRENT_DATE - INTERVAL '1 month')
-                    GROUP BY supervisor_district, date_trunc_ym(report_datetime)")
-   
-   # Then create the map
-   result = generate_map(
-       context_variables,
-       map_title="Crime Rate Changes by District",
-       map_type="supervisor_district",
-       map_metadata={
-           "map_type": "delta",
-           "description": "Change in crime rates from previous month"
-       }
-   )
-   ```
-
-3. HOUSING DATA (endpoint: j67f-aayr):
-   Example 1: Map of new housing units by project
-   ```python
-   # First, query the housing data
-   set_dataset(context_variables,
-              endpoint="j67f-aayr",
-              query="SELECT building_permit_application as title,
-                    building_address,
-                    number_of_units_certified as value,
-                    permit_type as description,
-                    permit_type as series
-                    WHERE date_issued >= CURRENT_DATE - INTERVAL '30 days'
-                    ORDER BY date_issued DESC")
-   
-   # Then create the map
-   result = generate_map(
-       context_variables,
-       map_title="New Housing Units by Project Type",
-       map_type="symbol",
-       series_field="series",
-       color_palette="categorical"
-   )
-   ```
-
- 
-IMPORTANT NOTES:
-1. Always use set_dataset first to prepare the data
-2. The dataset will be automatically used by generate_map
-3. For point/symbol maps, ensure you have:
-   - title field (or dba_name, building_permit_application, etc.)
-   - location information (location, latitude/longitude, or address)
-   - description field for tooltips
-   - series field if using series coloring
-   - value field for symbol maps
-4. For district maps, ensure you have:
-   - supervisor_district field
-   - value field for density maps
-   - current_value, previous_value, delta, and percent_change for change maps
-5. Use appropriate date ranges in your queries:
-   - 7 days for recent point data
-   - 30 days for monthly aggregations
-   - 1 month for change calculations"""

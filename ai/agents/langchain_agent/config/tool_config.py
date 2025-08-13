@@ -44,21 +44,10 @@ class ToolConfig:
                 function=None,
                 description="Set dataset for analysis by querying DataSF",
                 group=ToolGroup.CORE,
-                required_prompt_sections=["core_tools"],
+                required_prompt_sections=["core_tools", "categories"],
                 examples=[
                     "set_dataset(context_variables, 'wg3w-h783', 'SELECT incident_category, COUNT(*) as count WHERE date_trunc_ym(report_datetime) = date_trunc_ym(CURRENT_DATE) GROUP BY incident_category')",
                     "Use this to query DataSF datasets for analysis"
-                ]
-            ),
-            ToolDefinition(
-                name="get_dataset",
-                function=None,
-                description="Get information about any dataset that's been loaded",
-                group=ToolGroup.CORE,
-                required_prompt_sections=["core_tools"],
-                examples=[
-                    "get_dataset(context_variables)",
-                    "Use this to see what data is available for further analysis"
                 ]
             ),
             ToolDefinition(
@@ -66,7 +55,7 @@ class ToolConfig:
                 function=None,
                 description="Search for additional context in documentation",
                 group=ToolGroup.CORE,
-                required_prompt_sections=["core_tools"],
+                required_prompt_sections=["core_tools", "categories"],
                 examples=[
                     "query_docs(context_variables, collection_name='SFPublicData', query='information related to crime trends')",
                     "Use this to find domain-specific information that might explain anomalies"
@@ -138,7 +127,7 @@ class ToolConfig:
                 group=ToolGroup.ANALYSIS,
                 required_prompt_sections=["core_tools"],
                 examples=[
-                    "get_dataset_columns(context_variables, endpoint='wg3w-h783')",
+                    "get_dataset_columns(endpoint='wg3w-h783')",
                     "Use this to explore what columns are available in a specific dataset"
                 ]
             )
@@ -166,17 +155,6 @@ class ToolConfig:
                 examples=[
                     "get_metric_details(context_variables, metric_identifier=1)",
                     "Use this to get complete information about a metric by ID or key"
-                ]
-            ),
-            ToolDefinition(
-                name="list_categories",
-                function=None,
-                description="Get all available metric categories and subcategories",
-                group=ToolGroup.METRICS,
-                required_prompt_sections=["metrics_tools"],
-                examples=[
-                    "list_categories(context_variables)",
-                    "Use this to see what categories of metrics are available"
                 ]
             ),
             ToolDefinition(
@@ -254,39 +232,6 @@ class ToolConfig:
                 examples=[
                     "find_metrics_by_endpoint(context_variables, endpoint='wg3w-h783')",
                     "Use this to see what metrics are built on a particular dataset"
-                ]
-            ),
-            ToolDefinition(
-                name="get_crime_metrics",
-                function=None,
-                description="Get all crime-related metrics",
-                group=ToolGroup.METRICS,
-                required_prompt_sections=["metrics_tools"],
-                examples=[
-                    "get_crime_metrics(context_variables)",
-                    "Convenience function to get all metrics in the crime category"
-                ]
-            ),
-            ToolDefinition(
-                name="get_safety_metrics",
-                function=None,
-                description="Get all safety-related metrics",
-                group=ToolGroup.METRICS,
-                required_prompt_sections=["metrics_tools"],
-                examples=[
-                    "get_safety_metrics(context_variables)",
-                    "Convenience function to get all metrics in the safety category"
-                ]
-            ),
-            ToolDefinition(
-                name="get_economy_metrics",
-                function=None,
-                description="Get all economy-related metrics",
-                group=ToolGroup.METRICS,
-                required_prompt_sections=["metrics_tools"],
-                examples=[
-                    "get_economy_metrics(context_variables)",
-                    "Convenience function to get all metrics in the economy category"
                 ]
             )
         ]
