@@ -445,14 +445,32 @@ def process_metric_analysis(metric_info, period_type='month', process_districts=
     for field in category_fields:
         if isinstance(field, dict):
             field_name = field.get('fieldName', '')
+            # Support alias specified by 'name' (used when fieldName is a CASE expression)
+            alias_name = field.get('name')
+            if alias_name:
+                alias_name = alias_name.replace(' ', '_').replace('-', '_').lower()
         else:
             field_name = field
+            alias_name = None
         
+        # Accept if either the explicit field or its alias is present in the dataset
         if field_name and field_name in dataset.columns:
             valid_category_fields.append(field)
             logging.info(f"Validated category field: {field_name}")
+        elif alias_name and alias_name in dataset.columns:
+            # Rewrite dict field to use the alias as the concrete column to reference downstream
+            if isinstance(field, dict):
+                rewritten_field = {
+                    'fieldName': alias_name,
+                    'name': field.get('name', alias_name),
+                    'description': field.get('description', '')
+                }
+                valid_category_fields.append(rewritten_field)
+            else:
+                valid_category_fields.append(alias_name)
+            logging.info(f"Validated category field by alias and rewrote field to: {alias_name}")
         else:
-            logging.warning(f"Category field {field_name} not found in dataset. Ignoring.")
+            logging.warning(f"Category field {field_name if field_name else alias_name} not found in dataset. Ignoring.")
     
     # Update category_fields with only valid fields
     category_fields = valid_category_fields
@@ -1364,10 +1382,10 @@ def transform_query_for_period(original_query, date_field, category_fields, peri
     # Apply replacements correctly - ensure we're not creating malformed field names
     for placeholder, value in replacements.items():
         # Make sure we're only replacing standalone instances of the placeholder
-        # by checking for word boundaries or operators before/after
-        modified_query = re.sub(r'([=<>:\s]|^)' + re.escape(placeholder) + r'([=<>:\s]|$)', 
-                                r'\1' + value + r'\2', 
-                                modified_query)
+        # Use word boundaries and handle edge cases more comprehensively
+        pattern = r'\b' + re.escape(placeholder) + r'\b'
+        modified_query = re.sub(pattern, value, modified_query)
+        logging.info(f"Replaced {placeholder} with {value} in query")
     
     # Ensure consistent use of <= instead of < for date upper bounds
     modified_query = re.sub(r'<\s*current_date', f"<= '{recent_end}'", modified_query)
@@ -1431,6 +1449,12 @@ def transform_query_for_period(original_query, date_field, category_fields, peri
                     field_name = field
                 
                 if field_name:
+                    # Apply placeholder replacements to field names as well
+                    for placeholder, value in replacements.items():
+                        pattern = r'\b' + re.escape(placeholder) + r'\b'
+                        field_name = re.sub(pattern, value, field_name)
+                        logging.info(f"Replaced {placeholder} with {value} in category field: {field_name}")
+                    
                     # Handle supervisor_district specially
                     if field_name == 'supervisor_district':
                         # Check if this is the 311 cases endpoint (vw6y-z8j6) and apply floor()
@@ -1442,8 +1466,19 @@ def transform_query_for_period(original_query, date_field, category_fields, peri
                             category_select += f", supervisor_district"
                             group_by_fields.append("supervisor_district")
                     else:
-                        category_select += f", {field_name}"
-                        group_by_fields.append(field_name)
+                        # For complex CASE statements, use the field as is and create an alias
+                        if 'CASE' in field_name.upper():
+                            # Create a simple alias for complex CASE statements
+                            if isinstance(field, dict):
+                                alias = field.get('name', 'category_field')
+                                alias = alias.replace(' ', '_').replace('-', '_').lower()
+                            else:
+                                alias = 'category_field'
+                            category_select += f", ({field_name}) as {alias}"
+                            group_by_fields.append(f"({field_name})")
+                        else:
+                            category_select += f", {field_name}"
+                            group_by_fields.append(field_name)
             
             # Add period_type to distinguish recent from comparison - FIXED POSITION
             period_type_select = f", CASE WHEN {date_field_match} >= '{recent_start}' AND {date_field_match} <= '{recent_end}' THEN 'recent' ELSE 'comparison' END as period_type"
@@ -1453,6 +1488,8 @@ def transform_query_for_period(original_query, date_field, category_fields, peri
             if group_by_fields:
                 group_by_clause += ", " + ", ".join(group_by_fields)
                 
+            # Use original WHERE part only; it already contains the intended window and
+            # avoids generating invalid CASE expressions inside WHERE.
             transformed_query = f"""
             SELECT 
                 {date_trunc} as {period_field},
@@ -1460,12 +1497,7 @@ def transform_query_for_period(original_query, date_field, category_fields, peri
                 {period_type_select}
                 {category_select}
             WHERE 
-                {where_part} AND
-                (
-                    ({date_field_match} >= '{comparison_start}' AND {date_field_match} <= '{comparison_end}')
-                    OR 
-                    ({date_field_match} >= '{recent_start}' AND {date_field_match} <= '{recent_end}')
-                )
+                {where_part}
             {group_by_clause}
             ORDER BY {period_field}
             """
@@ -1528,6 +1560,12 @@ def transform_query_for_period(original_query, date_field, category_fields, peri
                 field_name = field
             
             if field_name:
+                # Apply placeholder replacements to field names as well
+                for placeholder, value in replacements.items():
+                    pattern = r'\b' + re.escape(placeholder) + r'\b'
+                    field_name = re.sub(pattern, value, field_name)
+                    logging.info(f"Replaced {placeholder} with {value} in category field: {field_name}")
+                
                 # Handle supervisor_district specially
                 if field_name == 'supervisor_district':
                     # Check if this is the 311 cases endpoint (vw6y-z8j6) and apply floor()
@@ -1539,8 +1577,19 @@ def transform_query_for_period(original_query, date_field, category_fields, peri
                         category_select += f", CASE WHEN supervisor_district IS NOT NULL THEN supervisor_district ELSE NULL END as supervisor_district"
                         category_fields_list.append("supervisor_district")
                 else:
-                    category_select += f", {field_name}"
-                    category_fields_list.append(field_name)
+                    # For complex CASE statements, use the field as is and create an alias
+                    if 'CASE' in field_name.upper():
+                        # Create a simple alias for complex CASE statements
+                        if isinstance(field, dict):
+                            alias = field.get('name', 'category_field')
+                            alias = alias.replace(' ', '_').replace('-', '_').lower()
+                        else:
+                            alias = 'category_field'
+                        category_select += f", ({field_name}) as {alias}"
+                        category_fields_list.append(f"({field_name})")
+                    else:
+                        category_select += f", {field_name}"
+                        category_fields_list.append(field_name)
         
         # Build the date transformation part based on period_type
         if period_type == 'month':
@@ -1665,6 +1714,12 @@ def transform_query_for_period(original_query, date_field, category_fields, peri
                 field_name = field
             
             if field_name:
+                # Apply placeholder replacements to field names as well
+                for placeholder, value in replacements.items():
+                    pattern = r'\b' + re.escape(placeholder) + r'\b'
+                    field_name = re.sub(pattern, value, field_name)
+                    logging.info(f"Replaced {placeholder} with {value} in category field: {field_name}")
+                
                 # Handle supervisor_district specially
                 if field_name == 'supervisor_district':
                     # Check if this is the 311 cases endpoint (vw6y-z8j6) and apply floor()
@@ -1676,8 +1731,19 @@ def transform_query_for_period(original_query, date_field, category_fields, peri
                         category_select += f", CASE WHEN supervisor_district IS NOT NULL THEN supervisor_district ELSE NULL END as supervisor_district"
                         category_fields_list.append("supervisor_district")
                 else:
-                    category_select += f", {field_name}"
-                    category_fields_list.append(field_name)
+                    # For complex CASE statements, use the field as is and create an alias
+                    if 'CASE' in field_name.upper():
+                        # Create a simple alias for complex CASE statements
+                        if isinstance(field, dict):
+                            alias = field.get('name', 'category_field')
+                            alias = alias.replace(' ', '_').replace('-', '_').lower()
+                        else:
+                            alias = 'category_field'
+                        category_select += f", ({field_name}) as {alias}"
+                        category_fields_list.append(f"({field_name})")
+                    else:
+                        category_select += f", {field_name}"
+                        category_fields_list.append(field_name)
         
         # Build the date transformation part based on period_type
         if period_type == 'month':

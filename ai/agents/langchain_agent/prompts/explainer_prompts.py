@@ -56,6 +56,92 @@ One noisy thing in the data is that a business who changes corporation type need
 set_dataset
 Arguments: {{ "endpoint": "g8m3-pdis", "query": "SELECT dba_name, location, dba_start_date, naic_code_description, supervisor_district ORDER BY dba_start_date DESC LIMIT 10" }}
 
+San Francisco Business Registration Analysis Guide (Corrected)
+Dataset Overview
+The San Francisco Registered Business Locations dataset (g8m3-pdis) tracks all business registrations in San Francisco. Key points:
+
+Coverage: Every business operating in SF must register, from home-based Etsy sellers to major corporations
+Each record (ttxid) represents a unique business registration
+Real-time updates: Includes registrations, closures, and administrative actions
+Critical: Each business has both DBA dates (business entity) and location dates (physical location)
+Key Fields for Opening/Closing Analysis
+dba_start_date: When the business entity first registered
+location_start_date: When a specific location opened
+dba_end_date: When the business entity closed
+location_end_date: When a specific location closed
+administratively_closed: Text field indicating administrative closure reasons
+ttxid: Unique identifier for each business registration record
+The Complete Method for Accurate Counting
+IMPORTANT: To capture all business activity, you must count BOTH new businesses AND location expansions:
+
+RAW DATA QUERY TEMPLATE:
+To get comprehensive raw data for business openings, use this exact query structure:
+
+set_dataset(
+    endpoint="g8m3-pdis", 
+    query="SELECT dba_name, full_business_address, dba_start_date, location_start_date, naic_code_description, CASE WHEN dba_start_date >= '[START_DATE]' AND dba_start_date <= '[END_DATE]' THEN 'New Business' WHEN location_start_date >= '[START_DATE]' AND location_start_date <= '[END_DATE]' AND dba_start_date < '[START_DATE]' THEN 'Location Expansion' END as opening_type WHERE neighborhoods_analysis_boundaries LIKE '%[NEIGHBORHOOD]%' AND ((dba_start_date >= '[START_DATE]' AND dba_start_date <= '[END_DATE]') OR (location_start_date >= '[START_DATE]' AND location_start_date <= '[END_DATE]' AND dba_start_date < '[START_DATE]')) ORDER BY COALESCE(dba_start_date, location_start_date) DESC"
+)
+For Opening Analysis:
+-- New Businesses: First time registrations
+COUNT(CASE WHEN dba_start_date >= '[START_DATE]' 
+  AND dba_start_date <= '[END_DATE]' THEN 1 END) as new_businesses
+
+-- Location Expansions: Existing businesses opening new locations
+COUNT(CASE WHEN location_start_date >= '[START_DATE]' 
+  AND location_start_date <= '[END_DATE]' 
+  AND dba_start_date < '[START_DATE]' THEN 1 END) as location_expansions
+For Closing Analysis:
+-- Business Closures: Entire business entity closing
+COUNT(CASE WHEN dba_end_date >= '[START_DATE]' 
+  AND dba_end_date <= '[END_DATE]' THEN 1 END) as business_closures
+
+-- Location-Only Closures: Individual locations closing while business remains
+COUNT(CASE WHEN location_end_date >= '[START_DATE]' 
+  AND location_end_date <= '[END_DATE]' 
+  AND (dba_end_date IS NULL OR dba_end_date > '[END_DATE]') THEN 1 END) as location_closures
+Complete Analysis Query:
+SELECT
+  COUNT(CASE WHEN dba_start_date >= '[START_DATE]' 
+    AND dba_start_date <= '[END_DATE]' THEN 1 END) as new_businesses,
+  COUNT(CASE WHEN location_start_date >= '[START_DATE]' 
+    AND location_start_date <= '[END_DATE]' 
+    AND dba_start_date < '[START_DATE]' THEN 1 END) as location_expansions,
+  COUNT(CASE WHEN dba_end_date >= '[START_DATE]' 
+    AND dba_end_date <= '[END_DATE]' THEN 1 END) as business_closures,
+  COUNT(CASE WHEN location_end_date >= '[START_DATE]' 
+    AND location_end_date <= '[END_DATE]' 
+    AND (dba_end_date IS NULL OR dba_end_date > '[END_DATE]') THEN 1 END) as location_closures,
+  COUNT(CASE WHEN dba_end_date >= '[START_DATE]' 
+    AND dba_end_date <= '[END_DATE]' 
+    AND administratively_closed IS NOT NULL THEN 1 END) as admin_closures
+Understanding the Logic
+New Businesses: Count records where dba_start_date falls within the period
+Location Expansions: Count records where location_start_date is in the period BUT dba_start_date is before the period (these are existing businesses expanding)
+Business Closures: Count records where dba_end_date falls within the period
+Location-Only Closures: Count records where location_end_date is in the period BUT the business hasn't closed (or closed after the period)
+Each ttxid is counted exactly once in the appropriate category
+Why NOT to Use COALESCE for Complete Analysis
+While COALESCE(dba_start_date, location_start_date) is useful for avoiding double-counting in simple counts, it misses location expansions entirely. For example:
+
+A business that registered in 1999 but opened a new location in 2025 would NOT be counted by COALESCE
+This understates business activity by ~30% based on our Chinatown analysis
+Important Context for Analysis
+Administrative Closures: Large spikes in June typically represent annual compliance sweeps, not economic indicators
+Location Expansions Matter: They represent ~30% of opening activity and indicate business confidence
+Net Change Calculation: (New Businesses + Location Expansions) - (Business Closures + Location Closures)
+Business Type Noise: Dataset includes everything from single-person home businesses to major retailers
+Corporate Changes: Businesses changing structure may close and reopen the same day
+Example Implementation
+-- Chinatown business dynamics for August 2025
+SELECT
+  COUNT(CASE WHEN dba_start_date >= '2025-08-01' 
+    AND dba_start_date <= '2025-08-31' THEN 1 END) as new_businesses,
+  COUNT(CASE WHEN location_start_date >= '2025-08-01' 
+    AND location_start_date <= '2025-08-31' 
+    AND dba_start_date < '2025-08-01' THEN 1 END) as location_expansions
+WHERE neighborhoods_analysis_boundaries LIKE '%Chinatown%'
+This method provides the complete picture of business dynamics, capturing both new market entrants and expansion activity by existing businesses.
+
 3. I fyou are being asked about crime data, then you should query for the actual crimes that have occurred, and include the crime type, the date of the crime, and the location of the crime in your explanation.
 set_dataset
 Arguments:

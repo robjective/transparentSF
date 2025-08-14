@@ -60,6 +60,17 @@ class ToolConfig:
                     "query_docs(context_variables, collection_name='SFPublicData', query='information related to crime trends')",
                     "Use this to find domain-specific information that might explain anomalies"
                 ]
+            ),
+            ToolDefinition(
+                name="get_dataset_columns",
+                function=None,
+                description="Get column information for a dataset endpoint",
+                group=ToolGroup.CORE,
+                required_prompt_sections=["core_tools"],
+                examples=[
+                    "get_dataset_columns(endpoint='wg3w-h783')",
+                    "Use this to explore what columns are available in a specific dataset"
+                ]
             )
         ]
         
@@ -118,17 +129,6 @@ class ToolConfig:
                 examples=[
                     "get_charts_for_review(context_variables, limit=20, days_back=30, district_filter='2', metric_id='3')",
                     "Use this to find relevant charts and maps that support your explanations"
-                ]
-            ),
-            ToolDefinition(
-                name="get_dataset_columns",
-                function=None,
-                description="Get column information for a dataset endpoint",
-                group=ToolGroup.ANALYSIS,
-                required_prompt_sections=["core_tools"],
-                examples=[
-                    "get_dataset_columns(endpoint='wg3w-h783')",
-                    "Use this to explore what columns are available in a specific dataset"
                 ]
             )
         ]

@@ -578,6 +578,29 @@
             position: relative;
         }
         
+        .explainer-continue {
+            background: var(--soft-green);
+            color: var(--text-primary);
+            border: none;
+            padding: 8px 16px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: background 0.2s ease;
+        }
+        
+        .explainer-continue:hover:not(:disabled) {
+            background: var(--soft-green);
+            opacity: 0.8;
+        }
+        
+        .explainer-continue:disabled {
+            background: var(--bg-secondary);
+            cursor: not-allowed;
+            position: relative;
+        }
+        
         .explainer-message {
             margin-bottom: 20px;
             padding: 12px 16px;
@@ -1466,6 +1489,7 @@
                             </select>
                             <button class="explainer-send" id="explainer-send">Send</button>
                             <button class="explainer-stop" id="explainer-stop" style="display: none;">Stop</button>
+                            <button class="explainer-continue" id="explainer-continue" style="display: none;">Continue</button>
                         </div>
                     </div>
                 </div>
@@ -2159,6 +2183,13 @@
                                     break;
                                 }
                                 
+                                // Handle agent stop condition
+                                if (data.agent_stopped) {
+                                    console.log('Agent stopped due to stop condition:', data);
+                                    showContinueButton(data.reason);
+                                    break;  // Stop processing but don't show error
+                                }
+                                
                                 if (data.error) {
                                     throw new Error(data.error);
                                 }
@@ -2187,9 +2218,226 @@
                 isExplainerProcessing = false;
                 currentRequest = null;
                 
-                // Show send button and hide stop button
+                // Show send button and hide stop/continue buttons
                 sendBtn.style.display = 'inline-block';
                 stopBtn.style.display = 'none';
+                
+                // Hide continue button if it was shown
+                const continueBtn = document.getElementById('explainer-continue');
+                if (continueBtn) {
+                    continueBtn.style.display = 'none';
+                }
+                
+                // Re-enable input and model select
+                input.disabled = false;
+                modelSelect.disabled = false;
+                input.focus();
+            }
+        }
+        
+        // Show continue button when agent hits stop condition
+        function showContinueButton(reason) {
+            console.log('Showing continue button due to:', reason);
+            
+            const sendBtn = document.getElementById('explainer-send');
+            const stopBtn = document.getElementById('explainer-stop');
+            const continueBtn = document.getElementById('explainer-continue');
+            
+            // Hide send and stop buttons, show continue button
+            sendBtn.style.display = 'none';
+            stopBtn.style.display = 'none';
+            continueBtn.style.display = 'inline-block';
+            
+            // Reset processing state
+            isExplainerProcessing = false;
+            currentRequest = null;
+            
+            // Show a system message explaining what happened
+            addExplainerMessage('🔄 The analysis was stopped due to hitting the maximum iteration limit. You can continue the analysis by clicking the "Continue" button below.', 'system', false);
+            
+            // Re-enable input and model select
+            const input = document.getElementById('explainer-input');
+            const modelSelect = document.getElementById('explainer-model-select');
+            input.disabled = false;
+            modelSelect.disabled = false;
+            
+            // Hide typing indicator
+            hideExplainerTyping();
+        }
+        
+        // Continue analysis function
+        async function continueExplainerAnalysis() {
+            if (!explainerSessionId) {
+                addExplainerMessage('No active session found. Please start a new conversation.', 'system', false);
+                return;
+            }
+            
+            const input = document.getElementById('explainer-input');
+            const modelSelect = document.getElementById('explainer-model-select');
+            const continueBtn = document.getElementById('explainer-continue');
+            const stopBtn = document.getElementById('explainer-stop');
+            
+            // Get continuation prompt from input (optional)
+            const continuationPrompt = input.value.trim();
+            
+            // Clear input if user provided additional context
+            if (continuationPrompt) {
+                input.value = '';
+                autoResizeTextarea(input);
+            }
+            
+            // Get selected model and tool groups
+            const selectedModel = modelSelect.value;
+            const selectedToolGroups = ['core', 'analysis', 'metrics']; // Use same tool groups as original
+            
+            // Set processing state
+            isExplainerProcessing = true;
+            
+            // Disable input and model select
+            input.disabled = true;
+            modelSelect.disabled = true;
+            
+            // Show typing indicator
+            showExplainerTyping();
+            
+            // Show stop button and hide continue button
+            continueBtn.style.display = 'none';
+            stopBtn.style.display = 'inline-block';
+            
+            try {
+                // Create AbortController for request cancellation
+                const abortController = new AbortController();
+                currentRequest = abortController;
+                
+                // Send request to LangChain continue endpoint
+                const response = await fetch('/backend/api/langchain-explainer-continue', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        session_id: explainerSessionId,
+                        continuation_prompt: continuationPrompt,
+                        model_key: selectedModel,
+                        tool_groups: selectedToolGroups
+                    }),
+                    signal: abortController.signal
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let assistantMessage = null;
+                let currentContent = '';
+                
+                while (true) {
+                    const { value, done } = await reader.read();
+                    
+                    if (done) break;
+                    
+                    const chunk = decoder.decode(value);
+                    const lines = chunk.split('\n');
+                    
+                    for (const line of lines) {
+                        if (line.startsWith('data: ')) {
+                            try {
+                                const data = JSON.parse(line.slice(6));
+                                console.log('Received continue SSE data:', data);
+                                
+                                // Handle session ID and continued flag
+                                if (data.session_id && data.continued) {
+                                    console.log('Continuation confirmed for session:', data.session_id);
+                                }
+                                
+                                // Handle tool call start
+                                if (data.tool_call_start) {
+                                    const toolId = addToolCallMessage(data.tool_call_start, data.tool_id);
+                                    if (!window.activeToolCalls) {
+                                        window.activeToolCalls = new Map();
+                                    }
+                                    window.activeToolCalls.set(data.tool_call_start, data.tool_id);
+                                    assistantMessage = null;
+                                    currentContent = '';
+                                    continue;
+                                }
+                                
+                                // Handle tool call arguments
+                                if (data.tool_call_args) {
+                                    updateToolCallArguments(data.tool_id, data.arguments);
+                                    continue;
+                                }
+                                
+                                // Handle tool call completion
+                                if (data.tool_call_complete) {
+                                    completeToolCall(data.tool_id, data.success, data.response);
+                                    continue;
+                                }
+                                
+                                // Handle content
+                                if (data.content) {
+                                    if (!assistantMessage) {
+                                        assistantMessage = addExplainerMessage('', 'assistant');
+                                        currentContent = '';
+                                    }
+                                    
+                                    currentContent += data.content;
+                                    
+                                    const processedContent = processChartPlaceholders(currentContent);
+                                    const contentDiv = assistantMessage.querySelector('.content');
+                                    if (typeof marked !== 'undefined') {
+                                        contentDiv.innerHTML = marked.parse(processedContent);
+                                    } else {
+                                        contentDiv.innerHTML = processedContent;
+                                    }
+                                    
+                                    const messagesContainer = document.getElementById('explainer-messages');
+                                    messagesContainer.scrollTop = messagesContainer.scrollHeight;
+                                }
+                                
+                                if (data.completed) {
+                                    break;
+                                }
+                                
+                                // Handle agent stop condition again (in case it happens during continuation)
+                                if (data.agent_stopped) {
+                                    console.log('Agent stopped again during continuation:', data);
+                                    showContinueButton(data.reason);
+                                    break;
+                                }
+                                
+                                if (data.error) {
+                                    throw new Error(data.error);
+                                }
+                            } catch (e) {
+                                console.error('Error parsing continue SSE data:', e, 'Raw line:', line);
+                            }
+                        }
+                    }
+                }
+                
+            } catch (error) {
+                console.error('Error continuing explainer analysis:', error);
+                if (error.name === 'AbortError') {
+                    addExplainerMessage('Continuation was cancelled by user.', 'system', false);
+                } else {
+                    addExplainerMessage(`Sorry, I encountered an error during continuation: ${error.message}`, 'system', false);
+                }
+            } finally {
+                // Hide typing indicator
+                hideExplainerTyping();
+                
+                // Reset UI state
+                isExplainerProcessing = false;
+                currentRequest = null;
+                
+                // Show send button and hide stop button
+                const sendBtn = document.getElementById('explainer-send');
+                sendBtn.style.display = 'inline-block';
+                stopBtn.style.display = 'none';
+                continueBtn.style.display = 'none';
                 
                 // Re-enable input and model select
                 input.disabled = false;
@@ -2428,6 +2676,12 @@
                         }
                     }
                 }
+            });
+            
+            // Add continue button event listener
+            const explainerContinue = document.getElementById('explainer-continue');
+            explainerContinue.addEventListener('click', async function() {
+                await continueExplainerAnalysis();
             });
             
             // Function to format bytes to human readable format

@@ -2,6 +2,7 @@
 
 import pandas as pd
 import logging
+from typing import Union, Tuple
 
 def generate_html_table(df: pd.DataFrame) -> str:
     """
@@ -59,7 +60,7 @@ def aggregate_data(
     group_field: str = None,
     agg_functions: dict = None,
     return_html: bool = False
-) -> tuple[pd.DataFrame, str] | pd.DataFrame:
+) -> Union[Tuple[pd.DataFrame, str], pd.DataFrame]:
     """
     Aggregates the DataFrame based on the specified time period and grouping field.
 

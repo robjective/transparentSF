@@ -6854,6 +6854,119 @@ async def langchain_explainer_streaming_api_backend(request: Request):
     """Backend prefix version of the LangChain streaming endpoint."""
     return await langchain_explainer_streaming_api(request)
 
+@router.post("/backend/api/langchain-explainer-continue")
+async def langchain_explainer_continue_api(request: Request):
+    """
+    Continue LangChain-based streaming API endpoint when agent hits stop condition.
+    
+    Expected JSON payload:
+    {
+        "session_id": "unique_session_id",  // Required - existing session to continue
+        "continuation_prompt": "Additional context or question",  // Optional
+        "model_key": "gpt-5",  // Optional - will use existing session's model if not provided
+        "tool_groups": ["core", "analysis", "metrics"]  // Optional - will use existing session's tools if not provided
+    }
+    """
+    try:
+        from agents.langchain_agent.explainer_agent import create_explainer_agent
+        from agents.langchain_agent.config.tool_config import ToolGroup
+        
+        data = await request.json()
+        session_id = data.get("session_id")
+        continuation_prompt = data.get("continuation_prompt", "")
+        model_key = data.get("model_key")
+        tool_groups = data.get("tool_groups")
+        
+        if not session_id:
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "status": "error",
+                    "message": "No session_id provided. Cannot continue without existing session."
+                }
+            )
+        
+        logger.info(f"Continuing LangChain streaming analysis for session: {session_id}")
+        logger.info(f"Continuation prompt: {continuation_prompt}")
+        
+        # Get existing LangChain explainer agent for this session
+        session_key = f"langchain_{session_id}"
+        
+        if session_key not in explainer_sessions:
+            return JSONResponse(
+                status_code=404,
+                content={
+                    "status": "error",
+                    "message": f"Session {session_id} not found. Please start a new conversation."
+                }
+            )
+        
+        agent = explainer_sessions[session_key]
+        logger.info(f"Found existing LangChain explainer agent for session: {session_key}")
+        
+        # Update agent configuration if new parameters are provided
+        if model_key and hasattr(agent, 'model_key') and agent.model_key != model_key:
+            # Convert tool group strings to ToolGroup enums if provided
+            tool_group_enums = []
+            if tool_groups:
+                for group_name in tool_groups:
+                    try:
+                        tool_group_enums.append(ToolGroup(group_name))
+                    except ValueError:
+                        logger.warning(f"Unknown tool group: {group_name}")
+            else:
+                tool_group_enums = agent.tool_groups if hasattr(agent, 'tool_groups') else [ToolGroup.CORE]
+            
+            agent = create_explainer_agent(model_key=model_key, tool_groups=tool_group_enums)
+            explainer_sessions[session_key] = agent
+            logger.info(f"Updated agent with new model: {model_key}")
+        elif tool_groups and hasattr(agent, 'tool_groups'):
+            # Convert tool group strings to ToolGroup enums
+            tool_group_enums = []
+            for group_name in tool_groups:
+                try:
+                    tool_group_enums.append(ToolGroup(group_name))
+                except ValueError:
+                    logger.warning(f"Unknown tool group: {group_name}")
+            
+            if tool_group_enums and agent.tool_groups != tool_group_enums:
+                agent.update_tool_groups(tool_group_enums)
+                logger.info(f"Updated agent with new tool groups: {tool_groups}")
+        
+        async def generate_continue_stream():
+            """Generate streaming response for continuation using LangChain agent"""
+            try:
+                # Send session ID first so frontend can track it
+                yield f"data: {json.dumps({'session_id': session_id, 'continued': True})}\n\n"
+                
+                # Use the agent's continuation streaming method
+                async for chunk in agent.continue_analysis_streaming(continuation_prompt, metric_details={}):
+                    yield chunk
+                
+            except Exception as e:
+                logger.error(f"Error in LangChain continuation streaming generation: {str(e)}")
+                yield f"data: {json.dumps({'error': str(e)})}\n\n"
+        
+        return StreamingResponse(
+            generate_continue_stream(),
+            media_type="text/plain",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no"
+            }
+        )
+        
+    except Exception as e:
+        logger.error(f"Error in langchain_explainer_continue_api: {str(e)}", exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={
+                "status": "error",
+                "message": f"Error in LangChain continuation: {str(e)}"
+            }
+        )
+
 @router.post("/create_monthly_report")
 async def create_monthly_report(request: Request):
     """Create a new monthly report."""

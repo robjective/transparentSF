@@ -269,13 +269,13 @@ def get_dataset_columns_tool(endpoint: str) -> Dict[str, Any]:
     logger.info(f"Endpoint: {endpoint}")
     
     try:
-        # Import the original function and call it
-        from ai.anomalyAnalyzer import get_dataset_columns
+        # Import the database version that queries Firebase/database
+        from ai.webChat import get_dataset_columns
         
-        # Call the original function with empty context
+        # Call the database version with empty context
         result = get_dataset_columns({}, endpoint=endpoint)
         
-        logger.info("Dataset columns retrieved successfully")
+        logger.info("Dataset columns retrieved successfully from database")
         return {'status': 'success', 'columns': result}
         
     except Exception as e:

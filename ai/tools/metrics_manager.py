@@ -484,6 +484,7 @@ def get_metrics_summary() -> Dict[str, Any]:
         cursor.execute(
             """
             SELECT 
+                id,
                 metric_name, 
                 endpoint, 
                 metric_query, 

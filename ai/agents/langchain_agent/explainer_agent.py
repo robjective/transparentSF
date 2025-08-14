@@ -988,6 +988,21 @@ class LangChainExplainerAgent:
                     except Exception as e:
                         self.logger.error(f"Error processing chain end event: {e}")
                 
+                # Handle error events that might indicate stop conditions
+                elif event.get('event') == 'on_chain_error':
+                    try:
+                        error_data = event.get('data', {})
+                        error = error_data.get('error') or error_data.get('exception')
+                        if error:
+                            error_str = str(error)
+                            # Check if this is the specific stop condition warning
+                            if 'stopping agent prematurely due to triggering stop condition' in error_str.lower():
+                                self.logger.warning(f"Detected agent stop condition: {error_str}")
+                                # Send special signal to frontend to show continue button
+                                yield f"data: {json.dumps({'agent_stopped': True, 'reason': 'stop_condition'})}\n\n"
+                    except Exception as e:
+                        self.logger.error(f"Error processing chain error event: {e}")
+                
                 # Also check execution trace for any tool calls that might not be caught by events
                 current_trace_count = len(execution_callback.execution_trace)
                 if current_trace_count > 0:
@@ -1069,8 +1084,16 @@ class LangChainExplainerAgent:
                             continue
                 
         except Exception as e:
-            self.logger.error(f"Error in explain_change_streaming: {e}")
-            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+            error_str = str(e)
+            self.logger.error(f"Error in explain_change_streaming: {error_str}")
+            
+            # Check if this is the specific stop condition warning
+            if 'stopping agent prematurely due to triggering stop condition' in error_str.lower():
+                self.logger.warning(f"Detected agent stop condition in main exception: {error_str}")
+                # Send special signal to frontend to show continue button
+                yield f"data: {json.dumps({'agent_stopped': True, 'reason': 'stop_condition'})}\n\n"
+            else:
+                yield f"data: {json.dumps({'error': error_str})}\n\n"
         
         # Add assistant message to conversation history (use cleaned content)
         cleaned_response = self._extract_clean_response(response_content)
@@ -1307,6 +1330,26 @@ class LangChainExplainerAgent:
             "include_all_sections": self.include_all_sections,
             "required_prompt_sections": tool_factory.get_required_prompt_sections(self.tool_groups)
         }
+    
+    async def continue_analysis_streaming(self, continuation_prompt: str = None, metric_details: Dict[str, Any] = None):
+        """Continue analysis from where the agent stopped due to stop condition."""
+        try:
+            self.logger.info("=== Starting continue_analysis_streaming ===")
+            
+            if continuation_prompt:
+                # User provided additional context for continuation
+                prompt = f"Please continue your analysis. {continuation_prompt}"
+            else:
+                # Default continuation prompt
+                prompt = "Please continue your analysis from where you left off. Provide any additional insights or complete your previous thought."
+            
+            # Use the existing streaming method but with the continuation prompt
+            async for chunk in self.explain_change_streaming(prompt, metric_details):
+                yield chunk
+                
+        except Exception as e:
+            self.logger.error(f"Error in continue_analysis_streaming: {e}")
+            yield f"data: {json.dumps({'error': str(e)})}\n\n"
     
     def update_tool_groups(self, new_tool_groups: List[ToolGroup]):
         """Update the tool groups and recreate the agent."""

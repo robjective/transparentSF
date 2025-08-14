@@ -7,7 +7,7 @@ import sys
 import os
 from pathlib import Path
 import json
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Union
 
 # Add grandparent directory to sys.path for module resolution
 current_dir = Path(__file__).parent
@@ -139,7 +139,7 @@ def create_new_metric(
     
     return add_metric(metric_data)
 
-def edit_metric(metric_identifier: str, updates: Dict[str, Any]) -> Dict[str, Any]:
+def edit_metric(metric_identifier: str, updates: Union[str, Dict[str, Any]]) -> Dict[str, Any]:
     """
     Update an existing metric.
     
@@ -150,14 +150,22 @@ def edit_metric(metric_identifier: str, updates: Dict[str, Any]) -> Dict[str, An
     Returns:
         dict: Result with status and message
     """
+    # Handle case where updates is passed as a JSON string
     if isinstance(updates, str):
         try:
             updates = json.loads(updates)
         except json.JSONDecodeError as e:
-            return {"status": "error", "message": f"Invalid JSON in updates: {e}"}
+            return {
+                "status": "error",
+                "message": f"Invalid JSON in updates parameter: {str(e)}"
+            }
     
+    # Ensure updates is a dictionary
     if not isinstance(updates, dict):
-        return {"status": "error", "message": "Updates must be a dictionary or JSON string"}
+        return {
+            "status": "error",
+            "message": "Updates parameter must be a dictionary or valid JSON string"
+        }
     
     if isinstance(metric_identifier, str) and metric_identifier.isdigit():
         metric_id = int(metric_identifier)
