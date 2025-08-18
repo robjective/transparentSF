@@ -360,12 +360,47 @@
         <div class="status-message" id="metrics-restore-status"></div>
     </div>
 
+    <div class="admin-section">
+        <h2>📋 Session Logs</h2>
+        <p>Download and manage LangChain explainer agent session logs. These logs contain detailed information about agent interactions, tool calls, and performance metrics.</p>
+        
+        <div class="session-logs-info" id="session-logs-info">
+            <div class="info-row">
+                <span class="info-label">Total Sessions:</span>
+                <span class="info-value" id="total-sessions">Loading...</span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">Latest Session:</span>
+                <span class="info-value" id="latest-session">Loading...</span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">Logs Directory:</span>
+                <span class="info-value" id="logs-directory">Loading...</span>
+            </div>
+        </div>
+        
+        <div class="action-buttons">
+            <button class="admin-btn backup-btn" onclick="downloadSessionLogs()">
+                <div class="loading-spinner" id="session-logs-spinner"></div>
+                <span>📥</span>
+                <span id="session-logs-btn-text">Download All Session Logs</span>
+            </button>
+            <button class="admin-btn secondary-btn" onclick="refreshSessionLogsInfo()">
+                <span>🔄</span>
+                <span>Refresh Info</span>
+            </button>
+        </div>
+        
+        <div class="status-message" id="session-logs-status"></div>
+    </div>
+
     <script>
         let selectedFile = null;
         
         // Load database info on page load
         document.addEventListener('DOMContentLoaded', function() {
             refreshDatabaseInfo();
+            refreshSessionLogsInfo();
         });
         
         async function refreshDatabaseInfo() {
@@ -708,6 +743,90 @@
                 btn.classList.remove('btn-loading');
                 spinner.style.display = 'none';
                 btnText.textContent = 'Restore Metrics';
+            }
+        }
+
+        // Session Logs Functions
+        async function refreshSessionLogsInfo() {
+            try {
+                const response = await fetch('/backend/api/session-logs-info');
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    document.getElementById('total-sessions').textContent = data.total_sessions;
+                    document.getElementById('latest-session').textContent = data.latest_session || 'No sessions found';
+                    document.getElementById('logs-directory').textContent = data.logs_directory;
+                } else {
+                    throw new Error(data.message || 'Failed to load session logs info');
+                }
+                
+            } catch (error) {
+                console.error('Error loading session logs info:', error);
+                document.getElementById('total-sessions').textContent = 'Error loading';
+                document.getElementById('latest-session').textContent = 'Error loading';
+                document.getElementById('logs-directory').textContent = 'Error loading';
+            }
+        }
+
+        async function downloadSessionLogs() {
+            const btn = document.querySelector('button[onclick="downloadSessionLogs()"]');
+            const spinner = document.getElementById('session-logs-spinner');
+            const btnText = document.getElementById('session-logs-btn-text');
+            const statusDiv = document.getElementById('session-logs-status');
+            
+            // Show loading state
+            btn.classList.add('btn-loading');
+            spinner.style.display = 'inline-block';
+            btnText.textContent = 'Preparing Download...';
+            
+            // Hide any previous status messages
+            statusDiv.style.display = 'none';
+            statusDiv.className = 'status-message';
+            
+            try {
+                const response = await fetch('/backend/api/download-session-logs');
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                // Check if the response is a file download
+                const contentType = response.headers.get('content-type');
+                if (contentType && contentType.includes('application/zip')) {
+                    // Handle file download
+                    const blob = await response.blob();
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = 'session_logs.zip';
+                    document.body.appendChild(a);
+                    a.click();
+                    window.URL.revokeObjectURL(url);
+                    document.body.removeChild(a);
+                    
+                    statusDiv.className = 'status-message status-success';
+                    statusDiv.textContent = '✅ Session logs downloaded successfully!';
+                    statusDiv.style.display = 'block';
+                } else {
+                    // Handle JSON response (error)
+                    const data = await response.json();
+                    throw new Error(data.message || 'Session logs download failed');
+                }
+                
+            } catch (error) {
+                console.error('Error downloading session logs:', error);
+                statusDiv.className = 'status-message status-error';
+                statusDiv.textContent = `❌ Error downloading session logs: ${error.message}`;
+                statusDiv.style.display = 'block';
+            } finally {
+                // Reset button state
+                btn.classList.remove('btn-loading');
+                spinner.style.display = 'none';
+                btnText.textContent = 'Download All Session Logs';
             }
         }
     </script>

@@ -1,0 +1,1316 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ map_data.title or "Map" }} | TransparentSF</title>
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Font Awesome for icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Mapbox GL JS -->
+    <script src='https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js'></script>
+    <link href='https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css' rel='stylesheet' />
+    <!-- Dark Mode CSS -->
+    <link rel="stylesheet" href="/static/darkmode.css">
+    <!-- Dark Mode JavaScript -->
+    <script src="/static/js/darkmode.js"></script>
+    <script src="/static/js/iframe-darkmode.js"></script>
+    <style>
+        /* Custom color variables for this template */
+        :root {
+            --spruce-green: #4A7463;
+            --soft-sand: #F6F1EA;
+            --warm-coral: #FF6B5A;
+            --sky-blue: #71B2CA;
+            --accent-color: #ad35fa;
+            --accent-hover: #9625e0;
+        }
+
+        [data-theme="dark"] {
+            --accent-color: #c44dff;
+            --accent-hover: #ad35fa;
+        }
+
+        body {
+            font-family: 'IBM Plex Sans', Arial, sans-serif;
+            color: var(--text-primary);
+            background-color: var(--bg-primary);
+            transition: background-color 0.3s ease, color 0.3s ease;
+            margin: 0;
+            padding: 0;
+        }
+
+        /* Embedded mode styles */
+        body.embedded-mode {
+            overflow: hidden;
+        }
+
+        body.embedded-mode .header {
+            display: none;
+        }
+
+        body.embedded-mode .map-container {
+            height: 100vh;
+        }
+
+        body.embedded-mode .toggle-nav-btn {
+            display: none;
+        }
+
+        body.embedded-mode .map-navigation {
+            display: none;
+        }
+
+        .header {
+            background-color: var(--bg-secondary);
+            border-bottom: 1px solid var(--border-primary);
+            padding: 15px 20px;
+        }
+
+        .header-content {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .header-title-section {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+
+        .back-btn {
+            background-color: var(--bg-tertiary);
+            border: 1px solid var(--border-secondary);
+            color: var(--text-primary);
+            padding: 8px 12px;
+            border-radius: 4px;
+            text-decoration: none;
+            font-size: 14px;
+            transition: all 0.3s ease;
+        }
+
+        .back-btn:hover {
+            background-color: var(--accent-color);
+            color: white;
+            border-color: var(--accent-color);
+            text-decoration: none;
+        }
+
+        .map-title {
+            font-size: 1.5em;
+            font-weight: bold;
+            color: var(--text-primary);
+            margin: 0;
+        }
+
+        .map-subtitle {
+            font-size: 0.9em;
+            color: var(--text-secondary);
+            margin: 0;
+            font-style: italic;
+        }
+
+        .header-right {
+            display: flex;
+            gap: 10px;
+        }
+
+        .header-btn {
+            background-color: var(--bg-tertiary);
+            border: 1px solid var(--border-secondary);
+            color: var(--text-primary);
+            padding: 8px 12px;
+            border-radius: 4px;
+            text-decoration: none;
+            font-size: 14px;
+            transition: all 0.3s ease;
+        }
+
+        .header-btn:hover {
+            background-color: var(--accent-color);
+            color: white;
+            border-color: var(--accent-color);
+            text-decoration: none;
+        }
+
+        /* Map Navigation Styles */
+        .map-navigation {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background-color: var(--bg-secondary);
+            border-top: 1px solid var(--border-primary);
+            transform: translateY(100%);
+            transition: transform 0.3s ease;
+            z-index: 2000;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        .map-navigation.show {
+            transform: translateY(0);
+        }
+
+        /* Compact Mapbox popup styling (match preview) */
+        .mapboxgl-popup-content {
+            padding: 6px 8px;
+            font-size: 11px;
+            line-height: 1.3;
+        }
+        .tsf-tooltip { 
+            font-family: 'IBM Plex Sans', Arial, sans-serif; 
+            font-size: 11px; 
+            line-height: 1.3; 
+            text-align: left;
+        }
+        .tsf-tooltip-title { 
+            font-weight: 600; 
+            margin-bottom: 4px; 
+            text-align: left; 
+        }
+        .tsf-tooltip-row { 
+            display: flex; 
+            gap: 4px; 
+        }
+        .tsf-tooltip-key { 
+            color: var(--text-secondary); 
+            white-space: nowrap;
+        }
+        .tsf-tooltip-val { 
+            color: var(--text-primary);
+        }
+
+        .navigation-header {
+            padding: 15px 20px;
+            border-bottom: 1px solid var(--border-primary);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .navigation-title {
+            font-weight: bold;
+            color: var(--text-primary);
+            margin: 0;
+        }
+
+        .close-nav-btn {
+            background: none;
+            border: none;
+            color: var(--text-secondary);
+            font-size: 18px;
+            cursor: pointer;
+            padding: 5px;
+        }
+
+        .close-nav-btn:hover {
+            color: var(--text-primary);
+        }
+
+        .maps-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+            gap: 15px;
+            padding: 20px;
+        }
+
+        .map-card {
+            background-color: var(--bg-tertiary);
+            border: 1px solid var(--border-primary);
+            border-radius: 6px;
+            padding: 15px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .map-card:hover {
+            border-color: var(--accent-color);
+            box-shadow: 0 2px 8px rgba(173, 53, 250, 0.2);
+        }
+
+        .map-card.current {
+            border-color: var(--accent-color);
+            background-color: rgba(173, 53, 250, 0.1);
+        }
+
+        .map-card h4 {
+            color: var(--text-primary);
+            margin: 0 0 8px 0;
+            font-size: 1em;
+        }
+
+        .map-card p {
+            color: var(--text-secondary);
+            margin: 0 0 8px 0;
+            font-size: 0.9em;
+        }
+
+        .map-card .meta {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.8em;
+            color: var(--text-secondary);
+        }
+
+        .toggle-nav-btn {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background-color: var(--accent-color);
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            font-size: 18px;
+            cursor: pointer;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+            z-index: 2001;
+            transition: all 0.3s ease;
+        }
+
+        .toggle-nav-btn:hover {
+            background-color: var(--accent-hover);
+            transform: scale(1.1);
+        }
+
+        .map-container {
+            position: relative;
+            width: 100%;
+            height: calc(100vh - 80px);
+        }
+
+        #map {
+            width: 100%;
+            height: 100%;
+        }
+
+        .map-overlay {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background-color: var(--bg-tertiary);
+            border: 1px solid var(--border-primary);
+            border-radius: 6px;
+            padding: 15px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            max-width: 300px;
+            z-index: 1000;
+        }
+
+        .overlay-title {
+            font-weight: bold;
+            margin-bottom: 10px;
+            color: var(--text-primary);
+            border-bottom: 1px solid var(--border-primary);
+            padding-bottom: 5px;
+        }
+
+        .map-info {
+            margin-bottom: 15px;
+        }
+
+        .info-item {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 5px;
+            font-size: 14px;
+        }
+
+        .info-label {
+            color: var(--text-secondary);
+            font-weight: 500;
+        }
+
+        .info-value {
+            color: var(--text-primary);
+        }
+
+        .legend {
+            margin-top: 15px;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            margin-bottom: 8px;
+            font-size: 14px;
+        }
+
+        .legend-color {
+            width: 20px;
+            height: 20px;
+            border-radius: 3px;
+            margin-right: 10px;
+            border: 1px solid var(--border-primary);
+        }
+
+        .legend-gradient {
+            width: 20px;
+            height: 20px;
+            border-radius: 3px;
+            margin-right: 10px;
+            border: 1px solid var(--border-primary);
+        }
+
+        .legend-label {
+            color: var(--text-primary);
+        }
+
+        .loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background-color: var(--bg-tertiary);
+            border: 1px solid var(--border-primary);
+            border-radius: 6px;
+            padding: 20px;
+            text-align: center;
+            z-index: 1000;
+        }
+
+        .loading-spinner {
+            display: inline-block;
+            width: 30px;
+            height: 30px;
+            border: 3px solid rgba(173, 53, 250, 0.3);
+            border-radius: 50%;
+            border-top-color: var(--accent-color);
+            animation: spin 1s ease-in-out infinite;
+            margin-bottom: 10px;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .error-message {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background-color: var(--bg-tertiary);
+            border: 1px solid var(--warm-coral);
+            border-radius: 6px;
+            padding: 20px;
+            text-align: center;
+            color: var(--warm-coral);
+            z-index: 1000;
+        }
+
+        /* Responsive design */
+        @media (max-width: 768px) {
+            .header-content {
+                flex-direction: column;
+                gap: 10px;
+                align-items: flex-start;
+            }
+
+            .map-overlay {
+                position: relative;
+                top: auto;
+                right: auto;
+                margin: 20px;
+                max-width: none;
+            }
+
+            .map-container {
+                height: calc(100vh - 120px);
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Header -->
+    <div class="header">
+        <div class="header-content">
+            <div class="header-left">
+                <a href="/map-generator" class="back-btn">
+                    <i class="fas fa-arrow-left"></i> Back to Generator
+                </a>
+                <div class="header-title-section">
+                    <h1 class="map-title">{{ map_data.title or "Untitled Map" }}</h1>
+                    {% if metadata.period_type and metadata.time_periods %}
+                        <p class="map-subtitle" id="date-range-subtitle">{{ metadata.period_type }} for {{ metadata.time_periods }}</p>
+                    {% endif %}
+                </div>
+            </div>
+            <div class="header-right">
+                <a href="/map-generator" class="header-btn">
+                    <i class="fas fa-plus"></i> New Map
+                </a>
+                <button class="header-btn" onclick="shareMap()">
+                    <i class="fas fa-share"></i> Share
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Map Container -->
+    <div class="map-container">
+        <div id="map"></div>
+        
+        <!-- Map Overlay -->
+        <div class="map-overlay">
+            <div class="overlay-title">
+                <i class="fas fa-info-circle"></i> Map Information
+            </div>
+            
+            <div class="map-info">
+                <div class="info-item">
+                    <span class="info-label">Metric:</span>
+                    <span class="info-value">{{ metadata.metric_id or "Unknown" }}</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">District:</span>
+                    <span class="info-value">{{ metadata.district or "All" }}</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">Period:</span>
+                    <span class="info-value">{{ metadata.period_type or "Unknown" }}</span>
+                </div>
+                {% if metadata.anomaly_type %}
+                <div class="info-item">
+                    <span class="info-label">Anomaly:</span>
+                    <span class="info-value">{{ metadata.anomaly_type }}</span>
+                </div>
+                {% endif %}
+                <div class="info-item">
+                    <span class="info-label">Created:</span>
+                    <span class="info-value">{{ map_data.created_at.strftime('%Y-%m-%d') if map_data.created_at else "Unknown" }}</span>
+                </div>
+            </div>
+            
+            <div class="legend">
+                <div class="overlay-title">
+                    <i class="fas fa-palette"></i> Legend
+                </div>
+                <div id="legend-items"></div>
+            </div>
+        </div>
+        
+        <!-- Loading State -->
+        <div id="loading" class="loading">
+            <div class="loading-spinner"></div>
+            <p>Loading map...</p>
+        </div>
+        
+        <!-- Error State -->
+        <div id="error" class="error-message" style="display: none;">
+            <i class="fas fa-exclamation-triangle" style="font-size: 2em; margin-bottom: 10px;"></i>
+            <p>Failed to load map</p>
+            <p id="error-text" style="font-size: 0.9em;"></p>
+        </div>
+    </div>
+
+    <!-- Map Navigation Toggle Button -->
+    <button id="toggle-nav-btn" class="toggle-nav-btn" onclick="toggleMapNavigation()">
+        <i class="fas fa-layer-group"></i>
+    </button>
+
+    <!-- Map Navigation Panel -->
+    <div id="map-navigation" class="map-navigation">
+        <div class="navigation-header">
+            <h3 class="navigation-title">
+                <i class="fas fa-history"></i> Recent Maps
+            </h3>
+            <button class="close-nav-btn" onclick="toggleMapNavigation()">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+        <div id="maps-grid" class="maps-grid">
+            <div class="map-card">
+                <p style="text-align: center; color: var(--text-secondary);">
+                    <i class="fas fa-spinner fa-spin"></i> Loading maps...
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/js/bootstrap.bundle.min.js"></script>
+    
+    <script>
+        // Map data from server
+        const mapData = {
+            id: '{{ map_data.id }}',
+            title: '{{ map_data.title or "Untitled Map" }}',
+            type: '{{ map_data.type }}',
+            locationData: {{ location_data | tojson if location_data else '[]' }},
+            metadata: {{ metadata | tojson if metadata else '{}' }}
+        };
+
+        // Function to calculate and display date range
+        function updateDateRangeSubtitle() {
+            const subtitleElement = document.getElementById('date-range-subtitle');
+            if (!subtitleElement) {
+                console.log('Date range subtitle element not found');
+                return;
+            }
+            
+            if (!mapData.metadata) {
+                console.log('No metadata available for date range calculation');
+                return;
+            }
+
+            const periodType = mapData.metadata.period_type;
+            const timePeriods = mapData.metadata.time_periods;
+            
+            if (!periodType || !timePeriods) {
+                console.log('Period type or time periods not available in metadata');
+                return;
+            }
+
+            // Calculate date range based on period_type and time_periods
+            const endDate = new Date();
+            endDate.setDate(endDate.getDate() - 1); // Yesterday as target date
+            
+            let startDate = new Date();
+            
+            if (periodType === 'month') {
+                if (timePeriods === 'since_2024') {
+                    startDate = new Date(2024, 0, 1); // January 1, 2024
+                } else {
+                    startDate.setMonth(startDate.getMonth() - parseInt(timePeriods));
+                }
+            } else if (periodType === 'week') {
+                if (timePeriods === 'since_2024') {
+                    startDate = new Date(2024, 0, 1);
+                } else {
+                    startDate.setDate(startDate.getDate() - (parseInt(timePeriods) * 7));
+                }
+            } else if (periodType === 'quarter') {
+                startDate.setMonth(startDate.getMonth() - (parseInt(timePeriods) * 3));
+            } else if (periodType === 'year') {
+                startDate.setFullYear(startDate.getFullYear() - parseInt(timePeriods));
+            } else {
+                // Default to last 2 months
+                startDate.setDate(startDate.getDate() - 60);
+            }
+
+            // Format dates
+            const formatDate = (date) => {
+                return date.toLocaleDateString('en-US', { 
+                    year: 'numeric', 
+                    month: 'short', 
+                    day: 'numeric' 
+                });
+            };
+
+            const dateRange = `${formatDate(startDate)} - ${formatDate(endDate)}`;
+            const periodDescription = timePeriods === 'since_2024' ? 'Since 2024' : `Last ${timePeriods} ${periodType}${parseInt(timePeriods) > 1 ? 's' : ''}`;
+            subtitleElement.textContent = `${periodDescription} (${dateRange})`;
+        }
+
+        // Mapbox access token (you'll need to set this in your environment)
+        mapboxgl.accessToken = '{{ config.MAPBOX_ACCESS_TOKEN or "pk.placeholder" }}';
+        
+        // Debug: Log the access token status (check browser console for details)
+        console.log('Mapbox access token configured:', mapboxgl.accessToken !== 'pk.placeholder' && mapboxgl.accessToken);
+        
+        // Check if we have a valid access token
+        if (mapboxgl.accessToken === 'pk.placeholder' || !mapboxgl.accessToken) {
+            showError('Mapbox access token not configured. Please set MAPBOX_ACCESS_TOKEN in your environment variables.');
+        }
+
+        let map = null;
+
+        // Initialize map
+        function initMap() {
+            try {
+                // Determine map style based on current theme
+                const currentTheme = document.documentElement.getAttribute('data-theme') || 'light';
+                const mapStyle = currentTheme === 'dark' 
+                    ? 'mapbox://styles/mapbox/dark-v11' 
+                    : 'mapbox://styles/mapbox/light-v11';
+                
+                // Create map instance
+                map = new mapboxgl.Map({
+                    container: 'map',
+                    style: mapStyle,
+                    center: [-122.4194, 37.7749], // San Francisco coordinates
+                    zoom: 11
+                });
+
+                // Add navigation controls
+                map.addControl(new mapboxgl.NavigationControl(), 'top-left');
+
+                // Add fullscreen control
+                map.addControl(new mapboxgl.FullscreenControl(), 'top-right');
+
+                // Wait for map to load
+                map.on('load', function() {
+                    loadMapData();
+                });
+
+                // Handle map errors
+                map.on('error', function(e) {
+                    showError('Map error: ' + e.error.message);
+                });
+
+            } catch (error) {
+                showError('Failed to initialize map: ' + error.message);
+            }
+        }
+
+        // Load map data based on type
+        function loadMapData() {
+            try {
+                console.log('Loading map data for type:', mapData.type);
+                if (mapData.type === 'supervisor_district') {
+                    loadDistrictMap();
+                } else if (mapData.type === 'point' || mapData.type === 'symbol') {
+                    loadPointMap();
+                } else {
+                    showError('Unsupported map type: ' + mapData.type);
+                }
+                // After loading data/layers, build legend to mirror preview using saved color_field
+                try { buildLegendFromSavedData(); } catch (e) { console.warn('Legend build failed:', e); }
+            } catch (error) {
+                showError('Failed to load map data: ' + error.message);
+            }
+        }
+
+        // Load district-based map
+        function loadDistrictMap() {
+            if (!mapData.locationData || mapData.locationData.length === 0) {
+                showError('No location data available for this map');
+                return;
+            }
+
+            // Add GeoJSON source for districts
+            map.addSource('districts', {
+                type: 'geojson',
+                data: {
+                    type: 'FeatureCollection',
+                    features: mapData.locationData.map(item => ({
+                        type: 'Feature',
+                        properties: {
+                            district: item.district,
+                            value: item.value,
+                            title: item.title,
+                            color: item.color || getColorForValue(item.value)
+                        },
+                        geometry: {
+                            type: 'Polygon',
+                            coordinates: item.coordinates || []
+                        }
+                    }))
+                }
+            });
+
+            // Add fill layer for districts
+            map.addLayer({
+                id: 'districts-fill',
+                type: 'fill',
+                source: 'districts',
+                paint: {
+                    'fill-color': [
+                        'case',
+                        ['has', 'color'], ['get', 'color'],
+                        ['interpolate', ['linear'], ['get', 'value'],
+                            0, '#f0f0f0',
+                            100, '#ad35fa'
+                        ]
+                    ],
+                    'fill-opacity': 0.7
+                }
+            });
+
+            // Add outline layer
+            map.addLayer({
+                id: 'districts-outline',
+                type: 'line',
+                source: 'districts',
+                paint: {
+                    'line-color': document.documentElement.getAttribute('data-theme') === 'dark' ? '#ffffff' : '#333333',
+                    'line-width': 1
+                }
+            });
+
+            // Add hover effect
+            map.on('mouseenter', 'districts-fill', function() {
+                map.getCanvas().style.cursor = 'pointer';
+            });
+
+            map.on('mouseleave', 'districts-fill', function() {
+                map.getCanvas().style.cursor = '';
+            });
+
+            // Add click handler
+            map.on('click', 'districts-fill', function(e) {
+                const properties = e.features[0].properties;
+                new mapboxgl.Popup()
+                    .setLngLat(e.lngLat)
+                    .setHTML(`
+                        <h4>${properties.title || 'District ' + properties.district}</h4>
+                        <p>Value: ${properties.value}</p>
+                    `)
+                    .addTo(map);
+            });
+
+            hideLoading();
+            updateMapOutlineColor();
+        }
+
+        // Load point-based map
+        function loadPointMap() {
+            console.log('Loading point map with data:', mapData.locationData);
+            console.log('Data length:', mapData.locationData ? mapData.locationData.length : 0);
+            
+            if (!mapData.locationData || mapData.locationData.length === 0) {
+                showError('No location data available for this map');
+                return;
+            }
+
+            // Calculate bounds for all points to zoom to the point area
+            const bounds = new mapboxgl.LngLatBounds();
+            console.log('Calculating bounds for', mapData.locationData.length, 'points');
+            
+            const features = mapData.locationData.map((item, idx) => {
+                let coordinates;
+                
+                // Handle different coordinate formats
+                if (item.lon && item.lat) {
+                    // Direct lat/lon format
+                    coordinates = [item.lon, item.lat];
+                } else if (item.location && item.location.coordinates) {
+                    // GeoJSON Point format
+                    coordinates = item.location.coordinates;
+                } else if (item.coordinates) {
+                    // Direct coordinates array
+                    coordinates = item.coordinates;
+                } else {
+                    console.warn('No coordinates found for item:', item);
+                    return null;
+                }
+                
+                console.log('Processing point:', item.title, 'at', coordinates);
+                bounds.extend(coordinates);
+                
+                const props = {
+                    title: item.title || item.tooltip || `Point ${idx}`,
+                    description: item.description || '',
+                    value: item.value || 1,
+                    color: item.color || item.markerColor || getColorForValue(item.value || 1),
+                    strokeColor: item.strokeColor || (item.color && String(item.color).toLowerCase() === '#ffffff' ? '#ad35fa' : '#ffffff'),
+                    tooltip_fields: item.tooltip_fields || {},
+                    scale: item.scale || 1 // Include scale property for dot scaling
+                };
+                if (props.tooltip_fields && typeof props.tooltip_fields !== 'object') {
+                    props.tooltip_fields = {};
+                }
+                return {
+                    type: 'Feature',
+                    properties: props,
+                    geometry: {
+                        type: 'Point',
+                        coordinates: coordinates
+                    }
+                };
+                        }).filter(feature => feature !== null);
+            
+            console.log('Created features:', features.length);
+            
+            // Add GeoJSON source for points
+            map.addSource('points', {
+                type: 'geojson',
+                data: {
+                    type: 'FeatureCollection',
+                    features: features
+                }
+            });
+
+            // Check if scale_dots is enabled in metadata
+            const scaleDots = mapData.metadata && mapData.metadata.scale_dots !== false; // Default to true if not specified
+            
+            // Add circle layer for points (match preview sizing and colors)
+            map.addLayer({
+                id: 'points-circles',
+                type: 'circle',
+                source: 'points',
+                paint: {
+                    'circle-radius': scaleDots ? 
+                        ['case',
+                            ['has', 'scale'], ['*', ['get', 'scale'], 15], // Use scale property if available, multiply by 15 for reasonable size
+                            6 // Default size if no scale property
+                        ] : 
+                        6, // Fixed size when scale_dots is disabled
+                    'circle-color': ['get', 'color'],
+                    'circle-stroke-color': ['get', 'strokeColor'],
+                    'circle-stroke-width': 1
+                }
+            });
+
+            // Add hover effect
+            map.on('mouseenter', 'points-circles', function() {
+                map.getCanvas().style.cursor = 'pointer';
+            });
+
+            map.on('mouseleave', 'points-circles', function() {
+                map.getCanvas().style.cursor = '';
+            });
+
+            // Add click handler with compact, left-justified tooltip (exclude location fields)
+            map.on('click', 'points-circles', function(e) {
+                const properties = e.features[0].properties;
+                let tooltipFields = properties.tooltip_fields || {};
+                if (typeof tooltipFields === 'string') {
+                    try { tooltipFields = JSON.parse(tooltipFields); } catch (err) { tooltipFields = {}; }
+                }
+                const locationFields = new Set(['lat','lon','long','latitude','longitude','coordinates','point','point_geom','intersection','address','street','city','state','zip']);
+
+                let tooltipContent = `<div class="tsf-tooltip">`;
+                tooltipContent += `<div class="tsf-tooltip-title">${properties.title || 'Point'}</div>`;
+
+                const addRow = (key, val) => {
+                    if (!val || val === '') return;
+                    const displayKey = key.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+                    tooltipContent += `
+                        <div class="tsf-tooltip-row">
+                            <div class="tsf-tooltip-key">${displayKey}:</div>
+                            <div class="tsf-tooltip-val">${val}</div>
+                        </div>`;
+                };
+
+                // Core fields first
+                if (properties.description) addRow('description', properties.description);
+                if (properties.value) addRow('value', properties.value);
+
+                // Add additional tooltip fields from tooltip_fields
+                for (const [field, value] of Object.entries(tooltipFields)) {
+                    if (field === 'title' || field === 'description' || field === 'value') continue;
+                    if (locationFields.has(field)) continue;
+                    if (/(^|_)(lat|lon|long|coord|address|street|city|state|zip|point|geom)(_|$)/i.test(field)) continue;
+                    addRow(field, value);
+                }
+
+                // Add remaining non-location properties (avoid duplicates)
+                for (const key of Object.keys(properties)) {
+                    if (['title','description','value','color','strokeColor','tooltip_fields'].includes(key)) continue;
+                    if (locationFields.has(key)) continue;
+                    if (/(^|_)(lat|lon|long|coord|address|street|city|state|zip|point|geom)(_|$)/i.test(key)) continue;
+                    // Skip if we already included via tooltip_fields
+                    if (tooltipFields && Object.prototype.hasOwnProperty.call(tooltipFields, key)) continue;
+                    addRow(key, properties[key]);
+                }
+
+                tooltipContent += `</div>`;
+
+                new mapboxgl.Popup()
+                    .setLngLat(e.lngLat)
+                    .setHTML(tooltipContent)
+                    .addTo(map);
+            });
+
+            // Fit map to the bounds of all points with some padding
+            console.log('Fitting bounds:', bounds.toString());
+            map.fitBounds(bounds, {
+                padding: 50,
+                maxZoom: 16
+            });
+
+            hideLoading();
+        }
+
+        // Load symbol-based map (similar to point map but with different styling)
+        function loadSymbolMap() {
+            if (!mapData.locationData || mapData.locationData.length === 0) {
+                showError('No location data available for this map');
+                return;
+            }
+
+            // Add GeoJSON source for symbols
+            map.addSource('symbols', {
+                type: 'geojson',
+                data: {
+                    type: 'FeatureCollection',
+                    features: mapData.locationData.map(item => ({
+                        type: 'Feature',
+                        properties: {
+                            title: item.title || item.tooltip || 'Symbol',
+                            description: item.description || '',
+                            value: item.value || 1,
+                            color: item.color || getColorForValue(item.value || 1),
+                            tooltip_fields: item.tooltip_fields || {}
+                        },
+                        geometry: {
+                            type: 'Point',
+                            coordinates: [item.lon || item.lng || -122.4194, item.lat || 37.7749]
+                        }
+                    }))
+                }
+            });
+
+            // Add symbol layer
+            map.addLayer({
+                id: 'symbols',
+                type: 'circle',
+                source: 'symbols',
+                paint: {
+                    'circle-radius': 8,
+                    'circle-color': [
+                        'case',
+                        ['has', 'color'], ['get', 'color'],
+                        '#ad35fa'
+                    ],
+                    'circle-stroke-color': '#fff',
+                    'circle-stroke-width': 2
+                }
+            });
+
+            // Add hover effect
+            map.on('mouseenter', 'symbols', function() {
+                map.getCanvas().style.cursor = 'pointer';
+            });
+
+            map.on('mouseleave', 'symbols', function() {
+                map.getCanvas().style.cursor = '';
+            });
+
+            // Add click handler
+            map.on('click', 'symbols', function(e) {
+                const properties = e.features[0].properties;
+                const tooltipFields = properties.tooltip_fields || {};
+                
+                // Build tooltip content
+                let tooltipContent = `<h4>${properties.title}</h4>`;
+                if (properties.description) {
+                    tooltipContent += `<p><strong>Description:</strong> ${properties.description}</p>`;
+                }
+                tooltipContent += `<p><strong>Value:</strong> ${properties.value}</p>`;
+                
+                // Add additional tooltip fields
+                if (Object.keys(tooltipFields).length > 0) {
+                    tooltipContent += '<hr><h5>Additional Details:</h5>';
+                    for (const [field, value] of Object.entries(tooltipFields)) {
+                        if (field !== 'title' && field !== 'description' && field !== 'value') {
+                            const fieldLabel = field.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+                            tooltipContent += `<p><strong>${fieldLabel}:</strong> ${value}</p>`;
+                        }
+                    }
+                }
+                
+                new mapboxgl.Popup()
+                    .setLngLat(e.lngLat)
+                    .setHTML(tooltipContent)
+                    .addTo(map);
+            });
+
+            hideLoading();
+        }
+
+        // Helper function to get color for value
+        function getColorForValue(value) {
+            // Simple color scale - you can customize this
+            if (value < 25) return '#e5f5e0';
+            if (value < 50) return '#a1d99b';
+            if (value < 75) return '#74c476';
+            if (value < 100) return '#41ab5d';
+            return '#238b45';
+        }
+
+        // Function to update map outline color based on theme
+        function updateMapOutlineColor() {
+            if (map && map.getLayer('districts-outline')) {
+                const outlineColor = document.documentElement.getAttribute('data-theme') === 'dark' ? '#ffffff' : '#333333';
+                map.setPaintProperty('districts-outline', 'line-color', outlineColor);
+            }
+        }
+
+        // Legend utilities (mirror preview behavior)
+        function isDateField(fieldName) {
+            if (!fieldName) return false;
+            const n = String(fieldName).toLowerCase();
+            return n === 'date' || n.includes('date') || n.includes('datetime') || n.includes('time');
+        }
+
+        function extractDateFromItem(item, preferredField) {
+            if (!item || typeof item !== 'object') return null;
+            if (preferredField && item[preferredField]) return item[preferredField];
+            const preferredKeys = [
+                'date','incident_date','incident_datetime','dba_start_date','dba_end_date',
+                'location_start_date','location_end_date','start_date','end_date','created_at','updated_at'
+            ];
+            for (const key of preferredKeys) {
+                if (item[key]) return item[key];
+            }
+            const dynamicKey = Object.keys(item).find(k => (
+                k.toLowerCase().includes('date') || k.toLowerCase().includes('time')
+            ) && item[k]);
+            return dynamicKey ? item[dynamicKey] : null;
+        }
+
+        function buildLegendFromSavedData() {
+            const legendContainer = document.getElementById('legend-items');
+            if (!legendContainer) return;
+            legendContainer.innerHTML = '';
+
+            const data = mapData.locationData || [];
+            const colorField = mapData.metadata && mapData.metadata.color_field;
+            if (!data.length || !colorField) {
+                const emptyEl = document.createElement('div');
+                emptyEl.className = 'legend-item';
+                emptyEl.innerHTML = `<span class="legend-label" style="color: var(--text-secondary); font-style: italic;">No legend available</span>`;
+                legendContainer.appendChild(emptyEl);
+                return;
+            }
+
+            const dateMode = isDateField(colorField);
+            const keyToColor = new Map();
+
+            for (const item of data) {
+                const key = dateMode
+                    ? (extractDateFromItem(item, colorField) || new Date().toISOString().split('T')[0])
+                    : (item[colorField] == null || item[colorField] === '' ? 'Unknown' : String(item[colorField]).trim());
+                const color = item.color || '#ad35fa';
+                if (!keyToColor.has(key)) keyToColor.set(key, color);
+            }
+
+            let entries = Array.from(keyToColor.entries());
+            if (dateMode) {
+                entries.sort((a, b) => {
+                    const da = new Date(a[0]);
+                    const db = new Date(b[0]);
+                    if (!isNaN(da) && !isNaN(db)) return da - db;
+                    return String(a[0]).localeCompare(String(b[0]));
+                });
+            }
+
+            if (dateMode && entries.length > 3) {
+                // For date fields with many values, show a simplified range legend
+                const earliestDate = new Date(entries[0][0]);
+                const latestDate = new Date(entries[entries.length - 1][0]);
+                const earliestColor = entries[0][1];
+                const latestColor = entries[entries.length - 1][1];
+                
+                // Earliest date
+                const earliestEl = document.createElement('div');
+                earliestEl.className = 'legend-item';
+                earliestEl.innerHTML = `
+                    <div class="legend-color" style="background-color: ${earliestColor};"></div>
+                    <span class="legend-label">${earliestDate.toLocaleDateString()}</span>
+                `;
+                legendContainer.appendChild(earliestEl);
+                
+                // Gradient range
+                const gradientEl = document.createElement('div');
+                gradientEl.className = 'legend-item';
+                gradientEl.innerHTML = `
+                    <div class="legend-gradient" style="background: linear-gradient(to right, ${earliestColor}, ${latestColor});"></div>
+                    <span class="legend-label">Date Range</span>
+                `;
+                legendContainer.appendChild(gradientEl);
+                
+                // Latest date
+                const latestEl = document.createElement('div');
+                latestEl.className = 'legend-item';
+                latestEl.innerHTML = `
+                    <div class="legend-color" style="background-color: ${latestColor};"></div>
+                    <span class="legend-label">${latestDate.toLocaleDateString()}</span>
+                `;
+                legendContainer.appendChild(latestEl);
+            } else {
+                // For non-date fields or date fields with few values, show all items
+                for (const [label, color] of entries) {
+                    const display = dateMode ? (new Date(label).toString() !== 'Invalid Date' ? new Date(label).toLocaleDateString() : String(label)) : String(label);
+                    const itemEl = document.createElement('div');
+                    itemEl.className = 'legend-item';
+                    itemEl.innerHTML = `
+                        <div class="legend-color" style="background-color: ${color};"></div>
+                        <span class="legend-label">${display}</span>
+                    `;
+                    legendContainer.appendChild(itemEl);
+                }
+            }
+        }
+
+        // Show loading state
+        function showLoading() {
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('error').style.display = 'none';
+        }
+
+        // Hide loading state
+        function hideLoading() {
+            document.getElementById('loading').style.display = 'none';
+        }
+
+        // Show error state
+        function showError(message) {
+            hideLoading();
+            document.getElementById('error').style.display = 'block';
+            document.getElementById('error-text').textContent = message;
+        }
+
+        // Share map function
+        function shareMap() {
+            const url = window.location.href;
+            if (navigator.share) {
+                navigator.share({
+                    title: mapData.title,
+                    url: url
+                });
+            } else {
+                navigator.clipboard.writeText(url).then(function() {
+                    alert('Map URL copied to clipboard!');
+                }).catch(function() {
+                    alert('Failed to copy URL');
+                });
+            }
+        }
+
+        // Initialize map when page loads
+        document.addEventListener('DOMContentLoaded', function() {
+            updateDateRangeSubtitle();
+            initMap();
+            loadRecentMaps();
+            initEmbeddedMode();
+            
+            // Listen for theme changes to update map style
+            window.addEventListener('themeChanged', function(e) {
+                if (map) {
+                    const newStyle = e.detail.theme === 'dark' 
+                        ? 'mapbox://styles/mapbox/dark-v11' 
+                        : 'mapbox://styles/mapbox/light-v11';
+                    map.setStyle(newStyle);
+                    
+                    // After style change, just update the outline color
+                    map.once('style.load', function() {
+                        updateMapOutlineColor();
+                    });
+                }
+            });
+        });
+
+        // Map Navigation Functions
+        function toggleMapNavigation() {
+            const nav = document.getElementById('map-navigation');
+            nav.classList.toggle('show');
+        }
+
+        function loadRecentMaps() {
+            fetch('/api/maps?limit=20')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        displayMaps(data.maps);
+                    } else {
+                        console.error('Failed to load maps:', data.message);
+                    }
+                })
+                .catch(error => {
+                    console.error('Error loading maps:', error);
+                });
+        }
+
+        function displayMaps(maps) {
+            const grid = document.getElementById('maps-grid');
+            const currentMapId = mapData.id;
+            
+            if (!maps || maps.length === 0) {
+                grid.innerHTML = `
+                    <div class="map-card">
+                        <p style="text-align: center; color: var(--text-secondary);">
+                            No maps found
+                        </p>
+                    </div>
+                `;
+                return;
+            }
+
+            grid.innerHTML = maps.map(map => {
+                const isCurrent = map.id === currentMapId;
+                const createdDate = new Date(map.created_at).toLocaleDateString();
+                const mapType = map.type || 'Unknown';
+                
+                return `
+                    <div class="map-card ${isCurrent ? 'current' : ''}" onclick="navigateToMap('${map.id}')">
+                        <h4>${map.title || 'Untitled Map'}</h4>
+                        <p>Type: ${mapType}</p>
+                        <div class="meta">
+                            <span>${createdDate}</span>
+                            <span>${mapType}</span>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function navigateToMap(mapId) {
+            if (mapId === mapData.id) {
+                // Already on this map, just close navigation
+                toggleMapNavigation();
+                return;
+            }
+            
+            // Navigate to the new map
+            window.location.href = `/map/${mapId}`;
+        }
+
+        // Embedded mode detection and handling
+        function initEmbeddedMode() {
+            // Check if this is embedded mode by looking for the embedded parameter or if we're in an iframe
+            const urlParams = new URLSearchParams(window.location.search);
+            const isEmbedded = urlParams.get('embedded') === 'true' || 
+                              window.location !== window.parent.location ||
+                              document.referrer.includes('metric_control') ||
+                              document.referrer.includes('anomaly_analyzer');
+            
+            if (isEmbedded) {
+                // Add embedded mode class to body
+                document.body.classList.add('embedded-mode');
+                
+                // Add "Full View" link to the map overlay
+                const mapOverlay = document.querySelector('.map-overlay');
+                if (mapOverlay) {
+                    const fullViewLink = document.createElement('div');
+                    fullViewLink.style.cssText = `
+                        position: absolute;
+                        top: 10px;
+                        right: 10px;
+                        background-color: var(--bg-tertiary);
+                        border: 1px solid var(--border-primary);
+                        border-radius: 4px;
+                        padding: 6px 10px;
+                        font-size: 12px;
+                        cursor: pointer;
+                        transition: all 0.3s ease;
+                        z-index: 1001;
+                    `;
+                    fullViewLink.innerHTML = `
+                        <a href="/map/${mapData.id}" target="_blank" style="color: var(--text-primary); text-decoration: none;">
+                            <i class="fas fa-external-link-alt"></i> Full View
+                        </a>
+                    `;
+                    fullViewLink.onmouseenter = function() {
+                        this.style.backgroundColor = 'var(--accent-color)';
+                        this.style.color = 'white';
+                    };
+                    fullViewLink.onmouseleave = function() {
+                        this.style.backgroundColor = 'var(--bg-tertiary)';
+                        this.style.color = 'var(--text-primary)';
+                    };
+                    
+                    mapOverlay.style.position = 'relative';
+                    mapOverlay.appendChild(fullViewLink);
+                }
+            }
+        }
+
+
+    </script>
+</body>
+</html>

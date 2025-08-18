@@ -202,6 +202,28 @@ def _make_dw_request(method, endpoint, headers=None, data=None, json_payload=Non
         logger.error(f"Request failed: {e} for URL: {url}")
         raise
 
+def _create_tooltip_text(loc):
+    """
+    Create tooltip text for a location, including count information if aggregated.
+    
+    Args:
+        loc (dict): Location data dictionary
+        
+    Returns:
+        str: Formatted tooltip text
+    """
+    # Start with the basic tooltip or description
+    tooltip_text = loc.get("tooltip", loc.get("description", "")) or "Location"
+    
+    # Add count information if this is an aggregated point
+    if "count" in loc and loc["count"] > 1:
+        count_info = f" ({loc['count']} points)"
+        # If the tooltip doesn't already mention the count, add it
+        if str(loc['count']) not in tooltip_text:
+            tooltip_text += count_info
+    
+    return tooltip_text
+
 def _prepare_locator_marker_data(location_data, series_field=None, color_palette=None):
     """
     Prepares marker data for Datawrapper locator maps from a list of location details.
@@ -219,7 +241,7 @@ def _prepare_locator_marker_data(location_data, series_field=None, color_palette
     """
     import uuid
     
-    # Define default color palettes for series
+    # Define default color palettes for series - expanded to avoid recycling
     default_color_palettes = {
         'categorical': [
             '#ad35fa',  # Bright Purple
@@ -234,6 +256,65 @@ def _prepare_locator_marker_data(location_data, series_field=None, color_palette
             '#FF5722',  # Deep Orange
             '#795548',  # Brown
             '#607D8B',  # Blue Grey
+            '#1A365D',  # Dark Blue
+            '#2D3748',  # Dark Gray
+            '#4A5568',  # Medium Gray
+            '#718096',  # Light Gray
+            '#A0AEC0',  # Very Light Gray
+            '#E2E8F0',  # Almost White
+            '#F7FAFC',  # Pure White
+            '#FF0080',  # Magenta
+            '#00FF80',  # Bright Green
+            '#8000FF',  # Deep Purple
+            '#FF8000',  # Orange
+            '#0080FF',  # Blue
+            '#80FF00',  # Lime
+            '#00FFFF',  # Cyan
+            '#FF00FF',  # Fuchsia
+            '#FFFF00',  # Yellow
+            '#8B4513',  # Saddle Brown
+            '#228B22',  # Forest Green
+            '#FF1493',  # Deep Pink
+            '#00CED1',  # Dark Turquoise
+            '#FFD700',  # Gold
+            '#FF69B4',  # Hot Pink
+            '#32CD32',  # Lime Green
+            '#FF4500',  # Orange Red
+            '#9370DB',  # Medium Purple
+            '#20B2AA',  # Light Sea Green
+            '#FF6347',  # Tomato
+            '#7B68EE',  # Medium Slate Blue
+            '#3CB371',  # Medium Sea Green
+            '#FF7F50',  # Coral
+            '#6A5ACD',  # Slate Blue
+            '#00FA9A',  # Medium Spring Green
+            '#FFB6C1',  # Light Pink
+            '#4169E1',  # Royal Blue
+            '#DC143C',  # Crimson
+            '#00BFFF',  # Deep Sky Blue
+            '#FF8C00',  # Dark Orange
+            '#9932CC',  # Dark Orchid
+            '#8FBC8F',  # Dark Sea Green
+            '#FF69B4',  # Hot Pink
+            '#00CED1',  # Dark Turquoise
+            '#FFD700',  # Gold
+            '#FF1493',  # Deep Pink
+            '#32CD32',  # Lime Green
+            '#FF4500',  # Orange Red
+            '#9370DB',  # Medium Purple
+            '#20B2AA',  # Light Sea Green
+            '#FF6347',  # Tomato
+            '#7B68EE',  # Medium Slate Blue
+            '#3CB371',  # Medium Sea Green
+            '#FF7F50',  # Coral
+            '#6A5ACD',  # Slate Blue
+            '#00FA9A',  # Medium Spring Green
+            '#FFB6C1',  # Light Pink
+            '#4169E1',  # Royal Blue
+            '#DC143C',  # Crimson
+            '#00BFFF',  # Deep Sky Blue
+            '#FF8C00',  # Dark Orange
+            '#9932CC'   # Dark Orchid
         ]
     }
     
@@ -323,7 +404,7 @@ def _prepare_locator_marker_data(location_data, series_field=None, color_palette
                 "scale": 1
             },
             "scale": loc.get("scale", 0.4),  # Default diameter of 4 (0.4 scale)
-            "markerColor": loc.get("markerColor", "#8b5cf6"),  # Use purple like working example
+            "markerColor": loc.get("markerColor", "#ad35fa"),  # Use purple like working example
             "opacity": loc.get("opacity", 1),  # Keep higher opacity for visibility
             "text": {
                 "color": "#333333",
@@ -361,7 +442,7 @@ def _prepare_locator_marker_data(location_data, series_field=None, color_palette
             },
             "coordinates": parsed_coordinates or [float(loc["lon"]), float(loc["lat"])],
             "tooltip": {
-                "text": loc.get("tooltip", loc.get("description", "")) or "Location"
+                "text": _create_tooltip_text(loc)
             }
         }
         
@@ -686,7 +767,7 @@ def _create_and_configure_locator_map(chart_title, markers_json_string, center_c
                     prev_label = "Previous Period"
                 
                 color_to_period = {
-                    "#8b5cf6": recent_label,  # Purple for recent
+                    "#ad35fa": recent_label,  # Purple for recent
                     "#9ca3af": prev_label      # Grey for comparison
                 }
                 
@@ -1211,7 +1292,7 @@ def create_datawrapper_chart(chart_title, location_data, map_type="supervisor_di
                                 "coordinates": [lon, lat],  # Datawrapper expects [longitude, latitude]
                                 "title": item.get("title", address),
                                 "description": item.get("description", ""),
-                                "color": item.get("color", "#8b5cf6"),
+                                "color": item.get("color", "#ad35fa"),
                                 "scale": item.get("scale", 0.8)
                             }
                             geocoded_data.append(geocoded_item)
@@ -1703,7 +1784,791 @@ def get_db_connection():
         logger.error(f"Database connection error: {str(e)}")
         raise
 
-def generate_map(context_variables, map_title, map_type, location_data=None, map_metadata=None, reference_chart_id=None, metric_id=None, group_field=None, series_field=None, color_palette=None):
+def generate_mapbox_map(context_variables, map_title, map_type, location_data=None, map_metadata=None, metric_id=None, group_field=None, series_field=None, color_palette=None, map_config=None, preview_mode=False, scale_dots=True):
+    """
+    Generates a map using Mapbox and stores its metadata in the database.
+    
+    Args:
+        context_variables (dict): Dictionary of context variables
+        map_title (str): Desired title for the map
+        map_type (str): Type of map (e.g., 'supervisor_district', 'point')
+        location_data (list): Data for the map
+        map_metadata (dict): Additional metadata for the map
+        metric_id (str): Identifier for the metric being mapped
+        group_field (str): Field used for grouping/aggregation
+        series_field (str): Field name to use for series grouping
+        color_palette (list or str): Color palette for series
+        
+    Returns:
+        dict: Contains map_id and view_url, or None on failure
+    """
+    logger.info(f"Generating Mapbox map: '{map_title}' of type '{map_type}'")
+    
+    try:
+        # Let the database assign the ID automatically
+        
+        # Process location data if provided
+        if location_data is None or location_data == "from_context":
+            dataset = context_variables.get("dataset")
+            if dataset is not None and not dataset.empty:
+                logger.info(f"Using dataset from context_variables with shape: {dataset.shape}")
+                # Convert dataset to location_data format
+                location_data = process_dataset_for_map(dataset, map_type, series_field, color_palette, map_config, scale_dots)
+            else:
+                logger.error("No location_data provided and no dataset available in context_variables")
+                return {"error": "No location_data provided and no dataset available in context_variables"}
+        
+        # If a desired color field is provided in metadata, attach it so the viewer can replicate preview coloring
+        if map_metadata and isinstance(map_metadata, dict):
+            color_field = map_metadata.get("color_field")
+            if color_field:
+                # Persist the color field in metadata for the viewer to use
+                map_metadata["color_field"] = color_field
+                # Also add to each item so the viewer can reconstruct a legend if needed
+                try:
+                    for item in location_data or []:
+                        if isinstance(item, dict) and color_field in item:
+                            item["_color_key"] = str(item.get(color_field, ""))
+                except Exception as e:
+                    logger.warning(f"Unable to annotate _color_key with color_field '{color_field}': {e}")
+
+        # Apply preview-like coloring if a color_field is provided
+        def _is_date_field(field_name: str) -> bool:
+            if not field_name:
+                return False
+            name = str(field_name).lower()
+            return name == 'date' or 'date' in name or 'datetime' in name or 'time' in name
+
+        def _extract_date_from_item(item: dict, preferred_field: str = None) -> str:
+            # Try preferred color field first
+            if preferred_field and item.get(preferred_field):
+                return str(item.get(preferred_field))
+            # Fallback keys similar to preview
+            for key in ['date','dba_start_date','dba_end_date','location_start_date','location_end_date','incident_date','incident_datetime','start_date','end_date','created_at','updated_at']:
+                if item.get(key):
+                    return str(item.get(key))
+            return None
+
+        def _rgb_to_hex(r: int, g: int, b: int) -> str:
+            return f"#{r:02x}{g:02x}{b:02x}"
+
+        def _create_color_scale(values: list, field_name: str) -> dict:
+            if not values:
+                return {}
+            if _is_date_field(field_name):
+                unique = sorted({v for v in values if v is not None})
+                scale = {}
+                if len(unique) == 1:
+                    # Single value → newest color
+                    scale[unique[0]] = '#ad35fa'
+                    return scale
+                for idx, val in enumerate(unique):
+                    ratio = idx / (len(unique) - 1)
+                    r = round(255 * (1 - ratio) + 173 * ratio)
+                    g = round(255 * (1 - ratio) + 53 * ratio)
+                    b = round(255 * (1 - ratio) + 250 * ratio)
+                    scale[val] = _rgb_to_hex(r, g, b)
+                return scale
+            # Categorical - expanded palette to avoid recycling
+            palette = [
+                '#ad35fa', '#3182CE', '#38A169', '#E53E3E', '#DD6B20',
+                '#805AD5', '#2B6CB0', '#2F855A', '#C53030', '#C05621',
+                '#9F7AEA', '#4299E1', '#48BB78', '#F56565', '#ED8936',
+                '#1A365D', '#2D3748', '#4A5568', '#718096', '#A0AEC0',
+                '#E2E8F0', '#F7FAFC', '#FF0080', '#00FF80', '#8000FF',
+                '#FF8000', '#0080FF', '#80FF00', '#FF0080', '#00FFFF',
+                '#FF00FF', '#FFFF00', '#8B4513', '#228B22', '#FF1493',
+                '#00CED1', '#FFD700', '#FF69B4', '#32CD32', '#FF4500',
+                '#9370DB', '#20B2AA', '#FF6347', '#7B68EE', '#3CB371',
+                '#FF7F50', '#6A5ACD', '#00FA9A', '#FFB6C1', '#4169E1',
+                '#DC143C', '#00BFFF', '#FF8C00', '#9932CC', '#8FBC8F',
+                '#FF69B4', '#00CED1', '#FFD700', '#FF1493', '#32CD32',
+                '#FF4500', '#9370DB', '#20B2AA', '#FF6347', '#7B68EE',
+                '#3CB371', '#FF7F50', '#6A5ACD', '#00FA9A', '#FFB6C1',
+                '#4169E1', '#DC143C', '#00BFFF', '#FF8C00', '#9932CC'
+            ]
+            unique = [str(v).strip() if v not in (None, '') else 'Unknown' for v in values]
+            unique = list(dict.fromkeys(unique))  # preserve order
+            return {val: palette[i % len(palette)] for i, val in enumerate(unique)}
+
+        if map_metadata and isinstance(map_metadata, dict) and location_data:
+            selected_color_field = map_metadata.get('color_field')
+            if selected_color_field:
+                # Build color scale values list
+                if _is_date_field(selected_color_field):
+                    values = [
+                        _extract_date_from_item(item, selected_color_field) or datetime.now().date().isoformat()
+                        for item in location_data if isinstance(item, dict)
+                    ]
+                else:
+                    values = [
+                        (str(item.get(selected_color_field)).strip() if item.get(selected_color_field) not in (None, '') else 'Unknown')
+                        for item in location_data if isinstance(item, dict)
+                    ]
+                scale = _create_color_scale(values, selected_color_field)
+                # Apply colors to each item
+                for item in location_data:
+                    if not isinstance(item, dict):
+                        continue
+                    # Determine key
+                    if _is_date_field(selected_color_field):
+                        key = _extract_date_from_item(item, selected_color_field) or datetime.now().date().isoformat()
+                    else:
+                        val = item.get(selected_color_field)
+                        key = 'Unknown' if val in (None, '') else str(val).strip()
+                    # Match direct or case-insensitive
+                    color_val = scale.get(key)
+                    if color_val is None:
+                        for k in scale.keys():
+                            if str(k).lower() == str(key).lower():
+                                color_val = scale[k]
+                                break
+                    item['color'] = color_val or item.get('color', '#ad35fa')
+                    # Stroke: white unless point is white, then purple
+                    item['strokeColor'] = '#ad35fa' if item['color'].lower() in ('#ffffff', 'white') else '#ffffff'
+
+        # For preview mode, just return the location_data without storing in database
+        if preview_mode:
+            logger.info(f"Preview mode: returning location_data for '{map_title}' without database storage")
+            return {
+                "location_data": location_data,
+                "data_points": len(location_data) if location_data else 0,
+                "preview": True
+            }
+        
+        # Store map data in database (only for non-preview mode)
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Prepare metadata
+        metadata = {
+            "title": map_title,
+            "type": map_type,
+            "description": map_metadata.get("description", "") if map_metadata else "",
+            "source": map_metadata.get("source", "") if map_metadata else "",
+            "date_created": datetime.now().isoformat(),
+            "map_provider": "mapbox",
+            "metric_id": metric_id,
+            "group_field": group_field,
+            "series_field": series_field,
+            "color_palette": color_palette
+        }
+        
+        # Add any additional metadata
+        if map_metadata:
+            metadata.update(map_metadata)
+        
+        # Insert into database and get the auto-generated ID
+        cursor.execute("""
+            INSERT INTO maps (
+                title, type, location_data, metadata, active, created_at, updated_at, metric_id
+            ) VALUES (
+                %s, %s, %s, %s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, %s
+            ) RETURNING id
+        """, (
+            map_title,
+            map_type,
+            json.dumps(location_data),
+            json.dumps(metadata if not map_metadata else {**metadata, **map_metadata}),
+            True,
+            metric_id  # Already converted to int in the route
+        ))
+        
+        # Get the auto-generated map ID
+        map_id = cursor.fetchone()[0]
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        # Generate view URL
+        view_url = f"/map/{map_id}"
+        
+        logger.info(f"Mapbox map generation complete for '{map_title}'. Map ID: {map_id}")
+        logger.info(f"View URL: {view_url}")
+        
+        return {
+            "map_id": map_id,
+            "view_url": view_url,
+            "data_points": len(location_data) if location_data else 0,
+            "location_data": location_data  # Include location_data for preview mode
+        }
+        
+    except Exception as e:
+        logger.error(f"An error occurred during Mapbox map generation for '{map_title}': {str(e)}", exc_info=True)
+        return {"error": str(e)}
+
+def generate_point_title_and_description(row, idx):
+    """Generate meaningful title and description for a point from row data."""
+    # Generate a meaningful title from available data
+    title = row.get('title')
+    if not title:
+        if 'incident_category' in row:
+            title = f"{row['incident_category']} - {row.get('incident_subcategory', '')}"
+        elif 'dba_name' in row:
+            title = row['dba_name']
+        elif 'service_name' in row:
+            title = row['service_name']
+        else:
+            title = f"Point {idx}"
+    
+    # Generate description from available data
+    description = row.get('description', '')
+    if not description:
+        if 'incident_description' in row:
+            description = row['incident_description']
+        elif 'full_business_address' in row:
+            description = row['full_business_address']
+        elif 'address' in row:
+            description = row['address']
+    
+    return title, description
+
+def extract_tooltip_fields(row, location_fields=None):
+    """
+    Extract all non-location fields from a row for tooltip display.
+    
+    Args:
+        row: DataFrame row
+        location_fields: List of location field configurations
+        
+    Returns:
+        dict: Tooltip fields with their values
+    """
+    tooltip_fields = {}
+    
+    # Define location-related fields that should be excluded from tooltips
+    location_field_names = set()
+    if location_fields:
+        for field_config in location_fields:
+            field_name = field_config.get('fieldName', field_config.get('name', ''))
+            if field_name:
+                location_field_names.add(field_name)
+    
+    # Add common location fields that should be excluded
+    location_field_names.update([
+        'lat', 'lon', 'long', 'latitude', 'longitude', 
+        'point', 'point_geom', 'location', 'intersection',
+        'coordinates', 'address', 'street', 'city', 'state', 'zip',
+        'title', 'description', 'value', 'color', 'strokeColor'
+    ])
+    
+    # Extract all non-location fields
+    for column, value in row.items():
+        if column not in location_field_names and value is not None and str(value).strip():
+            # Skip empty values and common metadata fields
+            if column not in ['index', 'level_0', 'Unnamed: 0']:
+                tooltip_fields[column] = str(value)
+    
+    return tooltip_fields
+
+def aggregate_overlapping_points(location_data, scale_dots=True):
+    """
+    Aggregate overlapping points and scale marker sizes based on count.
+    
+    Args:
+        location_data (list): List of location data points
+        scale_dots (bool): Whether to scale dots by count
+        
+    Returns:
+        list: Aggregated location data with scaled sizes
+    """
+    if not scale_dots or not location_data:
+        return location_data
+    
+    logger.info(f"Aggregating overlapping points from {len(location_data)} original points")
+    
+    # Group points by coordinates (rounded to 6 decimal places for clustering)
+    point_groups = {}
+    
+    for point in location_data:
+        if 'lat' in point and 'lon' in point:
+            # Round coordinates to cluster nearby points
+            lat_rounded = round(float(point['lat']), 6)
+            lon_rounded = round(float(point['lon']), 6)
+            coord_key = (lat_rounded, lon_rounded)
+            
+            if coord_key not in point_groups:
+                point_groups[coord_key] = []
+            point_groups[coord_key].append(point)
+    
+    # Create aggregated points
+    aggregated_data = []
+    
+    for coord_key, points in point_groups.items():
+        if len(points) == 1:
+            # Single point - no aggregation needed
+            point = points[0].copy()
+            point['count'] = 1
+            point['scale'] = 0.4  # Default scale
+            aggregated_data.append(point)
+        else:
+            # Multiple points at same location - aggregate
+            lat, lon = coord_key
+            
+            # Combine titles and descriptions
+            titles = [p.get('title', '') for p in points if p.get('title')]
+            descriptions = [p.get('description', '') for p in points if p.get('description')]
+            
+            # Create aggregated title
+            if titles:
+                if len(titles) == 1:
+                    aggregated_title = titles[0]
+                else:
+                    aggregated_title = f"{len(points)} points at this location"
+            else:
+                aggregated_title = f"Location ({len(points)} points)"
+            
+            # Create aggregated description
+            if descriptions:
+                if len(descriptions) == 1:
+                    aggregated_description = descriptions[0]
+                else:
+                    aggregated_description = f"Multiple data points: {'; '.join(descriptions[:3])}"
+                    if len(descriptions) > 3:
+                        aggregated_description += f"; and {len(descriptions) - 3} more"
+            else:
+                aggregated_description = f"Aggregated data from {len(points)} points"
+            
+            # Calculate scale based on count (logarithmic scaling)
+            count = len(points)
+            # Use logarithmic scaling: scale = 0.4 + (log(count) * 0.2)
+            # This gives reasonable scaling: 1 point = 0.4, 2 points = 0.54, 5 points = 0.72, 10 points = 0.84
+            scale = 0.4 + (math.log(count) * 0.2)
+            scale = min(scale, 1.5)  # Cap at 1.5 to prevent overly large markers
+            
+            # Create aggregated point
+            aggregated_point = {
+                'lat': lat,
+                'lon': lon,
+                'coordinates': [lon, lat],
+                'title': aggregated_title,
+                'description': aggregated_description,
+                'count': count,
+                'scale': scale,
+                'color': points[0].get('color', '#6B46C1'),  # Use color from first point
+                'value': count,  # Use count as value
+                'tooltip_fields': {'Count': count}  # Add count to tooltip
+            }
+            
+            # Preserve other fields from the first point
+            for key, value in points[0].items():
+                if key not in ['lat', 'lon', 'coordinates', 'title', 'description', 'count', 'scale', 'value', 'tooltip_fields']:
+                    aggregated_point[key] = value
+            
+            aggregated_data.append(aggregated_point)
+    
+    logger.info(f"Aggregated {len(location_data)} points into {len(aggregated_data)} unique locations")
+    return aggregated_data
+
+def process_dataset_for_map(dataset, map_type, series_field=None, color_palette=None, map_config=None, scale_dots=True):
+    """
+    Process a dataset into location_data format for Mapbox maps.
+    
+    Args:
+        dataset (DataFrame): The dataset to process
+        map_type (str): Type of map
+        series_field (str): Field name for series grouping
+        color_palette (list or str): Color palette for series
+        map_config (dict): Map configuration with location fields
+        
+    Returns:
+        list: Processed location data
+    """
+    logger.info(f"Processing dataset for map type: {map_type}")
+    logger.info(f"Dataset shape: {dataset.shape}")
+    logger.info(f"Dataset columns: {dataset.columns.tolist()}")
+    logger.info(f"Sample data: {dataset.head(2).to_dict('records')}")
+    
+    location_data = []
+    
+    # Clean the dataset to prevent JSON serialization errors
+    dataset = dataset.fillna('')
+    
+    # Get location fields configuration
+    location_fields = map_config.get('location_fields', []) if map_config else []
+    detail_fields = map_config.get('detail_fields', []) if map_config else []
+    data_point_threshold = map_config.get('data_point_threshold', 2000) if map_config else 2000
+    fallback_to_shape = map_config.get('fallback_to_shape', False) if map_config else False
+    
+    # Determine if we should use point or shape data
+    use_point_data = True
+    if fallback_to_shape and len(dataset) > data_point_threshold:
+        logger.info(f"Dataset has {len(dataset)} points, exceeding threshold of {data_point_threshold}. Using shape data.")
+        use_point_data = False
+    
+    for idx, row in dataset.iterrows():
+        item = {}
+        
+        # Extract coordinates based on map type and configuration
+        if map_type in ["point", "address", "intersection", "symbol"] and use_point_data:
+            # Debug: Log which fields are present
+            if idx < 3:  # Only log first 3 rows to avoid spam
+                logger.info(f"Row {idx} - intersection: {row.get('intersection')}, intersection_point: {row.get('intersection_point')}, point: {row.get('point')}, latitude: {row.get('latitude')}, longitude: {row.get('longitude')}")
+            
+            # Handle point field (DataSF format) - prioritize this over intersection fields
+            if 'point' in row and row['point'] is not None:
+                if idx < 3:  # Only log first 3 rows to avoid spam
+                    logger.info(f"Row {idx} - Processing point field: {row['point']}")
+                    logger.info(f"Row {idx} - Point field type: {type(row['point'])}")
+                point_data = row['point']
+                
+                # Handle string format point data
+                if isinstance(point_data, str):
+                    try:
+                        point_data = json.loads(point_data)
+                        if idx < 3:  # Only log first 3 rows to avoid spam
+                            logger.info(f"Row {idx} - Parsed string point data: {point_data}")
+                    except json.JSONDecodeError:
+                        try:
+                            point_data = ast.literal_eval(point_data)
+                            if idx < 3:  # Only log first 3 rows to avoid spam
+                                logger.info(f"Row {idx} - Parsed string point data with ast: {point_data}")
+                        except (ValueError, SyntaxError):
+                            logger.warning(f"Could not parse point data string: {point_data}")
+                            point_data = None
+                
+                if isinstance(point_data, dict) and point_data.get('type') == 'Point':
+                    coords = point_data.get('coordinates')
+                    if idx < 3:  # Only log first 3 rows to avoid spam
+                        logger.info(f"Row {idx} - Found coordinates: {coords}")
+                    if coords and len(coords) >= 2:
+                        title, description = generate_point_title_and_description(row, idx)
+                        tooltip_fields = extract_tooltip_fields(row, location_fields)
+                        item = {
+                            "lat": coords[1],
+                            "lon": coords[0],
+                            "value": row.get('value', 1),
+                            "title": title,
+                            "description": description,
+                            "coordinates": coords,
+                            "color": "#6B46C1",  # TransparentSF purple
+                            "tooltip_fields": tooltip_fields
+                        }
+                        # Add all original data fields for coloring options
+                        for column, value in row.items():
+                            if column not in ['lat', 'lon', 'long', 'latitude', 'longitude', 'coordinates', 'point', 'point_geom', 'intersection']:
+                                item[column] = value
+                        
+                        # Add tooltip fields as individual properties for coloring
+                        if tooltip_fields:
+                            for field_name, field_value in tooltip_fields.items():
+                                item[field_name] = field_value
+                        
+                        location_data.append(item)
+                        if idx < 3:  # Only log first 3 rows to avoid spam
+                            logger.info(f"Row {idx} - Added point item to location_data with coords: {coords}")
+                        continue
+                    else:
+                        if idx < 3:  # Only log first 3 rows to avoid spam
+                            logger.warning(f"Row {idx} - Point data missing coordinates: {point_data}")
+                else:
+                    if idx < 3:  # Only log first 3 rows to avoid spam
+                        logger.warning(f"Row {idx} - Point data is not a valid GeoJSON Point: {point_data}")
+                        logger.warning(f"Row {idx} - Point data type: {type(point_data)}")
+                        logger.warning(f"Row {idx} - Point data keys: {point_data.keys() if isinstance(point_data, dict) else 'Not a dict'}")
+            
+            # Handle intersection_point field with GeoJSON point data
+            elif 'intersection_point' in row and row['intersection_point'] is not None:
+                try:
+                    intersection_data = row['intersection_point']
+                    if isinstance(intersection_data, str):
+                        try:
+                            intersection_data = json.loads(intersection_data)
+                        except json.JSONDecodeError:
+                            try:
+                                intersection_data = ast.literal_eval(intersection_data)
+                            except (ValueError, SyntaxError):
+                                logger.warning(f"Could not parse intersection_point data: {intersection_data}")
+                                pass
+                    
+                    if isinstance(intersection_data, dict) and intersection_data.get('type') == 'Point':
+                        coords = intersection_data.get('coordinates')
+                        if coords and len(coords) >= 2:
+                            tooltip_fields = extract_tooltip_fields(row, location_fields)
+                            item = {
+                                "lat": coords[1],
+                                "lon": coords[0],
+                                "value": row.get('value', 1),
+                                "title": f"Traffic Call: {row.get('call_type_final_desc', 'Unknown')}",
+                                "description": f"Type: {row.get('call_type_final_desc', 'Unknown')} | Time: {row.get('received_datetime', 'Unknown')}",
+                                "coordinates": coords,
+                                "color": "#6B46C1",  # TransparentSF purple
+                                "tooltip_fields": tooltip_fields
+                            }
+                            # Add all original data fields for coloring options
+                            for column, value in row.items():
+                                if column not in ['lat', 'lon', 'long', 'latitude', 'longitude', 'coordinates', 'point', 'point_geom', 'intersection', 'intersection_point']:
+                                    item[column] = value
+                            
+                            # Add tooltip fields as individual properties for coloring
+                            if tooltip_fields:
+                                for field_name, field_value in tooltip_fields.items():
+                                    item[field_name] = field_value
+                            
+                            location_data.append(item)
+                            continue
+                except Exception as e:
+                    logger.warning(f"Error processing intersection_point data: {str(e)}")
+            
+            # Handle intersection field with GeoJSON point data
+            elif 'intersection' in row and row['intersection'] is not None and isinstance(row['intersection'], dict):
+                try:
+                    intersection_data = row['intersection']
+                    if isinstance(intersection_data, str):
+                        try:
+                            intersection_data = json.loads(intersection_data)
+                        except json.JSONDecodeError:
+                            try:
+                                intersection_data = ast.literal_eval(intersection_data)
+                            except (ValueError, SyntaxError):
+                                # If intersection is just a string (like "GOUGH ST \ MARKET ST"), skip it
+                                # and let other field handlers process the data
+                                pass
+                    
+                    if isinstance(intersection_data, dict) and intersection_data.get('type') == 'Point':
+                        coords = intersection_data.get('coordinates')
+                        if coords and len(coords) >= 2:
+                            tooltip_fields = extract_tooltip_fields(row, location_fields)
+                            item = {
+                                "lat": coords[1],
+                                "lon": coords[0],
+                                "value": row.get('value', 1),
+                                "title": row.get('title', f"Point {idx}"),
+                                "description": row.get('description', ''),
+                                "coordinates": coords,
+                                "color": "#6B46C1",  # TransparentSF purple
+                                "tooltip_fields": tooltip_fields
+                            }
+                            # Add all original data fields for coloring options
+                            for column, value in row.items():
+                                if column not in ['lat', 'lon', 'long', 'latitude', 'longitude', 'coordinates', 'point', 'point_geom', 'intersection']:
+                                    item[column] = value
+                            
+                            # Add tooltip fields as individual properties for coloring
+                            if tooltip_fields:
+                                for field_name, field_value in tooltip_fields.items():
+                                    item[field_name] = field_value
+                            
+                            location_data.append(item)
+                            continue
+                except Exception as e:
+                    logger.warning(f"Error processing intersection data: {str(e)}")
+            
+            # Handle DataSF location object format
+            elif 'location' in row and row['location'] is not None:
+                location_obj = row['location']
+                if isinstance(location_obj, dict) and location_obj.get('type') == 'Point':
+                    coords = location_obj.get('coordinates')
+                    if coords and len(coords) >= 2:
+                        title, description = generate_point_title_and_description(row, idx)
+                        tooltip_fields = extract_tooltip_fields(row, location_fields)
+                        item = {
+                            "lat": coords[1],
+                            "lon": coords[0],
+                            "value": row.get('value', 1),
+                            "title": title,
+                            "description": description,
+                            "coordinates": coords,
+                            "color": "#6B46C1",  # TransparentSF purple
+                            "tooltip_fields": tooltip_fields
+                        }
+                        # Add all original data fields for coloring options
+                        for column, value in row.items():
+                            if column not in ['lat', 'lon', 'long', 'latitude', 'longitude', 'coordinates', 'point', 'point_geom', 'intersection']:
+                                item[column] = value
+                        location_data.append(item)
+            
+            # Handle point_geom field (DataSF format)
+            elif 'point_geom' in row and row['point_geom'] is not None:
+                point_geom = row['point_geom']
+                if isinstance(point_geom, dict) and point_geom.get('type') == 'Point':
+                    coords = point_geom.get('coordinates')
+                    if coords and len(coords) >= 2:
+                        title, description = generate_point_title_and_description(row, idx)
+                        tooltip_fields = extract_tooltip_fields(row, location_fields)
+                        item = {
+                            "lat": coords[1],
+                            "lon": coords[0],
+                            "value": row.get('value', 1),
+                            "title": title,
+                            "description": description,
+                            "coordinates": coords,
+                            "color": "#6B46C1",  # TransparentSF purple
+                            "tooltip_fields": tooltip_fields
+                        }
+                        # Add all original data fields for coloring options
+                        for column, value in row.items():
+                            if column not in ['lat', 'lon', 'long', 'latitude', 'longitude', 'coordinates', 'point', 'point_geom', 'intersection']:
+                                item[column] = value
+                        
+                        # Add tooltip fields as individual properties for coloring
+                        if tooltip_fields:
+                            for field_name, field_value in tooltip_fields.items():
+                                item[field_name] = field_value
+                        
+                        location_data.append(item)
+            
+
+            
+            # Handle direct lat/lon fields
+            elif ('lat' in row and ('lon' in row or 'long' in row)) or ('latitude' in row and 'longitude' in row):
+                if idx < 3:  # Only log first 3 rows to avoid spam
+                    logger.info(f"Row {idx} - Processing latitude/longitude fields")
+                # Handle different field name variations
+                if 'lat' in row and ('lon' in row or 'long' in row):
+                    lat_field = 'lat'
+                    lon_field = 'lon' if 'lon' in row else 'long'
+                else:
+                    lat_field = 'latitude'
+                    lon_field = 'longitude'
+                
+                title, description = generate_point_title_and_description(row, idx)
+                tooltip_fields = extract_tooltip_fields(row, location_fields)
+                item = {
+                    "lat": row[lat_field],
+                    "lon": row[lon_field],
+                    "value": row.get('value', 1),
+                    "title": title,
+                    "description": description,
+                    "coordinates": [row[lon_field], row[lat_field]],
+                    "color": "#6B46C1",  # TransparentSF purple
+                    "tooltip_fields": tooltip_fields
+                }
+                # Add all original data fields for coloring options
+                for column, value in row.items():
+                    if column not in ['lat', 'lon', 'long', 'latitude', 'longitude', 'coordinates', 'point', 'point_geom', 'intersection']:
+                        item[column] = value
+                
+                # Add tooltip fields as individual properties for coloring
+                if tooltip_fields:
+                    for field_name, field_value in tooltip_fields.items():
+                        item[field_name] = field_value
+                
+                location_data.append(item)
+                if idx < 3:  # Only log first 3 rows to avoid spam
+                    logger.info(f"Row {idx} - Added lat/lon item to location_data")
+        
+        # Use location fields configuration if available
+        elif location_fields and use_point_data:
+            # Try to find the best available location field
+            for location_field in sorted(location_fields, key=lambda x: x.get('priority', 999)):
+                field_name = location_field.get('fieldName')
+                field_type = location_field.get('type', 'point')
+                
+                if field_type == 'point' and field_name in row and row[field_name] is not None:
+                    # Process point field
+                    if field_name in ['point', 'point_geom']:
+                        point_data = row[field_name]
+                        if isinstance(point_data, dict) and point_data.get('type') == 'Point':
+                            coords = point_data.get('coordinates')
+                            if coords and len(coords) >= 2:
+                                title, description = generate_point_title_and_description(row, idx)
+                                tooltip_fields = extract_tooltip_fields(row, location_fields)
+                                item = {
+                                    "lat": coords[1],
+                                    "lon": coords[0],
+                                    "value": row.get('value', 1),
+                                    "title": title,
+                                    "description": description,
+                                    "coordinates": coords,
+                                    "color": "#6B46C1",  # TransparentSF purple
+                                    "tooltip_fields": tooltip_fields
+                                }
+                                # Add all original data fields for coloring options
+                                for column, value in row.items():
+                                    if column not in ['lat', 'lon', 'long', 'latitude', 'longitude', 'coordinates', 'point', 'point_geom', 'intersection']:
+                                        item[column] = value
+                                
+                                # Add tooltip fields as individual properties for coloring
+                                if tooltip_fields:
+                                    for field_name, field_value in tooltip_fields.items():
+                                        item[field_name] = field_value
+                                
+                                location_data.append(item)
+                                break
+                    elif field_name in ['latitude', 'lat'] and any(f in row for f in ['longitude', 'long', 'lon']):
+                        # Handle lat/lon fields
+                        lat_field = field_name
+                        lon_field = 'longitude' if 'longitude' in row else ('long' if 'long' in row else 'lon')
+                        if row[lat_field] and row[lon_field]:
+                            title, description = generate_point_title_and_description(row, idx)
+                            tooltip_fields = extract_tooltip_fields(row, location_fields)
+                            item = {
+                                "lat": row[lat_field],
+                                "lon": row[lon_field],
+                                "value": row.get('value', 1),
+                                "title": title,
+                                "description": description,
+                                "coordinates": [row[lon_field], row[lat_field]],
+                                "color": "#6B46C1",  # TransparentSF purple
+                                "tooltip_fields": tooltip_fields
+                            }
+                            # Add all original data fields for coloring options
+                            for column, value in row.items():
+                                if column not in ['lat', 'lon', 'long', 'latitude', 'longitude', 'coordinates', 'point', 'point_geom', 'intersection']:
+                                    item[column] = value
+                            
+                            # Add tooltip fields as individual properties for coloring
+                            if tooltip_fields:
+                                for field_name, field_value in tooltip_fields.items():
+                                    item[field_name] = field_value
+                            
+                            location_data.append(item)
+                            break
+        
+        # Handle shape data if point data is not available or threshold exceeded
+        elif map_type == "supervisor_district" or (not use_point_data and location_fields):
+            # Look for shape fields
+            for location_field in sorted(location_fields, key=lambda x: x.get('priority', 999)):
+                field_name = location_field.get('fieldName')
+                field_type = location_field.get('type', 'shape')
+                
+                if field_type == 'shape' and field_name in row and row[field_name] is not None:
+                    # Process shape field (district, neighborhood, etc.)
+                    shape_value = row[field_name]
+                    if shape_value and str(shape_value).strip():
+                        item = {
+                            "district": str(shape_value),
+                            "value": row.get('value', 1),
+                            "title": f"{location_field.get('name', field_name)} {shape_value}",
+                            "description": f"Value: {row.get('value', 1)}"
+                        }
+                        # Add all original data fields for coloring options
+                        for column, value in row.items():
+                            if column not in ['district', 'value', 'title', 'description']:
+                                item[column] = value
+                        location_data.append(item)
+                        break
+            # For district maps, expect district and value fields
+            if 'district' in row and 'value' in row:
+                item = {
+                    "district": str(row['district']),
+                    "value": float(row['value']),
+                    "title": f"District {row['district']}",
+                    "description": f"Value: {row['value']}"
+                }
+                # Add all original data fields for coloring options
+                for column, value in row.items():
+                    if column not in ['district', 'value', 'title', 'description']:
+                        item[column] = value
+                location_data.append(item)
+        
+        # Add series information if available
+        if series_field and series_field in row:
+            item[series_field] = row[series_field]
+    
+    logger.info(f"Processed {len(location_data)} items for map type {map_type}")
+    if location_data:
+        logger.info(f"Sample processed item: {location_data[0]}")
+    
+    # Aggregate overlapping points if scale_dots is enabled
+    if scale_dots and map_type in ["point", "address", "intersection", "symbol"]:
+        location_data = aggregate_overlapping_points(location_data, scale_dots)
+    
+    return location_data
+
+def generate_map(context_variables, map_title, map_type, location_data=None, map_metadata=None, reference_chart_id=None, metric_id=None, group_field=None, series_field=None, color_palette=None, map_provider="datawrapper", preview_mode=False):
     """
     Generates a map using Datawrapper, stores its metadata, and returns relevant URLs.
     
@@ -1725,7 +2590,15 @@ def generate_map(context_variables, map_title, map_type, location_data=None, map
     Returns:
         dict: Contains map_id, edit_url, and publish_url, or None on failure.
     """
-    logger.info(f"Generating map: '{map_title}' of type '{map_type}'")
+    logger.info(f"Generating map: '{map_title}' of type '{map_type}' using {map_provider}")
+    
+    # Handle Mapbox provider
+    if map_provider == "mapbox":
+        # Get map_config from context_variables if available
+        map_config = context_variables.get("map_config")
+        # Get scale_dots from map_metadata if available
+        scale_dots = map_metadata.get("scale_dots", True) if map_metadata else True
+        return generate_mapbox_map(context_variables, map_title, map_type, location_data, map_metadata, metric_id, group_field, series_field, color_palette, map_config, preview_mode, scale_dots)
     
     # Check if we should use dataset from context_variables
     if location_data is None or location_data == "from_context":
@@ -1742,8 +2615,41 @@ def generate_map(context_variables, map_title, map_type, location_data=None, map
                 # For locator maps, convert DataSF format to our format
                 location_data = []
                 for idx, row in dataset.iterrows():
+                    # Handle intersection_point field with GeoJSON point data
+                    if 'intersection_point' in row and row['intersection_point'] is not None:
+                        try:
+                            intersection_data = row['intersection_point']
+                            if isinstance(intersection_data, str):
+                                try:
+                                    intersection_data = json.loads(intersection_data)
+                                except json.JSONDecodeError:
+                                    try:
+                                        intersection_data = ast.literal_eval(intersection_data)
+                                    except (ValueError, SyntaxError):
+                                        logger.warning(f"Could not parse intersection_point data: {intersection_data}")
+                                        continue
+                            
+                            if isinstance(intersection_data, dict) and intersection_data.get('type') == 'Point':
+                                coords = intersection_data.get('coordinates')
+                                if coords and len(coords) >= 2:
+                                    processed_item = {
+                                        "lat": coords[1],  # Latitude is second in GeoJSON
+                                        "lon": coords[0],  # Longitude is first in GeoJSON
+                                        "value": row.get('value', 1),
+                                        "title": f"Traffic Call: {row.get('call_type_final_desc', 'Unknown')}",
+                                        "tooltip": f"Type: {row.get('call_type_final_desc', 'Unknown')} | Time: {row.get('received_datetime', 'Unknown')}"
+                                    }
+                                    # Add all original data fields for coloring options
+                                    for column, value in row.items():
+                                        if column not in ['lat', 'lon', 'long', 'latitude', 'longitude', 'coordinates', 'point', 'point_geom', 'intersection_point']:
+                                            processed_item[column] = value
+                                    location_data.append(processed_item)
+                                    continue
+                        except Exception as e:
+                            logger.warning(f"Error processing intersection_point data: {str(e)}")
+                    
                     # Handle intersection field with GeoJSON point data
-                    if 'intersection' in row and row['intersection'] is not None:
+                    elif 'intersection' in row and row['intersection'] is not None:
                         try:
                             intersection_data = row['intersection']
                             if isinstance(intersection_data, str):
@@ -1766,6 +2672,10 @@ def generate_map(context_variables, map_title, map_type, location_data=None, map
                                         "title": f"Intersection: {coords[0]:.6f}, {coords[1]:.6f}",
                                         "tooltip": f"Value: {row.get('value', 1)}"
                                     }
+                                    # Add all original data fields for coloring options
+                                    for column, value in row.items():
+                                        if column not in ['lat', 'lon', 'long', 'latitude', 'longitude', 'coordinates', 'point', 'point_geom', 'intersection']:
+                                            processed_item[column] = value
                                     location_data.append(processed_item)
                                     continue
                         except Exception as e:
@@ -1785,6 +2695,10 @@ def generate_map(context_variables, map_title, map_type, location_data=None, map
                                 # Copy over any series field data
                                 if series_field and series_field in row:
                                     processed_item[series_field] = row[series_field]
+                                # Add all original data fields for coloring options
+                                for column, value in row.items():
+                                    if column not in ['location', 'title', 'tooltip', 'description']:
+                                        processed_item[column] = value
                                 location_data.append(processed_item)
                     
                     # Handle direct coordinates format (already processed data)
@@ -1846,6 +2760,10 @@ def generate_map(context_variables, map_title, map_type, location_data=None, map
                                             "title": row.get('title', ''),
                                             "tooltip": f"Value: {row.get('value', 1)}"
                                         }
+                                        # Add all original data fields for coloring options
+                                        for column, value in row.items():
+                                            if column not in ['lat', 'lon', 'long', 'latitude', 'longitude', 'coordinates', 'point', 'point_geom', 'intersection']:
+                                                item[column] = value
                                         logger.info(f"DEBUG: Added DataSF location item: {item}")
                                         location_data.append(item)
                                         continue
@@ -1865,6 +2783,10 @@ def generate_map(context_variables, map_title, map_type, location_data=None, map
                                                 "title": row.get('title', ''),
                                                 "tooltip": f"Value: {row.get('value', 1)}"
                                             }
+                                            # Add all original data fields for coloring options
+                                            for column, value in row.items():
+                                                if column not in ['lat', 'lon', 'long', 'latitude', 'longitude', 'coordinates', 'point', 'point_geom', 'intersection']:
+                                                    item[column] = value
                                             logger.info(f"DEBUG: Added GeoJSON Point item: {item}")
                                             location_data.append(item)
                                             continue
@@ -1872,6 +2794,44 @@ def generate_map(context_variables, map_title, map_type, location_data=None, map
                                             logger.warning(f"Could not convert GeoJSON coordinates to float: {e}")
                         except Exception as e:
                             logger.warning(f"Error processing location data: {str(e)}")
+                    
+                    # Handle intersection_point data with GeoJSON points
+                    elif 'intersection_point' in row and row['intersection_point'] is not None:
+                        try:
+                            intersection_data = row['intersection_point']
+                            if isinstance(intersection_data, str):
+                                try:
+                                    intersection_data = json.loads(intersection_data)
+                                except json.JSONDecodeError:
+                                    try:
+                                        intersection_data = ast.literal_eval(intersection_data)
+                                    except (ValueError, SyntaxError):
+                                        logger.warning(f"Could not parse intersection_point data: {intersection_data}")
+                                        continue
+                            
+                            if isinstance(intersection_data, dict) and intersection_data.get('type') == 'Point':
+                                coords = intersection_data.get('coordinates')
+                                if coords and len(coords) >= 2:
+                                    try:
+                                        lon, lat = float(coords[0]), float(coords[1])
+                                        item = {
+                                            "lat": lat,
+                                            "lon": lon,
+                                            "value": row.get('value', 1),
+                                            "title": f"Traffic Call: {row.get('call_type_final_desc', 'Unknown')}",
+                                            "tooltip": f"Type: {row.get('call_type_final_desc', 'Unknown')} | Time: {row.get('received_datetime', 'Unknown')}"
+                                        }
+                                        # Add all original data fields for coloring options
+                                        for column, value in row.items():
+                                            if column not in ['lat', 'lon', 'long', 'latitude', 'longitude', 'coordinates', 'point', 'point_geom', 'intersection_point']:
+                                                item[column] = value
+                                        logger.info(f"DEBUG: Added intersection_point item: {item}")
+                                        location_data.append(item)
+                                        continue
+                                    except (ValueError, TypeError) as e:
+                                        logger.warning(f"Could not convert intersection_point coordinates to float: {e}")
+                        except Exception as e:
+                            logger.warning(f"Error processing intersection_point data: {str(e)}")
                     
                     # Handle intersection data with GeoJSON points
                     elif 'intersection' in row and row['intersection'] is not None:
@@ -1897,6 +2857,10 @@ def generate_map(context_variables, map_title, map_type, location_data=None, map
                                         "title": f"Intersection: {coords[0]:.6f}, {coords[1]:.6f}",
                                         "tooltip": f"Value: {row.get('value', 1)}"
                                     }
+                                    # Add all original data fields for coloring options
+                                    for column, value in row.items():
+                                        if column not in ['lat', 'lon', 'long', 'latitude', 'longitude', 'coordinates', 'point', 'point_geom', 'intersection']:
+                                            item[column] = value
                                     logger.info(f"DEBUG: Added intersection item: {item}")
                                     location_data.append(item)
                                     continue
@@ -1912,6 +2876,10 @@ def generate_map(context_variables, map_title, map_type, location_data=None, map
                             "description": row.get('description', ''),
                             "series": row.get('series', '')
                         }
+                        # Add all original data fields for coloring options
+                        for column, value in row.items():
+                            if column not in ['title', 'address', 'value', 'description', 'series']:
+                                item[column] = value
                         logger.info(f"DEBUG: Added address item: {item}")
                         location_data.append(item)
                     else:
@@ -2159,7 +3127,7 @@ def generate_map(context_variables, map_title, map_type, location_data=None, map
                         "stroke": "null",
                         "highlight": False,
                         "fillOpacity": 1,
-                        "markerColor": "#8b5cf6",  # Purple for recent
+                        "markerColor": "#ad35fa",  # Purple for recent
                         "markerSymbol": "",
                         "markerPattern": False,
                         "markerTextColor": ""
@@ -2808,7 +3776,7 @@ def process_symbol_map_data(location_data, period_info=None):
         if 'period_type' in item:
             period_type = item.get('period_type')
             if period_type == 'recent':
-                return "#8b5cf6"  # Purple for recent period
+                return "#ad35fa"  # Purple for recent period
             elif period_type == 'comparison':
                 return "#9ca3af"  # Grey for previous period
             else:
@@ -2833,7 +3801,7 @@ def process_symbol_map_data(location_data, period_info=None):
             
             # Check if in recent period
             if recent_start_obj <= item_date_obj <= recent_end_obj:
-                return "#8b5cf6"  # Purple for recent period
+                return "#ad35fa"  # Purple for recent period
             else:
                 return "#9ca3af"  # Grey for previous period
                 

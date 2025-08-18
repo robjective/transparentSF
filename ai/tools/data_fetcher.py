@@ -5,6 +5,7 @@ from urllib.parse import urljoin
 import pandas as pd
 import logging
 import json
+from dateutil.relativedelta import relativedelta
 
 # Create a logger for this module
 logger = logging.getLogger(__name__)
@@ -92,7 +93,7 @@ def fetch_data_from_api(query_object):
                     response.status_code,
                     response.text[:200]
                 )
-                return {'error': 'Failed to decode JSON response from the API.', 'queryURL': response.url}
+                return {'error': 'Failed to decode JSON response from the API.', 'queryURL': url}
             all_data.extend(data)
             logger.info("Fetched %d records in current batch.", len(data))
 
@@ -117,15 +118,15 @@ def fetch_data_from_api(query_object):
                 http_err,
                 error_content
             )
-            return {'error': error_content, 'queryURL': response.url}
+            return {'error': error_content, 'queryURL': url}
         except Exception as err:
             logger.exception("An error occurred: %s", err)
-            return {'error': str(err), 'queryURL': response.url if response else None}
+            return {'error': str(err), 'queryURL': None}
 
     logger.debug("Finished fetching data. Total records retrieved: %d", len(all_data))
     return {
         'data': all_data,
-        'queryURL': response.url if response else None
+        'queryURL': url
     }
 
 def set_dataset(context_variables, *args, **kwargs):
@@ -207,3 +208,362 @@ def set_dataset(context_variables, *args, **kwargs):
     except Exception as e:
         logger.exception("Unexpected error in set_dataset")
         return {'error': f'Unexpected error: {str(e)}', 'queryURL': None}
+
+def fetch_metric_data(metric_id, district="0", period_type="month", time_periods=2, anomaly_type=None, anomaly_field_name=None):
+    """
+    Fetch data for a specific metric from the database and API using map configuration.
+    
+    Args:
+        metric_id (str): The metric ID
+        district (str): District filter ("0" for citywide, or specific district number)
+        period_type (str): Period type for the data (month, quarter, year)
+        time_periods (int): Number of time periods to include (default: 2)
+        anomaly_type (str): Anomaly type filter (group_value from anomalies table)
+        
+    Returns:
+        dict: Contains 'data' (DataFrame) or 'error' message
+    """
+    logger.info(f"Fetching data for metric {metric_id}, district {district}, period {period_type}, time_periods {time_periods}")
+    
+    try:
+        import psycopg2
+        import psycopg2.extras
+        import os
+        from dotenv import load_dotenv
+        from datetime import date, timedelta
+        
+        load_dotenv()
+        
+        # Connect to database to get metric details
+        conn = psycopg2.connect(
+            host=os.getenv("POSTGRES_HOST", "localhost"),
+            port=int(os.getenv("POSTGRES_PORT", "5432")),
+            dbname=os.getenv("POSTGRES_DB", "transparentsf"),
+            user=os.getenv("POSTGRES_USER", "postgres"),
+            password=os.getenv("POSTGRES_PASSWORD", "postgres")
+        )
+        
+        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        
+        # Get metric information including map fields
+        cursor.execute("SELECT * FROM metrics WHERE id = %s", [metric_id])
+        metric = cursor.fetchone()
+        
+        if not metric:
+            cursor.close()
+            conn.close()
+            return {'error': f'Metric {metric_id} not found'}
+        
+        # Get map configuration
+        map_query = metric.get('map_query', '')
+        map_filters = metric.get('map_filters', {})
+        map_config = metric.get('map_config', {})
+        endpoint = metric.get('endpoint', '')
+        
+        if not endpoint:
+            cursor.close()
+            conn.close()
+            return {'error': f'Metric {metric_id} missing endpoint'}
+        
+        # Use provided anomaly_field_name or look it up if not provided
+        if anomaly_type and not anomaly_field_name:
+            logger.info(f"Looking up anomaly field for metric_id={metric_id} (type: {type(metric_id)}) and anomaly_type={anomaly_type}")
+            
+            # Try different approaches to find the anomaly field
+            try:
+                # First try with metric_id as string
+                logger.info(f"Executing anomaly lookup query with metric_id='{str(metric_id)}' and anomaly_type='{anomaly_type}'")
+                cursor.execute("""
+                    SELECT group_field_name 
+                    FROM anomalies 
+                    WHERE object_id = %s AND group_value = %s AND is_active = TRUE 
+                    LIMIT 1
+                """, [str(metric_id), anomaly_type])
+                anomaly_result = cursor.fetchone()
+                
+                if anomaly_result:
+                    anomaly_field_name = anomaly_result['group_field_name']
+                    logger.info(f"Found anomaly field name: {anomaly_field_name} for group_value: {anomaly_type}")
+                else:
+                    logger.warning(f"No anomaly found for metric_id={metric_id}, anomaly_type={anomaly_type}")
+                    # Let's check what anomalies exist for this metric
+                    cursor.execute("""
+                        SELECT group_field_name, group_value 
+                        FROM anomalies 
+                        WHERE object_id = %s AND is_active = TRUE 
+                        LIMIT 5
+                    """, [str(metric_id)])
+                    existing_anomalies = cursor.fetchall()
+                    logger.info(f"Available anomalies for metric {metric_id}: {existing_anomalies}")
+                    
+            except Exception as e:
+                logger.error(f"Error looking up anomaly field: {str(e)}")
+                # If lookup fails, we'll use fallback logic in build_map_query
+        elif anomaly_type and anomaly_field_name:
+            logger.info(f"Using provided anomaly field name: {anomaly_field_name} for group_value: {anomaly_type}")
+        
+        cursor.close()
+        conn.close()
+        
+        # Build the query using map configuration
+        query = build_map_query(map_query, map_filters, map_config, district, period_type, time_periods, anomaly_type, anomaly_field_name)
+        
+        if not query:
+            return {'error': f'Failed to build query for metric {metric_id}'}
+        
+        logger.info(f"Built map query: {query}")
+        
+        # Fetch data using the existing set_dataset function
+        context_variables = {}
+        result = set_dataset(context_variables, endpoint=endpoint, query=query)
+        
+        if 'error' in result:
+            return result
+        
+        # Return the dataset
+        dataset = context_variables.get('dataset')
+        if dataset is not None and not dataset.empty:
+            return {'data': dataset}
+        else:
+            return {'error': 'No data returned from API'}
+            
+    except Exception as e:
+        logger.exception(f"Error fetching metric data: {str(e)}")
+        return {'error': f'Error fetching metric data: {str(e)}'}
+
+def build_map_query(map_query, map_filters, map_config, district, period_type, time_periods, anomaly_type=None, anomaly_field_name=None):
+    """
+    Build a query using map configuration and filters.
+    
+    Args:
+        map_query (str): Base map query
+        map_filters (dict): Map filters configuration
+        map_config (dict): Map configuration
+        district (str): District filter
+        period_type (str): Period type
+        time_periods (int): Number of time periods
+        anomaly_type (str): Anomaly type filter (group_value from anomalies table)
+        anomaly_field_name (str): The field name to filter on for the anomaly
+        
+    Returns:
+        str: Built query string
+    """
+    from datetime import date, timedelta
+    
+    # Start with the base map query
+    if not map_query or map_query.strip() == '':
+        query = "SELECT *"
+    else:
+        query = map_query.strip()
+    
+    # Calculate date ranges based on period_type and time_periods
+    target_date = date.today() - timedelta(days=1)
+    
+    if period_type == "month":
+        # Get the last N months using proper month calculation
+        end_date = target_date
+        
+        # Handle special "since_2024" case
+        if time_periods == "since_2024":
+            # Set start date to January 1, 2024
+            start_date = date(2024, 1, 1)
+        else:
+            # Calculate start date by subtracting months properly
+            start_date = end_date - relativedelta(months=int(time_periods))
+    elif period_type == "week":
+        # Get the last N weeks using proper week calculation
+        end_date = target_date
+        
+        # Handle special "since_2024" case
+        if time_periods == "since_2024":
+            # Set start date to January 1, 2024
+            start_date = date(2024, 1, 1)
+        else:
+            # Calculate start date by subtracting weeks properly
+            start_date = end_date - timedelta(weeks=int(time_periods))
+    elif period_type == "quarter":
+        # Get the last N quarters using proper quarter calculation
+        end_date = target_date
+        start_date = end_date - relativedelta(months=3 * int(time_periods))
+    elif period_type == "year":
+        # Get the last N years using proper year calculation
+        end_date = target_date
+        start_date = end_date - relativedelta(years=int(time_periods))
+    else:
+        # Default to last 2 months
+        end_date = target_date
+        start_date = end_date - timedelta(days=60)
+    
+    # Add WHERE clause if needed
+    where_conditions = []
+    
+    # Add date range filter if specified in map_config
+    date_field = map_config.get('date_field')
+    if date_field:
+        # Check if the date_field is a complex case statement
+        if 'CASE WHEN' in date_field.upper():
+            # For complex case statements, we need to handle them differently
+            # Extract the base fields from the case statement
+            if 'dba_start_date' in date_field and 'location_start_date' in date_field:
+                # Use the same logic as the metric query - check both fields for openings
+                where_conditions.append(f"((dba_start_date >= '{start_date.strftime('%Y-%m-%d')}' AND dba_start_date <= '{end_date.strftime('%Y-%m-%d')}') OR (location_start_date >= '{start_date.strftime('%Y-%m-%d')}' AND location_start_date <= '{end_date.strftime('%Y-%m-%d')}' AND dba_start_date < '{start_date.strftime('%Y-%m-%d')}'))")
+            elif 'dba_end_date' in date_field and 'location_end_date' in date_field:
+                # Use the same logic as the metric query - check both fields for closures
+                where_conditions.append(f"((dba_end_date >= '{start_date.strftime('%Y-%m-%d')}' AND dba_end_date <= '{end_date.strftime('%Y-%m-%d')}') OR (location_end_date >= '{start_date.strftime('%Y-%m-%d')}' AND location_end_date <= '{end_date.strftime('%Y-%m-%d')}' AND dba_end_date < '{start_date.strftime('%Y-%m-%d')}'))")
+            else:
+                # Fallback to simple field usage
+                where_conditions.append(f"{date_field} >= '{start_date.strftime('%Y-%m-%d')}' AND {date_field} <= '{end_date.strftime('%Y-%m-%d')}'")
+        else:
+            # Simple field name
+            where_conditions.append(f"{date_field} >= '{start_date.strftime('%Y-%m-%d')}' AND {date_field} <= '{end_date.strftime('%Y-%m-%d')}'")
+    
+    # Add geometry filter if specified in map_filters
+    if map_filters and 'geometry' in map_filters:
+        geometry_filter = map_filters['geometry']
+        if geometry_filter.get('type') == 'within_polygon':
+            field = geometry_filter.get('field', 'location')
+            value = geometry_filter.get('value', '')
+            if value:
+                where_conditions.append(f"within_polygon({field}, '{value}')")
+    
+    # Add static filters if specified in map_filters
+    if map_filters and 'static_filters' in map_filters:
+        static_filters = map_filters['static_filters']
+        logger.info(f"Processing static filters: {static_filters}")
+        
+        for filter_item in static_filters:
+            field = filter_item.get('field')
+            operator = filter_item.get('operator', '=')
+            values = filter_item.get('values', [])  # Use 'values' (plural)
+            value = filter_item.get('value')  # Fallback to 'value' (singular)
+            
+            if field and (values or value is not None):
+                # Use values if available, otherwise use single value
+                if values:
+                    if operator.upper() == "IN" and len(values) > 1:
+                        values_str = "', '".join(str(v) for v in values)
+                        filter_clause = f"{field} IN ('{values_str}')"
+                        where_conditions.append(filter_clause)
+                        logger.info(f"Added static IN filter: {filter_clause}")
+                    elif len(values) == 1:
+                        filter_clause = f"{field} {operator} '{values[0]}'"
+                        where_conditions.append(filter_clause)
+                        logger.info(f"Added static filter: {filter_clause}")
+                elif value is not None:
+                    if isinstance(value, str):
+                        filter_clause = f"{field} {operator} '{value}'"
+                    else:
+                        filter_clause = f"{field} {operator} {value}"
+                    where_conditions.append(filter_clause)
+                    logger.info(f"Added static filter: {filter_clause}")
+    
+    # Add direct filters from map_filters (like incident_category_filter)
+    if map_filters:
+        for filter_name, filter_config in map_filters.items():
+            # Skip special filter types that are handled separately
+            if filter_name in ['date_field', 'geometry', 'date_range', 'static_filters']:
+                continue
+                
+            # Handle direct filter structures like incident_category_filter
+            if isinstance(filter_config, dict):
+                field = filter_config.get("field")
+                operator = filter_config.get("operator", "=")
+                values = filter_config.get("values", []) if filter_config.get("values") else [filter_config.get("value")]
+                
+                if field and values:
+                    if operator.upper() == "IN" and len(values) > 1:
+                        values_str = "', '".join(str(v) for v in values)
+                        filter_clause = f"{field} IN ('{values_str}')"
+                        where_conditions.append(filter_clause)
+                        logger.info(f"Added direct IN filter: {filter_clause}")
+                    elif len(values) == 1:
+                        filter_clause = f"{field} {operator} '{values[0]}'"
+                        where_conditions.append(filter_clause)
+                        logger.info(f"Added direct filter: {filter_clause}")
+    
+    # Add district filter if specified
+    if district != "0":
+        where_conditions.append(f"supervisor_district = '{district}'")
+    
+    # Add anomaly filter if specified
+    if anomaly_type and anomaly_field_name:
+        logger.info(f"Adding anomaly filter: {anomaly_field_name} = '{anomaly_type}'")
+        where_conditions.append(f"{anomaly_field_name} = '{anomaly_type}'")
+    elif anomaly_type:
+        # Fallback: try to find the appropriate field if we don't have the field name
+        logger.info(f"Adding anomaly filter for group_value: {anomaly_type} (fallback)")
+        
+        # Try to find the appropriate field from map_config or map_filters
+        anomaly_field = None
+        
+        # Check if we have category_fields in map_config that might contain the anomaly field
+        if map_config and 'category_fields' in map_config:
+            category_fields = map_config['category_fields']
+            if isinstance(category_fields, list) and len(category_fields) > 0:
+                # Use the first category field as a potential anomaly field
+                anomaly_field = category_fields[0].get('fieldName') if isinstance(category_fields[0], dict) else str(category_fields[0])
+        
+        # If no category_fields, try to find a suitable field from the query
+        if not anomaly_field:
+            # Look for common anomaly fields in the query
+            query_lower = query.lower()
+            if 'incident_category' in query_lower:
+                anomaly_field = 'incident_category'
+            elif 'service_name' in query_lower:
+                anomaly_field = 'service_name'
+            elif 'service_subtype' in query_lower:
+                anomaly_field = 'service_subtype'
+            elif 'call_type_final' in query_lower:
+                anomaly_field = 'call_type_final'
+            else:
+                # Default to a common field that might exist
+                anomaly_field = 'incident_category'
+        
+        if anomaly_field:
+            where_conditions.append(f"{anomaly_field} = '{anomaly_type}'")
+            logger.info(f"Added anomaly filter (fallback): {anomaly_field} = '{anomaly_type}'")
+    
+    # Add date range filter from map_filters if specified (only if not already added from map_config)
+    if map_filters and 'date_range' in map_filters and not date_field:
+        date_range_filter = map_filters['date_range']
+        field = date_range_filter.get('field')
+        fallback_field = date_range_filter.get('fallback_field')
+        fallback_condition = date_range_filter.get('fallback_condition')
+        
+        if field:
+            # Check if the field is a complex case statement
+            if 'CASE WHEN' in field.upper():
+                # For complex case statements, we need to handle them differently
+                # Extract the base fields from the case statement
+                if 'dba_start_date' in field and 'location_start_date' in field:
+                    # Use the same logic as the metric query - check both fields for openings
+                    where_conditions.append(f"((dba_start_date >= '{start_date.strftime('%Y-%m-%d')}' AND dba_start_date <= '{end_date.strftime('%Y-%m-%d')}') OR (location_start_date >= '{start_date.strftime('%Y-%m-%d')}' AND location_start_date <= '{end_date.strftime('%Y-%m-%d')}' AND dba_start_date < '{start_date.strftime('%Y-%m-%d')}'))")
+                elif 'dba_end_date' in field and 'location_end_date' in field:
+                    # Use the same logic as the metric query - check both fields for closures
+                    where_conditions.append(f"((dba_end_date >= '{start_date.strftime('%Y-%m-%d')}' AND dba_end_date <= '{end_date.strftime('%Y-%m-%d')}') OR (location_end_date >= '{start_date.strftime('%Y-%m-%d')}' AND location_end_date <= '{end_date.strftime('%Y-%m-%d')}' AND dba_end_date < '{start_date.strftime('%Y-%m-%d')}'))")
+                else:
+                    # Fallback to simple field usage
+                    where_conditions.append(f"{field} >= '{start_date.strftime('%Y-%m-%d')}' AND {field} <= '{end_date.strftime('%Y-%m-%d')}'")
+            else:
+                # Simple field name
+                where_conditions.append(f"{field} >= '{start_date.strftime('%Y-%m-%d')}' AND {field} <= '{end_date.strftime('%Y-%m-%d')}'")
+        
+        if fallback_field and fallback_condition:
+            # Add fallback condition
+            where_conditions.append(f"({fallback_condition})")
+    
+    # Combine all conditions
+    if where_conditions:
+        logger.info(f"WHERE conditions to apply: {where_conditions}")
+        if "WHERE" in query.upper():
+            query += f" AND {' AND '.join(where_conditions)}"
+        else:
+            query += f" WHERE {' AND '.join(where_conditions)}"
+    
+    # Add LIMIT based on data_point_threshold from map_config
+    data_point_threshold = map_config.get('data_point_threshold', 5000)
+    if "LIMIT" not in query.upper():
+        query += f" LIMIT {data_point_threshold}"
+    
+    logger.info(f"Final built map query: {query}")
+    return query

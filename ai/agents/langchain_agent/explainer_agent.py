@@ -11,6 +11,11 @@ import json
 import logging
 import time
 import asyncio
+import uuid
+from datetime import datetime
+from dataclasses import dataclass, asdict
+from dataclasses_json import dataclass_json
+
 
 # Add the parent directory to sys.path for absolute imports
 current_dir = Path(__file__).parent
@@ -35,6 +40,313 @@ from ..config.models import create_langchain_llm, get_default_model, get_model_c
 from .config.tool_config import ToolGroup, tool_config
 from .tools.tool_factory import tool_factory
 from .prompts.modular_prompts import prompt_builder
+
+@dataclass_json
+@dataclass
+class ToolCall:
+    """Represents a single tool call with detailed information."""
+    tool_name: str
+    arguments: Dict[str, Any]
+    start_time: float
+    end_time: Optional[float] = None
+    success: Optional[bool] = None
+    result: Optional[Any] = None
+    error_message: Optional[str] = None
+    execution_time_ms: Optional[int] = None
+    
+    def finalize(self, result: Any, success: bool, error_message: Optional[str] = None):
+        """Finalize the tool call with results."""
+        self.end_time = time.time()
+        self.result = result
+        self.success = success
+        self.error_message = error_message
+        self.execution_time_ms = int((self.end_time - self.start_time) * 1000)
+
+@dataclass_json
+@dataclass
+class ConversationMessage:
+    """Represents a conversation message."""
+    role: str  # 'user' or 'assistant'
+    content: str
+    timestamp: str
+    sender: Optional[str] = None
+
+@dataclass_json
+@dataclass
+class AgentSession:
+    """Represents a complete agent session with all details."""
+    session_id: str
+    timestamp: str
+    agent_type: str = "langchain_explainer"
+    model: str = ""
+    user_input: str = ""
+    conversation: List[ConversationMessage] = None
+    tool_calls: List[ToolCall] = None
+    final_response: str = ""
+    total_execution_time_ms: int = 0
+    success: bool = True
+    error_summary: Optional[str] = None
+    model_config: Optional[Dict[str, Any]] = None
+    tool_groups: Optional[List[str]] = None
+    available_tools: Optional[List[str]] = None
+    
+    def __post_init__(self):
+        if self.conversation is None:
+            self.conversation = []
+        if self.tool_calls is None:
+            self.tool_calls = []
+        if self.model_config is None:
+            self.model_config = {}
+        if self.tool_groups is None:
+            self.tool_groups = []
+        if self.available_tools is None:
+            self.available_tools = []
+
+class SessionLogger:
+    """Handles detailed session logging for the LangChain explainer agent."""
+    
+    def __init__(self, logs_dir: Optional[Path] = None):
+        """Initialize the session logger."""
+        if logs_dir is None:
+            # Default to ai/logs/sessions
+            current_dir = Path(__file__).parent
+            ai_dir = current_dir.parent.parent
+            logs_dir = ai_dir / 'logs' / 'sessions'
+        
+        self.logs_dir = logs_dir
+        self.logs_dir.mkdir(parents=True, exist_ok=True)
+        self.logger = logging.getLogger(__name__)
+        
+        self.logger.info(f"SessionLogger initialized with logs directory: {self.logs_dir}")
+    
+    def create_session(self, 
+                      model: str, 
+                      model_config: Dict[str, Any],
+                      tool_groups: List[ToolGroup],
+                      available_tools: List[str]) -> AgentSession:
+        """Create a new session for logging."""
+        session_id = str(uuid.uuid4())
+        timestamp = datetime.now().isoformat()
+        
+        session = AgentSession(
+            session_id=session_id,
+            timestamp=timestamp,
+            model=model,
+            model_config=model_config,
+            tool_groups=[g.value for g in tool_groups],
+            available_tools=available_tools
+        )
+        
+        self.logger.info(f"Created new session: {session_id}")
+        return session
+    
+    def log_session(self, session: AgentSession):
+        """Log the complete session to a JSON file."""
+        try:
+            # Create filename with timestamp and session ID
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            filename = f"session_{timestamp}_{session.session_id[:8]}.json"
+            filepath = self.logs_dir / filename
+            
+            # Convert session to dict and handle non-serializable objects
+            session_dict = self._prepare_session_for_json(session)
+            
+            # Write to file
+            with open(filepath, 'w', encoding='utf-8') as f:
+                json.dump(session_dict, f, indent=2, ensure_ascii=False, default=str)
+            
+            self.logger.info(f"Session logged to: {filepath}")
+            
+            # Also log a summary to the main log
+            self._log_session_summary(session)
+            
+        except Exception as e:
+            self.logger.error(f"Error logging session: {e}")
+    
+    def _prepare_session_for_json(self, session: AgentSession) -> Dict[str, Any]:
+        """Prepare session data for JSON serialization."""
+        session_dict = asdict(session)
+        
+        # Handle non-serializable objects in tool calls
+        for tool_call in session_dict['tool_calls']:
+            if 'result' in tool_call and tool_call['result'] is not None:
+                tool_call['result'] = self._make_json_serializable(tool_call['result'])
+            if 'arguments' in tool_call and tool_call['arguments'] is not None:
+                tool_call['arguments'] = self._make_json_serializable(tool_call['arguments'])
+        
+        return session_dict
+    
+    def _make_json_serializable(self, obj):
+        """Convert object to JSON-serializable format."""
+        try:
+            json.dumps(obj)
+            return obj
+        except (TypeError, ValueError):
+            return str(obj)
+    
+    def _log_session_summary(self, session: AgentSession):
+        """Log a summary of the session to the main log."""
+        summary = {
+            "session_id": session.session_id,
+            "model": session.model,
+            "user_input": session.user_input[:100] + "..." if len(session.user_input) > 100 else session.user_input,
+            "tool_calls_count": len(session.tool_calls),
+            "successful_tool_calls": len([tc for tc in session.tool_calls if tc.success]),
+            "failed_tool_calls": len([tc for tc in session.tool_calls if not tc.success]),
+            "total_execution_time_ms": session.total_execution_time_ms,
+            "success": session.success,
+            "error_summary": session.error_summary
+        }
+        
+        self.logger.info(f"Session Summary: {json.dumps(summary, indent=2)}")
+
+class EnhancedExecutionTraceCallback(BaseCallbackHandler):
+    """Enhanced callback to capture detailed execution trace for session logging."""
+    
+    def __init__(self, session: AgentSession):
+        self.session = session
+        self.current_tool_call: Optional[ToolCall] = None
+        self.logger = logging.getLogger(__name__)
+        self.session_start_time = time.time()
+        
+    def on_tool_start(self, serialized: Dict[str, Any], input_str: str, **kwargs) -> None:
+        """Called when a tool starts executing."""
+        try:
+            tool_name = serialized.get("name", "unknown")
+            
+            # Parse arguments
+            arguments = {}
+            try:
+                if input_str:
+                    arguments = json.loads(input_str)
+            except json.JSONDecodeError:
+                arguments = {"raw_input": input_str}
+            
+            # Create tool call
+            self.current_tool_call = ToolCall(
+                tool_name=tool_name,
+                arguments=arguments,
+                start_time=time.time()
+            )
+            
+            self.logger.info(f"Tool started: {tool_name} with args: {arguments}")
+            
+        except Exception as e:
+            self.logger.error(f"Error in on_tool_start: {e}")
+            self.current_tool_call = ToolCall(
+                tool_name="unknown",
+                arguments={"error": str(e)},
+                start_time=time.time()
+            )
+        
+    def on_tool_end(self, output, **kwargs) -> None:
+        """Called when a tool finishes executing."""
+        try:
+            if self.current_tool_call:
+                # Determine success and extract error message
+                success, error_message, normalized_result = self._analyze_tool_output(output)
+                
+                # Finalize the tool call
+                self.current_tool_call.finalize(
+                    result=normalized_result,
+                    success=success,
+                    error_message=error_message
+                )
+                
+                # Add to session
+                self.session.tool_calls.append(self.current_tool_call)
+                
+                self.logger.info(f"Tool ended: {self.current_tool_call.tool_name}, "
+                               f"success: {success}, duration: {self.current_tool_call.execution_time_ms}ms")
+                
+                self.current_tool_call = None
+            else:
+                self.logger.warning("on_tool_end called but no current_tool_call")
+                
+        except Exception as e:
+            self.logger.error(f"Error in on_tool_end: {e}")
+            if self.current_tool_call:
+                self.current_tool_call.finalize(
+                    result={"error": str(e)},
+                    success=False,
+                    error_message=str(e)
+                )
+                self.session.tool_calls.append(self.current_tool_call)
+                self.current_tool_call = None
+    
+    def on_tool_error(self, error: str, **kwargs) -> None:
+        """Called when a tool encounters an error."""
+        try:
+            if self.current_tool_call:
+                self.current_tool_call.finalize(
+                    result={"error": error},
+                    success=False,
+                    error_message=error
+                )
+                self.session.tool_calls.append(self.current_tool_call)
+                self.logger.error(f"Tool error: {self.current_tool_call.tool_name} - {error}")
+                self.current_tool_call = None
+        except Exception as e:
+            self.logger.error(f"Error in on_tool_error: {e}")
+    
+    def on_agent_finish(self, finish, **kwargs) -> None:
+        """Called when the agent finishes."""
+        try:
+            # Calculate total execution time
+            self.session.total_execution_time_ms = int((time.time() - self.session_start_time) * 1000)
+            self.logger.info(f"Agent finished. Total execution time: {self.session.total_execution_time_ms}ms")
+        except Exception as e:
+            self.logger.error(f"Error in on_agent_finish: {e}")
+    
+    def _analyze_tool_output(self, output) -> tuple[bool, Optional[str], Any]:
+        """Analyze tool output to determine success and extract error information."""
+        success = True
+        error_message = None
+        normalized_result = output
+        
+        try:
+            # Handle different output types
+            if isinstance(output, dict):
+                normalized_result = output
+                if "error" in output:
+                    success = False
+                    error_message = str(output["error"])
+                elif "status" in output and output["status"] != "success":
+                    success = False
+                    error_message = f"status={output['status']}"
+                elif "error_type" in output:
+                    success = False
+                    error_message = str(output["error_type"])
+            elif isinstance(output, str):
+                # Check for error indicators in string
+                output_lower = output.lower()
+                error_indicators = [
+                    "error", "exception", "failed", "failure", "invalid",
+                    "no-such-column", "query coordinator error", "soql error",
+                    "400 client error", "bad request", "could not parse",
+                    "expected", "but got", "table identifier"
+                ]
+                if any(indicator in output_lower for indicator in error_indicators):
+                    success = False
+                    error_message = f"String contains error indicators: {output[:200]}"
+                
+                # Try to parse as JSON
+                try:
+                    parsed = json.loads(output)
+                    if isinstance(parsed, dict):
+                        normalized_result = parsed
+                        if "error" in parsed:
+                            success = False
+                            error_message = str(parsed["error"])
+                except json.JSONDecodeError:
+                    pass  # Not JSON, keep as string
+                    
+        except Exception as e:
+            success = False
+            error_message = f"Error analyzing output: {str(e)}"
+            normalized_result = {"error": str(e), "raw_output": str(output)}
+        
+        return success, error_message, normalized_result
 
 class ExecutionTraceCallback(BaseCallbackHandler):
     """Callback to capture detailed execution trace for UI display."""
@@ -212,7 +524,8 @@ class LangChainExplainerAgent:
     def __init__(self, 
                  model_key: Optional[str] = None,
                  tool_groups: Optional[List[ToolGroup]] = None,
-                 include_all_sections: bool = False):
+                 include_all_sections: bool = False,
+                 enable_session_logging: bool = True):
         """
         Initialize the LangChain explainer agent.
         
@@ -220,6 +533,7 @@ class LangChainExplainerAgent:
             model_key: Model to use for the agent
             tool_groups: List of tool groups to include (default: CORE only)
             include_all_sections: Whether to include all prompt sections
+            enable_session_logging: Whether to enable detailed session logging
         """
         # Initialize logger first
         self.logger = logging.getLogger(__name__)
@@ -242,12 +556,22 @@ class LangChainExplainerAgent:
         self.tools = self._create_tools()
         self.messages: List[BaseMessage] = []
         
+        # Initialize session logging
+        self.enable_session_logging = enable_session_logging
+        if self.enable_session_logging:
+            self.session_logger = SessionLogger()
+            self.logger.info("Session logging enabled")
+        else:
+            self.session_logger = None
+            self.logger.info("Session logging disabled")
+        
         # Log configuration
         self.logger.info(f"LangChain Explainer agent initialized with:")
         self.logger.info(f"  Model: {self.model_key}")
         self.logger.info(f"  Tool groups: {[g.value for g in self.tool_groups]}")
         self.logger.info(f"  Tools: {[tool.name for tool in self.tools]}")
         self.logger.info(f"  Include all sections: {self.include_all_sections}")
+        self.logger.info(f"  Session logging: {self.enable_session_logging}")
 
     def _make_json_serializable(self, obj):
         """Best-effort conversion to JSON-serializable objects."""
@@ -408,7 +732,7 @@ class LangChainExplainerAgent:
                 tools=self.tools,
                 verbose=True,
                 handle_parsing_errors=True,
-                max_iterations=10
+                max_iterations=50
             )
             self.logger.info(f"Created AgentExecutor: {executor}")
             
@@ -436,10 +760,34 @@ class LangChainExplainerAgent:
 
     def explain_change_sync(self, prompt: str, metric_details: Dict[str, Any]) -> Dict[str, Any]:
         """Synchronously explain a change using the LangChain agent."""
+        session = None
+        execution_callback = None
+        
         try:
-            # Create execution trace callback
-            execution_callback = ExecutionTraceCallback()
-            self.logger.info("Created ExecutionTraceCallback")
+            # Create session for logging if enabled
+            if self.enable_session_logging and self.session_logger:
+                session = self.session_logger.create_session(
+                    model=self.model_key,
+                    model_config=self.model_config,
+                    tool_groups=self.tool_groups,
+                    available_tools=[tool.name for tool in self.tools]
+                )
+                session.user_input = prompt
+                
+                # Add user message to session conversation
+                session.conversation.append(ConversationMessage(
+                    role="user",
+                    content=prompt,
+                    timestamp=datetime.now().isoformat()
+                ))
+                
+                # Create enhanced execution trace callback
+                execution_callback = EnhancedExecutionTraceCallback(session)
+                self.logger.info("Created EnhancedExecutionTraceCallback with session logging")
+            else:
+                # Fall back to original callback
+                execution_callback = ExecutionTraceCallback()
+                self.logger.info("Created ExecutionTraceCallback (no session logging)")
             
             # Create agent with callback
             self.agent_executor = self._create_agent(metric_details)
@@ -469,15 +817,50 @@ class LangChainExplainerAgent:
             response = result.get("output", "")
             cleaned_response = self._extract_clean_response(response)
             self.add_message("assistant", cleaned_response if cleaned_response else response)
+            
+            # Update session with final response
+            if session:
+                session.final_response = cleaned_response if cleaned_response else response
+                session.success = True
+                
+                # Add assistant message to session conversation
+                session.conversation.append(ConversationMessage(
+                    role="assistant",
+                    content=cleaned_response if cleaned_response else response,
+                    timestamp=datetime.now().isoformat(),
+                    sender="LangChain Explainer"
+                ))
+                
+                # Log the complete session
+                self.session_logger.log_session(session)
 
             return { 
                 "success": True, 
                 "explanation": cleaned_response if cleaned_response else response,
-                "execution_trace": execution_callback.execution_trace
+                "execution_trace": execution_callback.execution_trace if hasattr(execution_callback, 'execution_trace') else [],
+                "session_id": session.session_id if session else None
             }
         except Exception as e:
             self.logger.error(f"Error in explain_change_sync: {e}")
-            return { "success": False, "error": str(e) }
+            
+            # Update session with error information
+            if session:
+                session.success = False
+                session.error_summary = str(e)
+                
+                # Add error message to session conversation
+                session.conversation.append(ConversationMessage(
+                    role="assistant",
+                    content=f"Error: {str(e)}",
+                    timestamp=datetime.now().isoformat(),
+                    sender="LangChain Explainer"
+                ))
+                
+                # Log the session with error
+                if self.session_logger:
+                    self.session_logger.log_session(session)
+            
+            return { "success": False, "error": str(e), "session_id": session.session_id if session else None }
     
     async def explain_change_streaming(self, prompt: str, metric_details: Dict[str, Any] = None):
         """Stream explanations using direct LLM streaming for real token-by-token output."""
@@ -999,7 +1382,9 @@ class LangChainExplainerAgent:
                             if 'stopping agent prematurely due to triggering stop condition' in error_str.lower():
                                 self.logger.warning(f"Detected agent stop condition: {error_str}")
                                 # Send special signal to frontend to show continue button
-                                yield f"data: {json.dumps({'agent_stopped': True, 'reason': 'stop_condition'})}\n\n"
+                                stop_message = {'agent_stopped': True, 'reason': 'stop_condition'}
+                                self.logger.info(f"Sending stop condition message to frontend: {stop_message}")
+                                yield f"data: {json.dumps(stop_message)}\n\n"
                     except Exception as e:
                         self.logger.error(f"Error processing chain error event: {e}")
                 
@@ -1087,11 +1472,20 @@ class LangChainExplainerAgent:
             error_str = str(e)
             self.logger.error(f"Error in explain_change_streaming: {error_str}")
             
-            # Check if this is the specific stop condition warning
-            if 'stopping agent prematurely due to triggering stop condition' in error_str.lower():
+            # Check for various stop conditions
+            stop_indicators = [
+                'stopping agent prematurely due to triggering stop condition',
+                'max_iterations',
+                'maximum iterations',
+                'iteration limit'
+            ]
+            
+            if any(indicator in error_str.lower() for indicator in stop_indicators):
                 self.logger.warning(f"Detected agent stop condition in main exception: {error_str}")
                 # Send special signal to frontend to show continue button
-                yield f"data: {json.dumps({'agent_stopped': True, 'reason': 'stop_condition'})}\n\n"
+                stop_message = {'agent_stopped': True, 'reason': 'stop_condition'}
+                self.logger.info(f"Sending stop condition message to frontend from main exception: {stop_message}")
+                yield f"data: {json.dumps(stop_message)}\n\n"
             else:
                 yield f"data: {json.dumps({'error': error_str})}\n\n"
         
@@ -1361,7 +1755,8 @@ class LangChainExplainerAgent:
 def create_explainer_agent(
     model_key: Optional[str] = None,
     tool_groups: Optional[List[ToolGroup]] = None,
-    include_all_sections: bool = False
+    include_all_sections: bool = False,
+    enable_session_logging: bool = True
 ) -> LangChainExplainerAgent:
     """
     Factory function to create a new LangChain explainer agent instance.
@@ -1370,6 +1765,7 @@ def create_explainer_agent(
         model_key: Model to use for the agent
         tool_groups: List of tool groups to include (default: CORE only)
         include_all_sections: Whether to include all prompt sections
+        enable_session_logging: Whether to enable detailed session logging
         
     Returns:
         Configured LangChainExplainerAgent instance
@@ -1377,7 +1773,8 @@ def create_explainer_agent(
     return LangChainExplainerAgent(
         model_key=model_key,
         tool_groups=tool_groups,
-        include_all_sections=include_all_sections
+        include_all_sections=include_all_sections,
+        enable_session_logging=enable_session_logging
     )
 
 def get_available_tool_groups() -> Dict[str, List[str]]:

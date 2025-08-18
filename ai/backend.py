@@ -32,8 +32,7 @@ import re
 import psycopg2
 import psycopg2.extras
 import asyncio
-# Import the new function
-from tools.genGhostPost import publish_newsletter_to_ghost
+
 from monthly_report import expand_chart_references, generate_email_compatible_report
 from typing import Optional
 from tools.analysis.weekly import run_weekly_analysis
@@ -4750,92 +4749,7 @@ async def update_prompt(request: Request):
             "message": error_message
         }, status_code=500)
 
-@router.post("/publish_to_ghost")
-async def publish_to_ghost(request: Request):
-    """Publish a newsletter to Ghost CMS."""
-    try:
-        data = await request.json()
-        filename = data.get("filename")
-        title = data.get("title")
-        report_id = data.get("report_id")
-        
-        if not filename:
-            return JSONResponse({
-                "status": "error",
-                "message": "No filename provided"
-            }, status_code=400)
-            
-        # Validate that report_id is provided
-        if not report_id:
-            return JSONResponse({
-                "status": "error",
-                "message": "No report ID provided"
-            }, status_code=400)
-        
-        # Call the function to publish the newsletter
-        result = publish_newsletter_to_ghost(filename, title)
-        
-        # Check if the result is an error message
-        if isinstance(result, str) and result.startswith("Error:"):
-            return JSONResponse({
-                "status": "error",
-                "message": result
-            }, status_code=500)
-        
-        # Publication successful, save the URL to the database
-        post_url = result
-        logger.info(f"Newsletter published successfully. URL: {post_url}")
-        
-        # Update the database with the published URL using the provided report_id
-        conn = None
-        try:
-            conn = get_db_connection()
-            if conn:
-                with conn.cursor() as cursor:
-                    # Verify the report exists
-                    cursor.execute("SELECT id FROM reports WHERE id = %s", (report_id,))
-                    report = cursor.fetchone()
-                    
-                    if report:
-                        # Update the report with the published URL
-                        cursor.execute("""
-                            UPDATE reports 
-                            SET published_url = %s, updated_at = CURRENT_TIMESTAMP
-                            WHERE id = %s
-                        """, (post_url, report_id))
-                        
-                        conn.commit()
-                        logger.info(f"Updated report ID {report_id} with published URL: {post_url}")
-                    else:
-                        logger.warning(f"Could not find report with ID {report_id}")
-                        return JSONResponse({
-                            "status": "error",
-                            "message": f"Could not find report with ID {report_id}"
-                        }, status_code=404)
-        except Exception as e:
-            logger.error(f"Error updating database with published URL: {str(e)}")
-            if conn:
-                conn.rollback()
-            return JSONResponse({
-                "status": "error",
-                "message": f"Error updating database: {str(e)}"
-            }, status_code=500)
-        finally:
-            if conn:
-                conn.close()
-        
-        # Return success with the post URL
-        return JSONResponse({
-            "status": "success",
-            "message": "Newsletter published successfully to AnomalousSF blog",
-            "url": post_url
-        })
-    except Exception as e:
-        logger.exception(f"Error publishing newsletter to Ghost: {str(e)}")
-        return JSONResponse({
-            "status": "error",
-            "message": f"Error publishing newsletter to Ghost: {str(e)}"
-        }, status_code=500)
+
 
 @router.get("/get-monthly-report-by-district/{district}")
 async def get_monthly_report_by_district(district: str):
@@ -4922,57 +4836,7 @@ async def get_monthly_report_by_district(district: str):
         if conn:
             conn.close()
 
-@router.post("/api/add_subscriber")
-@router.post("/backend/api/add_subscriber")  # Add an extra route
-async def add_subscriber(request: Request):
-    """Add a subscriber to Ghost CMS with district preferences."""
-    try:
-        data = await request.json()
-        name = data.get("name", "")
-        email = data.get("email")
-        districts = data.get("districts", [])
-        
-        if not email:
-            return JSONResponse({
-                "status": "error",
-                "message": "Email is required"
-            }, status_code=400)
-        
-        # Forward the request to Ghost Bridge service
-        ghost_bridge_url = os.environ.get("GHOST_BRIDGE_URL", "http://localhost:3000")
-        endpoint = f"{ghost_bridge_url}/add_subscriber"
-        
-        logger.info(f"Forwarding subscriber request to Ghost Bridge: {email}, districts: {districts}")
-        
-        import requests
-        response = requests.post(
-            endpoint,
-            json={
-                "name": name,
-                "email": email,
-                "districts": districts
-            },
-            timeout=10  # 10 second timeout
-        )
-        
-        # Forward the response from Ghost Bridge
-        response_data = response.json()
-        status_code = response.status_code
-        
-        if status_code == 200:
-            logger.info(f"Successfully added subscriber: {email}")
-            return JSONResponse(response_data)
-        else:
-            logger.error(f"Error from Ghost Bridge: {response_data}")
-            return JSONResponse(response_data, status_code=status_code)
-            
-    except Exception as e:
-        error_message = f"Error adding subscriber: {str(e)}"
-        logger.exception(error_message)
-        return JSONResponse({
-            "status": "error",
-            "message": error_message
-        }, status_code=500)
+
 
 @router.post("/rerun_email_version")
 async def rerun_email_version(request: Request):
@@ -6025,13 +5889,13 @@ async def test_explainer_session():
 @router.get("/map-chart")
 async def get_map_chart(request: Request, id: str):
     """
-    Retrieve a map by ID and redirect to its published DataWrapper URL.
+    Retrieve a map by ID and either redirect to its published DataWrapper URL or serve embedded template.
     
     Args:
         id: The map ID to retrieve
         
     Returns:
-        Redirect to the published DataWrapper URL or error if not found
+        Redirect to the published DataWrapper URL, embedded template, or error if not found
     """
     try:
         import psycopg2
@@ -6039,6 +5903,10 @@ async def get_map_chart(request: Request, id: str):
         from fastapi.responses import RedirectResponse
         
         logger.info(f"Getting map chart for id={id}")
+        
+        # Check if this is an embedded request by looking for embedded parameter or referrer
+        is_embedded = request.query_params.get('embedded') == 'true' or 'embedded' in str(request.url)
+        logger.info(f"Map chart request - id={id}, is_embedded={is_embedded}, query_params={dict(request.query_params)}")
         
         # Connect to PostgreSQL
         conn = psycopg2.connect(
@@ -6054,7 +5922,7 @@ async def get_map_chart(request: Request, id: str):
         
         # Query to get the map by ID
         cursor.execute("""
-            SELECT id, title, published_url, chart_id, edit_url, type, metadata
+            SELECT id, title, published_url, chart_id, edit_url, type, metadata, location_data
             FROM maps 
             WHERE id = %s AND active = TRUE
         """, (id,))
@@ -6070,32 +5938,78 @@ async def get_map_chart(request: Request, id: str):
                 "message": f"Map with ID {id} not found"
             }, status_code=404)
         
-        # Check if we have a published URL
+        logger.info(f"Map record found - id={map_record['id']}, title={map_record['title']}, published_url={bool(map_record['published_url'])}")
+        
+        # For embedded mode, always serve the template regardless of published URL
+        if is_embedded:
+            logger.info(f"Serving embedded map template for id={id}")
+            logger.info(f"Map has published_url: {bool(map_record['published_url'])}")
+            
+            # Get location data
+            location_data = map_record.get('location_data', [])
+            if isinstance(location_data, str):
+                try:
+                    location_data = json.loads(location_data)
+                except:
+                    location_data = []
+            
+            # Get Mapbox token
+            mapbox_token = os.getenv("MAPBOX_ACCESS_TOKEN", "")
+            
+            # Create metadata for the template
+            metadata = {
+                "metric_id": map_record.get('metadata', {}).get('metric_id', 'Unknown'),
+                "district": map_record.get('metadata', {}).get('district', 'All'),
+                "period_type": map_record.get('metadata', {}).get('period_type', 'Unknown'),
+                "anomaly_type": map_record.get('metadata', {}).get('anomaly_type'),
+            }
+            
+            return templates.TemplateResponse("map.html", {
+                "request": request,
+                "map_data": map_record,
+                "metadata": metadata,
+                "location_data": location_data,
+                "config": {
+                    "MAPBOX_ACCESS_TOKEN": mapbox_token
+                }
+            })
+        
+        # For non-embedded mode, check if we have a published URL
         if map_record['published_url']:
             logger.info(f"Redirecting to published URL: {map_record['published_url']}")
             return RedirectResponse(url=map_record['published_url'])
         else:
-            # Try to create/publish the map if it doesn't have a published URL
-            logger.info(f"Map {id} doesn't have published URL, attempting to create it")
-            try:
-                from tools.gen_map_dw import create_datawrapper_map
-                published_url = create_datawrapper_map(id)
-                
-                if published_url:
-                    logger.info(f"Successfully created published URL: {published_url}")
-                    return RedirectResponse(url=published_url)
-                else:
-                    return JSONResponse({
-                        "status": "error",
-                        "message": f"Map {id} exists but could not be published"
-                    }, status_code=500)
-                    
-            except Exception as create_error:
-                logger.error(f"Error creating map: {str(create_error)}")
-                return JSONResponse({
-                    "status": "error", 
-                    "message": f"Map {id} exists but could not be published: {str(create_error)}"
-                }, status_code=500)
+            # If no published URL, serve the embedded template instead of trying to create one
+            logger.info(f"Map {id} doesn't have published URL, serving embedded template")
+            
+            # Get location data
+            location_data = map_record.get('location_data', [])
+            if isinstance(location_data, str):
+                try:
+                    location_data = json.loads(location_data)
+                except:
+                    location_data = []
+            
+            # Get Mapbox token
+            mapbox_token = os.getenv("MAPBOX_ACCESS_TOKEN", "")
+            
+            # Create metadata for the template
+            metadata = {
+                "metric_id": map_record.get('metadata', {}).get('metric_id', 'Unknown'),
+                "district": map_record.get('metadata', {}).get('district', 'All'),
+                "period_type": map_record.get('metadata', {}).get('period_type', 'Unknown'),
+                "anomaly_type": map_record.get('metadata', {}).get('anomaly_type'),
+            }
+            
+            return templates.TemplateResponse("map.html", {
+                "request": request,
+                "map_data": map_record,
+                "metadata": metadata,
+                "location_data": location_data,
+                "config": {
+                    "MAPBOX_ACCESS_TOKEN": mapbox_token
+                }
+            })
         
     except Exception as e:
         logger.error(f"Error retrieving map chart: {str(e)}", exc_info=True)
@@ -6785,40 +6699,31 @@ async def langchain_explainer_streaming_api(request: Request):
             agent = explainer_sessions[session_key]
             # Update agent configuration if needed
             if hasattr(agent, 'model_key') and agent.model_key != model_key:
-                agent = create_explainer_agent(model_key=model_key, tool_groups=tool_group_enums)
+                agent = create_explainer_agent(model_key=model_key, tool_groups=tool_group_enums, enable_session_logging=True)
                 explainer_sessions[session_key] = agent
             elif hasattr(agent, 'tool_groups') and agent.tool_groups != tool_group_enums:
-                agent.update_tool_groups(tool_group_enums)
+                agent.update_tool_groups(tool_groups)
             logger.info(f"Using existing LangChain explainer agent for session: {session_key}")
         else:
-            # Create new LangChain agent and session
-            agent = create_explainer_agent(model_key=model_key, tool_groups=tool_group_enums)
+            # Create new LangChain agent and session with session logging enabled
+            agent = create_explainer_agent(model_key=model_key, tool_groups=tool_group_enums, enable_session_logging=True)
             explainer_sessions[session_key] = agent
             logger.info(f"Created new LangChain explainer agent for session: {session_key}")
         
         async def generate_stream():
-            """Generate streaming response using LangChain agent"""
+            """Generate streaming response using LangChain agent with session logging"""
             try:
                 # Send session ID first so frontend can track it
                 yield f"data: {json.dumps({'session_id': session_id})}\n\n"
                 
-                # Create execution trace callback for tool call tracking
-                from agents.langchain_agent.explainer_agent import ExecutionTraceCallback
-                execution_callback = ExecutionTraceCallback()
-                
-                # Ensure agent has an agent_executor by creating one if it doesn't exist
-                if not hasattr(agent, 'agent_executor') or agent.agent_executor is None:
-                    agent.agent_executor = agent._create_agent(metric_details={})
-                
-                # Set up the agent with callback
-                agent.agent_executor.callbacks = [execution_callback]
-                
-                # Add user message to conversation history
-                agent.add_message("user", prompt)
-                
-                # Use the agent's streaming method
+                # Use the agent's explain_change_streaming method which includes real-time tool call logging
                 async for chunk in agent.explain_change_streaming(prompt, metric_details={}):
-                    yield chunk
+                    if chunk:
+                        # The agent already yields properly formatted SSE data, so pass it through directly
+                        yield chunk
+                
+                # Send completion signal
+                yield f"data: {json.dumps({'completed': True})}\n\n"
                 
             except Exception as e:
                 logger.error(f"Error in LangChain streaming generation: {str(e)}")

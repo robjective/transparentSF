@@ -1,0 +1,2491 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Map Generator | TransparentSF</title>
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Font Awesome for icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Dark Mode CSS -->
+    <link rel="stylesheet" href="/static/darkmode.css">
+    <!-- Dark Mode JavaScript -->
+    <script src="/static/js/darkmode.js"></script>
+    <script src="/static/js/iframe-darkmode.js"></script>
+    <!-- Mapbox GL JS CSS -->
+    <link href="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css" rel="stylesheet">
+    <style>
+        /* Custom color variables for this template */
+        :root {
+            --spruce-green: #4A7463;
+            --soft-sand: #F6F1EA;
+            --warm-coral: #FF6B5A;
+            --sky-blue: #71B2CA;
+            --accent-color: #ad35fa;
+            --accent-hover: #9625e0;
+        }
+
+        [data-theme="dark"] {
+            --accent-color: #c44dff;
+            --accent-hover: #ad35fa;
+        }
+
+        body {
+            font-family: 'IBM Plex Sans', Arial, sans-serif;
+            color: var(--text-primary);
+            background-color: var(--bg-primary);
+            transition: background-color 0.3s ease, color 0.3s ease;
+            margin: 0;
+            padding: 10px;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        .container {
+            max-width: none;
+            margin: 0;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .header {
+            display: none;
+        }
+
+        .controls-panel {
+            background-color: var(--bg-secondary);
+            border-radius: 4px;
+            padding: 10px;
+            margin-bottom: 10px;
+            border: 1px solid var(--border-primary);
+            flex-shrink: 0;
+        }
+
+        .controls-title {
+            display: none;
+        }
+
+        .controls-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+
+        .control-group {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .control-group label {
+            font-weight: bold;
+            margin-bottom: 4px;
+            color: var(--text-primary);
+            font-size: 0.85em;
+        }
+
+        .control-group select,
+        .control-group .form-select {
+            padding: 6px 8px;
+            border: 1px solid var(--border-secondary);
+            border-radius: 4px;
+            font-size: 0.85em;
+            background-color: var(--bg-tertiary);
+            color: var(--text-primary);
+            transition: border-color 0.3s ease;
+        }
+
+        .control-group select:focus,
+        .control-group .form-select:focus {
+            outline: none;
+            border-color: var(--accent-color);
+            box-shadow: 0 0 0 2px rgba(173, 53, 250, 0.2);
+        }
+
+        .control-group select:disabled,
+        .control-group .form-select:disabled {
+            background-color: var(--bg-secondary);
+            color: var(--text-secondary);
+            cursor: not-allowed;
+        }
+
+        .form-check {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin: 0;
+        }
+
+        .form-check-input {
+            width: 16px;
+            height: 16px;
+            margin: 0;
+            cursor: pointer;
+        }
+
+        .form-check-label {
+            font-size: 0.85em;
+            color: var(--text-primary);
+            cursor: pointer;
+            margin: 0;
+        }
+
+        .generate-button {
+            background-color: var(--accent-color);
+            color: white;
+            border: none;
+            padding: 8px 20px;
+            border-radius: 4px;
+            font-size: 0.9em;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background-color 0.3s ease;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            justify-content: center;
+        }
+
+        .generate-button:hover {
+            background-color: var(--accent-hover);
+        }
+
+        .generate-button:disabled {
+            background-color: var(--border-secondary);
+            cursor: not-allowed;
+        }
+
+        .generate-button i {
+            font-size: 14px;
+        }
+
+        .results-panel {
+            background-color: var(--bg-secondary);
+            border-radius: 4px;
+            padding: 10px;
+            border: 1px solid var(--border-primary);
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+            height: 100%;
+        }
+
+        .results-title {
+            display: none;
+        }
+
+        .map-preview {
+            background-color: var(--bg-tertiary);
+            border: 1px solid var(--border-primary);
+            border-radius: 4px;
+            padding: 0;
+            text-align: center;
+            flex: 1;
+            display: flex;
+            align-items: stretch;
+            justify-content: stretch;
+            min-height: 0;
+            height: 100%;
+        }
+
+        .map-preview.empty {
+            color: var(--text-secondary);
+            font-style: italic;
+        }
+
+        .map-preview.loading {
+            color: var(--accent-color);
+        }
+
+        .map-preview.error {
+            color: var(--warm-coral);
+        }
+
+        .map-preview-subtitle {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: rgba(255, 255, 255, 0.95);
+            border: 1px solid var(--border-primary);
+            border-radius: 4px;
+            padding: 6px 10px;
+            font-size: 0.8em;
+            color: var(--text-secondary);
+            z-index: 1000;
+            backdrop-filter: blur(5px);
+            font-style: italic;
+        }
+        
+        [data-theme="dark"] .map-preview-subtitle {
+            background: rgba(30, 30, 30, 0.95);
+            border-color: var(--border-secondary);
+            color: var(--text-secondary);
+        }
+        
+        /* Information overlay */
+        .map-info-overlay {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: rgba(255, 255, 255, 0.95);
+            border: 1px solid var(--border-primary);
+            border-radius: 4px;
+            padding: 8px 12px;
+            font-size: 0.85em;
+            color: var(--text-primary);
+            z-index: 1000;
+            backdrop-filter: blur(5px);
+        }
+        
+        [data-theme="dark"] .map-info-overlay {
+            background: rgba(30, 30, 30, 0.95);
+            border-color: var(--border-secondary);
+            color: var(--text-primary);
+        }
+        
+        /* Legend styling */
+        .map-legend {
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            background: rgba(255, 255, 255, 0.95);
+            border: 1px solid var(--border-primary);
+            border-radius: 4px;
+            padding: 12px;
+            font-size: 0.85em;
+            color: var(--text-primary);
+            z-index: 1000;
+            backdrop-filter: blur(5px);
+            min-width: 150px;
+        }
+        
+        [data-theme="dark"] .map-legend {
+            background: rgba(30, 30, 30, 0.95);
+            border-color: var(--border-secondary);
+            color: var(--text-primary);
+        }
+        
+        .legend-title {
+            font-weight: bold;
+            margin-bottom: 8px;
+            font-size: 0.9em;
+        }
+        
+        .legend-item {
+            display: flex;
+            align-items: center;
+            margin-bottom: 4px;
+        }
+        
+        .legend-color {
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            margin-right: 8px;
+            border: 1px solid var(--border-secondary);
+        }
+
+        .legend-gradient {
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            margin-right: 8px;
+            border: 1px solid var(--border-secondary);
+        }
+        
+        .legend-label {
+            font-size: 0.8em;
+        }
+        
+        #map-preview-placeholder {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            width: 100%;
+            padding: 20px;
+        }
+        
+        #map-preview-placeholder i {
+            margin-bottom: 15px;
+        }
+        
+        #map-preview-placeholder p {
+            margin: 0;
+            font-size: 1.1em;
+        }
+
+        .map-actions {
+            display: none;
+        }
+
+        .map-action-btn {
+            padding: 8px 16px;
+            border: 1px solid var(--border-secondary);
+            border-radius: 4px;
+            background-color: var(--bg-tertiary);
+            color: var(--text-primary);
+            text-decoration: none;
+            font-size: 14px;
+            transition: all 0.3s ease;
+        }
+
+        .map-action-btn:hover {
+            background-color: var(--accent-color);
+            color: white;
+            border-color: var(--accent-color);
+            text-decoration: none;
+        }
+
+        .recent-maps {
+            margin-top: 20px;
+            padding: 20px;
+            background-color: var(--bg-secondary);
+            border-radius: 8px;
+            border: 1px solid var(--border-primary);
+            max-height: 300px; /* Limit height so it doesn't take too much space */
+            overflow-y: auto; /* Allow scrolling if needed */
+        }
+
+        .recent-maps h3 {
+            color: var(--text-primary);
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .recent-maps-toggle {
+            background: none;
+            border: none;
+            color: var(--text-secondary);
+            cursor: pointer;
+            font-size: 0.9em;
+            margin-left: auto;
+            padding: 5px 10px;
+            border-radius: 4px;
+            transition: all 0.3s ease;
+        }
+
+        .recent-maps-toggle:hover {
+            background-color: var(--bg-tertiary);
+            color: var(--text-primary);
+        }
+
+        .recent-maps-content {
+            display: block;
+        }
+
+        .recent-maps-content.hidden {
+            display: none;
+        }
+
+        .maps-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 20px;
+        }
+
+        .map-card {
+            background-color: var(--bg-tertiary);
+            border: 1px solid var(--border-primary);
+            border-radius: 6px;
+            padding: 15px;
+            transition: border-color 0.3s ease;
+        }
+
+        .map-card:hover {
+            border-color: var(--accent-color);
+        }
+
+        .map-card h4 {
+            color: var(--text-primary);
+            margin-bottom: 10px;
+            font-size: 1.1em;
+        }
+
+        .map-card p {
+            color: var(--text-secondary);
+            font-size: 0.9em;
+            margin-bottom: 10px;
+        }
+
+        .map-card .map-meta {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.8em;
+            color: var(--text-secondary);
+            margin-bottom: 8px;
+        }
+
+        .map-card .map-meta span {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .map-card .map-actions {
+            display: flex;
+            gap: 8px;
+            margin-top: 12px;
+        }
+
+        .map-action-btn {
+            background-color: var(--bg-tertiary);
+            border: 1px solid var(--border-primary);
+            color: var(--text-secondary);
+            padding: 6px 12px;
+            border-radius: 4px;
+            font-size: 0.8em;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .map-action-btn:hover {
+            background-color: var(--accent-color);
+            color: white;
+            border-color: var(--accent-color);
+        }
+
+        .loading-spinner {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top-color: #fff;
+            animation: spin 1s ease-in-out infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .alert {
+            border-radius: 4px;
+            padding: 8px 12px;
+            margin-bottom: 8px;
+            border: 1px solid;
+            font-size: 0.85em;
+        }
+
+        .alert-success {
+            background-color: rgba(74, 116, 99, 0.1);
+            border-color: var(--spruce-green);
+            color: var(--spruce-green);
+        }
+
+        .alert-error {
+            background-color: rgba(255, 107, 90, 0.1);
+            border-color: var(--warm-coral);
+            color: var(--warm-coral);
+        }
+
+        .alert-info {
+            background-color: rgba(113, 178, 202, 0.1);
+            border-color: var(--sky-blue);
+            color: var(--sky-blue);
+        }
+
+        /* Compact Mapbox popup styling */
+        .mapboxgl-popup-content {
+            padding: 6px 8px;
+            font-size: 11px;
+            line-height: 1.3;
+        }
+        .tsf-tooltip { 
+            font-family: 'IBM Plex Sans', Arial, sans-serif; 
+            font-size: 11px; 
+            line-height: 1.3; 
+            text-align: left;
+        }
+        .tsf-tooltip-title { 
+            font-weight: 600; 
+            margin-bottom: 4px; 
+            text-align: left; 
+        }
+        .tsf-tooltip-row { 
+            display: flex; 
+            gap: 4px; 
+        }
+        .tsf-tooltip-key { 
+            color: var(--text-secondary); 
+            white-space: nowrap;
+        }
+        .tsf-tooltip-val { 
+            color: var(--text-primary);
+        }
+
+        #alert-container {
+            margin-bottom: 8px;
+            flex-shrink: 0;
+        }
+
+        /* Responsive design */
+        @media (max-width: 768px) {
+            .controls-grid {
+                grid-template-columns: repeat(2, 1fr);
+                gap: 8px;
+            }
+            
+            .control-group label {
+                font-size: 0.8em;
+            }
+            
+            .maps-grid {
+                grid-template-columns: 1fr;
+                gap: 15px;
+            }
+            
+            .recent-maps {
+                padding: 15px;
+                margin-top: 20px;
+            }
+            
+            .recent-maps h3 {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 10px;
+            }
+            
+            .map-card .map-actions {
+                flex-direction: column;
+                gap: 6px;
+            }
+            
+            .map-action-btn {
+                justify-content: center;
+                font-size: 0.8em;
+            }
+            
+            .control-group select {
+                font-size: 0.8em;
+                padding: 4px 6px;
+            }
+            
+            .generate-button {
+                font-size: 0.85em;
+                padding: 6px 16px;
+            }
+            
+            .maps-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <h1><i class="fas fa-map-marked-alt"></i> Map Generator</h1>
+            <p>Create interactive maps using Mapbox for TransparentSF data visualization</p>
+        </div>
+
+        <!-- Controls Panel -->
+        <div class="controls-panel">
+            <div class="controls-title">
+                <i class="fas fa-cogs"></i> Map Configuration
+            </div>
+            
+            <div class="controls-grid">
+                <div class="control-group">
+                    <label for="metric-select">Metric</label>
+                    <select id="metric-select">
+                        <option value="">Select a metric...</option>
+                    </select>
+                </div>
+                
+                <div class="control-group">
+                    <label for="anomaly-select">Anomaly Type</label>
+                    <select id="anomaly-select" disabled>
+                        <option value="">Select anomaly type...</option>
+                    </select>
+
+                </div>
+                
+                <div class="control-group">
+                    <label for="district-select">District</label>
+                    <select id="district-select">
+                        <option value="0" selected>Citywide</option>
+                        <option value="all">All Districts</option>
+                        <option value="1">District 1</option>
+                        <option value="2">District 2</option>
+                        <option value="3">District 3</option>
+                        <option value="4">District 4</option>
+                        <option value="5">District 5</option>
+                        <option value="6">District 6</option>
+                        <option value="7">District 7</option>
+                        <option value="8">District 8</option>
+                        <option value="9">District 9</option>
+                        <option value="10">District 10</option>
+                        <option value="11">District 11</option>
+                    </select>
+                </div>
+                
+                <div class="control-group">
+                    <label for="period-select">Period Type</label>
+                    <select id="period-select">
+                        <option value="month" selected>Monthly</option>
+                        <option value="week">Weekly</option>
+                        <option value="quarter">Quarterly</option>
+                        <option value="year">Yearly</option>
+                    </select>
+                </div>
+                
+                <div class="control-group">
+                    <label for="time-periods-select">Time Periods</label>
+                    <select id="time-periods-select">
+                        <option value="1">Last 1 period</option>
+                        <option value="2" selected>Last 2 periods</option>
+                        <option value="3">Last 3 periods</option>
+                        <option value="6">Last 6 periods</option>
+                        <option value="12">Last 12 periods</option>
+                    </select>
+                </div>
+                
+                <div class="control-group" id="color-field-group" style="display: none;">
+                    <label for="color-field-select">Color By</label>
+                    <select id="color-field-select" class="form-select">
+                        <option value="date">Date (Default)</option>
+                    </select>
+                </div>
+                
+                <div class="control-group">
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="scale-dots-checkbox" checked>
+                        <label class="form-check-label" for="scale-dots-checkbox">
+                            Scale dots by count
+                        </label>
+                    </div>
+                </div>
+            </div>
+            
+            <div style="text-align: center;">
+                <button id="generate-map-btn" class="generate-button" disabled>
+                    <i class="fas fa-map"></i>
+                    Generate Map
+                </button>
+            </div>
+        </div>
+
+        <!-- Results Panel -->
+        <div class="results-panel">
+            <div class="results-title">
+                <i class="fas fa-chart-area"></i> Map Preview
+            </div>
+            
+            <div id="alert-container"></div>
+            
+            <div id="map-preview" class="map-preview empty">
+                <div id="map-preview-placeholder">
+                    <i class="fas fa-map-marked-alt" style="font-size: 3em; color: var(--text-secondary); margin-bottom: 15px;"></i>
+                    <p>Configure your map settings above to see a live preview</p>
+                </div>
+                <div id="map-preview-container" style="display: none; height: 100%; width: 100%; border-radius: 4px; overflow: hidden; flex: 1; position: relative;">
+                    <div id="live-map" style="height: 100%; width: 100%;"></div>
+                    <div id="map-preview-subtitle" class="map-preview-subtitle" style="display: none;"></div>
+                    <div id="map-info-overlay" class="map-info-overlay" style="display: none;">
+                        <i class="fas fa-map-marker-alt"></i> <span id="point-count">0</span> points
+                    </div>
+                    <div id="map-legend" class="map-legend" style="display: none;">
+                        <div class="legend-title">Color Legend</div>
+                        <div id="legend-items"></div>
+                    </div>
+                </div>
+            </div>
+            
+            <div id="map-actions" class="map-actions" style="display: none;">
+                <a href="#" id="view-map-btn" class="map-action-btn" target="_blank">
+                    <i class="fas fa-eye"></i> View Map
+                </a>
+                <a href="#" id="edit-map-btn" class="map-action-btn" target="_blank">
+                    <i class="fas fa-edit"></i> Edit Map
+                </a>
+                <button id="copy-map-url-btn" class="map-action-btn">
+                    <i class="fas fa-copy"></i> Copy URL
+                </button>
+            </div>
+        </div>
+
+        <!-- Recent Maps -->
+        <div class="recent-maps">
+            <h3>
+                <i class="fas fa-history"></i> Recent Maps
+                <button id="recent-maps-refresh" class="recent-maps-toggle" onclick="refreshRecentMaps()" title="Refresh recent maps">
+                    <i class="fas fa-sync-alt"></i> Refresh
+                </button>
+                <button id="recent-maps-toggle" class="recent-maps-toggle" onclick="toggleRecentMaps(this)">
+                    <i class="fas fa-chevron-right"></i> Show
+                </button>
+            </h3>
+            <div id="recent-maps-content" class="recent-maps-content hidden">
+                <div id="recent-maps-grid" class="maps-grid">
+                    <div class="map-card">
+                        <p style="text-align: center; color: var(--text-secondary);">
+                            <i class="fas fa-spinner fa-spin"></i> Loading recent maps...
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- Mapbox GL JS -->
+    <script src="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js"></script>
+    
+    <script>
+        // Set Mapbox access token
+        window.MAPBOX_ACCESS_TOKEN = "{{ mapbox_token }}";
+        
+        // Test Mapbox token
+        if (window.MAPBOX_ACCESS_TOKEN) {
+            console.log('Mapbox token length:', window.MAPBOX_ACCESS_TOKEN.length);
+            console.log('Mapbox token starts with pk:', window.MAPBOX_ACCESS_TOKEN.startsWith('pk.'));
+        } else {
+            console.error('No Mapbox token provided');
+        }
+        
+        // Global variables
+        let metrics = [];
+        let currentMapId = null;
+        let currentMapUrl = null;
+        let liveMap = null;
+        let previewMapPopup = null;
+        let previewData = null;
+        let previewTimeout = null;
+        let availableFields = [];
+        let currentColorField = 'date';
+        let colorScale = null;
+
+        // Function to calculate and display date range subtitle for preview
+        function updatePreviewDateRangeSubtitle() {
+            const subtitleElement = document.getElementById('map-preview-subtitle');
+            if (!subtitleElement) {
+                console.log('Preview subtitle element not found');
+                return;
+            }
+
+            const periodType = periodSelect.value;
+            const timePeriods = timePeriodsSelect.value;
+            
+            if (!periodType || !timePeriods) {
+                subtitleElement.style.display = 'none';
+                return;
+            }
+
+            // Calculate date range based on period_type and time_periods
+            const endDate = new Date();
+            endDate.setDate(endDate.getDate() - 1); // Yesterday as target date
+            
+            let startDate = new Date();
+            
+            if (periodType === 'month') {
+                if (timePeriods === 'since_2024') {
+                    startDate = new Date(2024, 0, 1); // January 1, 2024
+                } else {
+                    startDate.setMonth(startDate.getMonth() - parseInt(timePeriods));
+                }
+            } else if (periodType === 'week') {
+                if (timePeriods === 'since_2024') {
+                    startDate = new Date(2024, 0, 1);
+                } else {
+                    startDate.setDate(startDate.getDate() - (parseInt(timePeriods) * 7));
+                }
+            } else if (periodType === 'quarter') {
+                startDate.setMonth(startDate.getMonth() - (parseInt(timePeriods) * 3));
+            } else if (periodType === 'year') {
+                startDate.setFullYear(startDate.getFullYear() - parseInt(timePeriods));
+            } else {
+                // Default to last 2 months
+                startDate.setDate(startDate.getDate() - 60);
+            }
+
+            // Format dates
+            const formatDate = (date) => {
+                return date.toLocaleDateString('en-US', { 
+                    year: 'numeric', 
+                    month: 'short', 
+                    day: 'numeric' 
+                });
+            };
+
+            const dateRange = `${formatDate(startDate)} - ${formatDate(endDate)}`;
+            const periodDescription = timePeriods === 'since_2024' ? 'Since 2024' : `Last ${timePeriods} ${periodType}${parseInt(timePeriods) > 1 ? 's' : ''}`;
+            const subtitleText = `${periodDescription} (${dateRange})`;
+            subtitleElement.textContent = subtitleText;
+            subtitleElement.style.display = 'block';
+            console.log('Updated preview subtitle:', subtitleText);
+        }
+
+        // DOM elements
+        const metricSelect = document.getElementById('metric-select');
+        const anomalySelect = document.getElementById('anomaly-select');
+        const districtSelect = document.getElementById('district-select');
+        const periodSelect = document.getElementById('period-select');
+        const timePeriodsSelect = document.getElementById('time-periods-select');
+        const generateBtn = document.getElementById('generate-map-btn');
+        const mapPreview = document.getElementById('map-preview');
+        const mapPreviewPlaceholder = document.getElementById('map-preview-placeholder');
+        const mapPreviewContainer = document.getElementById('map-preview-container');
+        const liveMapContainer = document.getElementById('live-map');
+        const mapActions = document.getElementById('map-actions');
+        const alertContainer = document.getElementById('alert-container');
+        const viewMapBtn = document.getElementById('view-map-btn');
+        const editMapBtn = document.getElementById('edit-map-btn');
+        const copyMapUrlBtn = document.getElementById('copy-map-url-btn');
+        const recentMapsGrid = document.getElementById('recent-maps-grid');
+        const colorFieldGroup = document.getElementById('color-field-group');
+        const colorFieldSelect = document.getElementById('color-field-select');
+        const mapInfoOverlay = document.getElementById('map-info-overlay');
+        const pointCountSpan = document.getElementById('point-count');
+        const mapLegend = document.getElementById('map-legend');
+        const legendItems = document.getElementById('legend-items');
+
+
+        // Initialize the page
+        document.addEventListener('DOMContentLoaded', function() {
+            loadMetrics();
+            loadRecentMaps();
+            setupEventListeners();
+            
+            // Initialize the date range subtitle
+            updatePreviewDateRangeSubtitle();
+            
+            // Listen for theme changes to update map style
+            window.addEventListener('themeChanged', function(e) {
+                if (liveMap) {
+                    const newStyle = e.detail.theme === 'dark' 
+                        ? 'mapbox://styles/mapbox/dark-v11' 
+                        : 'mapbox://styles/mapbox/light-v11';
+                    liveMap.setStyle(newStyle);
+                    
+                    // Re-add data after style change
+                    liveMap.once('style.load', function() {
+                        if (previewData) {
+                            addDataToMap(previewData);
+                        }
+                    });
+                }
+            });
+        });
+
+        function setupEventListeners() {
+            // Metric selection
+            metricSelect.addEventListener('change', function() {
+                const selectedMetric = this.value;
+                if (selectedMetric) {
+                    loadAnomalies(selectedMetric);
+                    anomalySelect.disabled = false;
+                } else {
+                    anomalySelect.innerHTML = '<option value="">Select anomaly type...</option>';
+                    anomalySelect.disabled = true;
+                }
+                updateGenerateButton();
+            });
+
+            // Anomaly selection
+            anomalySelect.addEventListener('change', updateGenerateButton);
+
+            // District selection
+            districtSelect.addEventListener('change', updateGenerateButton);
+
+            // Period selection
+            periodSelect.addEventListener('change', function() {
+                updateGenerateButton();
+                updatePreviewDateRangeSubtitle();
+                updateLivePreview();
+            });
+            
+            // Time periods selection
+            timePeriodsSelect.addEventListener('change', function() {
+                updateGenerateButton();
+                updatePreviewDateRangeSubtitle();
+                updateLivePreview();
+            });
+            
+            // Color field selection
+            colorFieldSelect.addEventListener('change', function() {
+                console.log('Color field changed to:', this.value);
+                currentColorField = this.value;
+                // If we have existing data, update the colors without reloading
+                if (previewData && previewData.location_data) {
+                    console.log('Updating map colors with existing data');
+                    updateMapColors(previewData);
+                } else {
+                    console.log('No existing data, updating live preview');
+                    updateLivePreview();
+                }
+            });
+            
+            // Generate button
+            generateBtn.addEventListener('click', generateMap);
+            
+            // Add live preview updates to all controls
+            metricSelect.addEventListener('change', function() {
+                const selectedMetric = this.value;
+                if (selectedMetric) {
+                    loadAnomalies(selectedMetric);
+                    anomalySelect.disabled = false;
+                    
+                    // Set default color field from metric configuration
+                    const metric = metrics.find(m => m.id == selectedMetric);
+                    if (metric) {
+                        // Try to get the date field from map_config first
+                        if (metric.map_config) {
+                            try {
+                                const mapConfig = typeof metric.map_config === 'string' ? 
+                                    JSON.parse(metric.map_config) : metric.map_config;
+                                
+                                if (mapConfig.date_field) {
+                                    currentColorField = mapConfig.date_field;
+                                    console.log('Setting default color field from map_config.date_field:', currentColorField);
+                                } else if (mapConfig.color_field) {
+                                    currentColorField = mapConfig.color_field;
+                                    console.log('Setting default color field from map_config.color_field:', currentColorField);
+                                }
+                            } catch (e) {
+                                console.warn('Error parsing map_config for metric:', e);
+                            }
+                        }
+                        
+                        // If no date field found in map_config, try map_filters
+                        if (currentColorField === 'date' && metric.map_filters) {
+                            try {
+                                const mapFilters = typeof metric.map_filters === 'string' ? 
+                                    JSON.parse(metric.map_filters) : metric.map_filters;
+                                
+                                if (mapFilters.date_range && mapFilters.date_range.field) {
+                                    currentColorField = mapFilters.date_range.field;
+                                    console.log('Setting default color field from map_filters.date_range.field:', currentColorField);
+                                }
+                            } catch (e) {
+                                console.warn('Error parsing map_filters for metric:', e);
+                            }
+                        }
+                    }
+                } else {
+                    anomalySelect.innerHTML = '<option value="">Select anomaly type...</option>';
+                    anomalySelect.disabled = true;
+                }
+                updateGenerateButton();
+                updatePreviewDateRangeSubtitle();
+                updateLivePreview();
+            });
+            
+            anomalySelect.addEventListener('change', function() {
+                updateGenerateButton();
+                updatePreviewDateRangeSubtitle();
+                updateLivePreview();
+            });
+            
+            districtSelect.addEventListener('change', function() {
+                updateGenerateButton();
+                updatePreviewDateRangeSubtitle();
+                updateLivePreview();
+            });
+            
+            periodSelect.addEventListener('change', function() {
+                updateTimePeriodsOptions();
+                updateGenerateButton();
+                updatePreviewDateRangeSubtitle();
+                updateLivePreview();
+            });
+
+
+
+            // Map action buttons
+            viewMapBtn.addEventListener('click', function(e) {
+                e.preventDefault();
+                if (currentMapUrl) {
+                    window.open(currentMapUrl, '_blank');
+                }
+            });
+
+            editMapBtn.addEventListener('click', function(e) {
+                e.preventDefault();
+                if (currentMapUrl) {
+                    window.open(currentMapUrl + '?edit=true', '_blank');
+                }
+            });
+
+            copyMapUrlBtn.addEventListener('click', function() {
+                if (currentMapUrl) {
+                    navigator.clipboard.writeText(currentMapUrl).then(function() {
+                        showAlert('Map URL copied to clipboard!', 'success');
+                    }).catch(function() {
+                        showAlert('Failed to copy URL', 'error');
+                    });
+                }
+            });
+            
+            // Initialize time periods options based on default period type
+            updateTimePeriodsOptions();
+        }
+
+        function loadMetrics() {
+            fetch('/api/map-generator/metrics')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        metrics = data.metrics;
+                        populateMetricSelect();
+                    } else {
+                        showAlert('Failed to load metrics: ' + data.message, 'error');
+                    }
+                })
+                .catch(error => {
+                    console.error('Error loading metrics:', error);
+                    showAlert('Error loading metrics', 'error');
+                });
+        }
+
+        function populateMetricSelect() {
+            metricSelect.innerHTML = '<option value="">Select a metric...</option>';
+            
+            // Sort metrics by display_order, then by ID
+            metrics.sort((a, b) => {
+                const orderA = a.display_order || 999;
+                const orderB = b.display_order || 999;
+                if (orderA !== orderB) {
+                    return orderA - orderB;
+                }
+                return a.id - b.id;
+            });
+            
+            // Group metrics by category
+            const groupedMetrics = metrics.reduce((acc, metric) => {
+                if (!acc[metric.category]) {
+                    acc[metric.category] = [];
+                }
+                acc[metric.category].push(metric);
+                return acc;
+            }, {});
+            
+            // Build the select options HTML with optgroups
+            Object.entries(groupedMetrics).forEach(([category, categoryMetrics]) => {
+                const optgroup = document.createElement('optgroup');
+                optgroup.label = category;
+                optgroup.setAttribute('data-category', category);
+                
+                categoryMetrics.forEach(metric => {
+                    const option = document.createElement('option');
+                    option.value = metric.id;
+                    option.textContent = metric.metric_name;
+                    optgroup.appendChild(option);
+                });
+                
+                metricSelect.appendChild(optgroup);
+            });
+        }
+
+        function loadAnomalies(metricId) {
+            fetch(`/api/anomalies/${metricId}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        populateAnomalySelect(data.anomalies);
+                    } else {
+                        showAlert('Failed to load anomalies: ' + data.message, 'error');
+                    }
+                })
+                .catch(error => {
+                    console.error('Error loading anomalies:', error);
+                    showAlert('Error loading anomalies', 'error');
+                });
+        }
+
+        function populateAnomalySelect(anomalies) {
+            anomalySelect.innerHTML = '<option value="">All Anomalies</option>';
+            
+            if (anomalies && anomalies.length > 0) {
+                anomalies.forEach(anomaly => {
+                    const option = document.createElement('option');
+                    // Store field value in the option value
+                    option.value = anomaly.group_value;
+                    
+                    // Add visual indicator for out-of-bounds vs in-bounds anomalies
+                    const status = anomaly.out_of_bounds ? '🚨 OUT OF BOUNDS' : '✅ In Bounds';
+                    const difference = anomaly.difference ? ` (${anomaly.difference > 0 ? '+' : ''}${anomaly.difference.toFixed(1)})` : '';
+                    
+                    option.textContent = `${anomaly.group_field_name}: ${anomaly.group_value} ${status}${difference}`;
+                    
+                    // Add data attributes for additional info
+                    option.setAttribute('data-field-name', anomaly.group_field_name);
+                    option.setAttribute('data-out-of-bounds', anomaly.out_of_bounds);
+                    option.setAttribute('data-difference', anomaly.difference || 0);
+                    option.setAttribute('data-recent-mean', anomaly.recent_mean || 0);
+                    option.setAttribute('data-comparison-mean', anomaly.comparison_mean || 0);
+                    
+                    anomalySelect.appendChild(option);
+                });
+                
+                // Update the label to show count
+                const totalCount = anomalies.length;
+                document.querySelector('label[for="anomaly-select"]').textContent = `Anomaly Type (${totalCount} total)`;
+            }
+        }
+
+        function updateGenerateButton() {
+            const canGenerate = metricSelect.value && 
+                               districtSelect.value && 
+                               periodSelect.value;
+            
+            generateBtn.disabled = !canGenerate;
+        }
+        
+        function updateTimePeriodsOptions() {
+            const periodType = periodSelect.value;
+            const timePeriodsSelect = document.getElementById('time-periods-select');
+            const currentValue = timePeriodsSelect.value;
+            
+            // Clear existing options
+            timePeriodsSelect.innerHTML = '';
+            
+            // Define options based on period type
+            let options = [];
+            
+            if (periodType === 'month') {
+                // For months, extend to 24 months and add "Since Jan 1 2024" option
+                options = [
+                    { value: '1', text: 'Last 1 month' },
+                    { value: '2', text: 'Last 2 months' },
+                    { value: '3', text: 'Last 3 months' },
+                    { value: '6', text: 'Last 6 months' },
+                    { value: '12', text: 'Last 12 months' },
+                    { value: '18', text: 'Last 18 months' },
+                    { value: '24', text: 'Last 24 months' },
+                    { value: 'since_2024', text: 'Since Jan 1 2024' }
+                ];
+            } else if (periodType === 'quarter') {
+                // For quarters, keep reasonable range
+                options = [
+                    { value: '1', text: 'Last 1 quarter' },
+                    { value: '2', text: 'Last 2 quarters' },
+                    { value: '3', text: 'Last 3 quarters' },
+                    { value: '4', text: 'Last 4 quarters' },
+                    { value: '6', text: 'Last 6 quarters' },
+                    { value: '8', text: 'Last 8 quarters' }
+                ];
+            } else if (periodType === 'year') {
+                // For years, keep reasonable range
+                options = [
+                    { value: '1', text: 'Last 1 year' },
+                    { value: '2', text: 'Last 2 years' },
+                    { value: '3', text: 'Last 3 years' },
+                    { value: '5', text: 'Last 5 years' },
+                    { value: '10', text: 'Last 10 years' }
+                ];
+            } else {
+                // Default options (fallback)
+                options = [
+                    { value: '1', text: 'Last 1 period' },
+                    { value: '2', text: 'Last 2 periods' },
+                    { value: '3', text: 'Last 3 periods' },
+                    { value: '6', text: 'Last 6 periods' },
+                    { value: '12', text: 'Last 12 periods' }
+                ];
+            }
+            
+            // Add options to select
+            options.forEach(option => {
+                const optionElement = document.createElement('option');
+                optionElement.value = option.value;
+                optionElement.textContent = option.text;
+                timePeriodsSelect.appendChild(optionElement);
+            });
+            
+            // Try to restore the previous value if it's still valid, otherwise default to 2
+            if (options.some(opt => opt.value === currentValue)) {
+                timePeriodsSelect.value = currentValue;
+            } else {
+                timePeriodsSelect.value = '2';
+            }
+        }
+        
+        function updateLivePreview() {
+            // Clear existing timeout
+            if (previewTimeout) {
+                clearTimeout(previewTimeout);
+            }
+            
+            // Debounce the preview update
+            previewTimeout = setTimeout(() => {
+                const metricId = metricSelect.value;
+                const district = districtSelect.value;
+                const periodType = periodSelect.value;
+                const timePeriods = timePeriodsSelect.value;
+                
+                if (!metricId || !district || !periodType) {
+                    showPreviewPlaceholder();
+                    return;
+                }
+                
+                // Show loading state
+                showPreviewLoading();
+                
+                // Get scale dots checkbox value
+                const scaleDots = document.getElementById('scale-dots-checkbox').checked;
+                
+                // Fetch preview data
+                fetch('/api/generate-map', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        metric_id: metricId,
+                        anomaly_type: anomalySelect.value,
+                        district: district,
+                        period_type: periodType,
+                        time_periods: timePeriods === 'since_2024' ? timePeriods : parseInt(timePeriods),
+                        scale_dots: scaleDots,
+                        preview: true
+                    })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    console.log('Preview data received:', data);
+                    if (data.status === 'success') {
+                        try {
+                            showLivePreview(data);
+                        } catch (error) {
+                            console.error('Error in showLivePreview:', error);
+                            showPreviewError('Error displaying preview: ' + error.message);
+                        }
+                    } else {
+                        showPreviewError(data.message || 'Failed to load preview');
+                    }
+                })
+                .catch(error => {
+                    console.error('Error updating preview:', error);
+                    showPreviewError('Error loading preview: ' + error.message);
+                });
+            }, 500); // 500ms debounce
+        }
+        
+        function showPreviewPlaceholder() {
+            mapPreviewPlaceholder.style.display = 'block';
+            mapPreviewContainer.style.display = 'none';
+            if (liveMap) {
+                if (previewMapPopup) {
+                    previewMapPopup.remove();
+                    previewMapPopup = null;
+                }
+                liveMap.remove();
+                liveMap = null;
+            }
+            // Clear stored data
+            previewData = null;
+            
+            // Hide the date range subtitle
+            const subtitleElement = document.getElementById('map-preview-subtitle');
+            if (subtitleElement) {
+                subtitleElement.style.display = 'none';
+            }
+            // Hide overlay and legend
+            mapInfoOverlay.style.display = 'none';
+            mapLegend.style.display = 'none';
+        }
+        
+        function showPreviewLoading() {
+            mapPreviewPlaceholder.style.display = 'none';
+            mapPreviewContainer.style.display = 'block';
+            liveMapContainer.innerHTML = '<div style="display: flex; align-items: center; justify-content: center; height: 100%;"><span class="loading-spinner"></span> Loading preview...</div>';
+            
+            // Clear any existing timeout
+            if (window.previewLoadingTimeout) {
+                clearTimeout(window.previewLoadingTimeout);
+            }
+            
+            // Add a timeout to prevent stuck loading state
+            window.previewLoadingTimeout = setTimeout(() => {
+                if (liveMapContainer.innerHTML.includes('Loading preview...')) {
+                    console.warn('Preview loading timeout, clearing loading state');
+                    showPreviewError('Preview loading timeout');
+                }
+            }, 10000); // 10 second timeout
+        }
+        
+        function showPreviewError(message) {
+            mapPreviewPlaceholder.style.display = 'none';
+            mapPreviewContainer.style.display = 'block';
+            liveMapContainer.innerHTML = `<div style="display: flex; align-items: center; justify-content: center; height: 100%; color: var(--warm-coral);"><i class="fas fa-exclamation-triangle"></i> ${message}</div>`;
+            
+            // Clear loading timeout
+            if (window.previewLoadingTimeout) {
+                clearTimeout(window.previewLoadingTimeout);
+                window.previewLoadingTimeout = null;
+            }
+        }
+        
+        function initializeMap(data) {
+            console.log('Initializing Mapbox map...');
+            console.log('MAPBOX_ACCESS_TOKEN available:', !!window.MAPBOX_ACCESS_TOKEN);
+            console.log('MAPBOX_ACCESS_TOKEN value:', window.MAPBOX_ACCESS_TOKEN ? window.MAPBOX_ACCESS_TOKEN.substring(0, 10) + '...' : 'undefined');
+                
+                // Check if Mapbox token is available
+                if (!window.MAPBOX_ACCESS_TOKEN) {
+                    console.error('Mapbox access token not available');
+                    showPreviewError('Mapbox access token not configured');
+                    return;
+                }
+                console.log('Mapbox token available, creating map...');
+                
+                // Check if map container is ready
+                if (!liveMapContainer) {
+                    console.error('Map container not found');
+                    showPreviewError('Map container not found');
+                    return;
+                }
+                console.log('Map container found, creating map...');
+                
+                try {
+                    mapboxgl.accessToken = window.MAPBOX_ACCESS_TOKEN;
+                    console.log('Setting mapboxgl.accessToken...');
+                    
+                    // Determine map style based on current theme
+                    const currentTheme = document.documentElement.getAttribute('data-theme') || 'light';
+                    const mapStyle = currentTheme === 'dark' 
+                        ? 'mapbox://styles/mapbox/dark-v11' 
+                        : 'mapbox://styles/mapbox/light-v11';
+                    
+                    liveMap = new mapboxgl.Map({
+                        container: liveMapContainer,
+                        style: mapStyle,
+                        center: [-122.4194, 37.7749], // San Francisco
+                        zoom: 10,
+                        attributionControl: false, // Disable attribution for cleaner look
+                        preserveDrawingBuffer: true, // Ensure rendering works properly
+                        failIfMajorPerformanceCaveat: false // Don't fail if performance is poor
+                    });
+                    console.log('Mapbox map created successfully');
+                    console.log('Map object:', liveMap);
+                    console.log('Map container:', liveMapContainer);
+                    
+                    // Add a simple test to see if map is working
+                    liveMap.on('render', () => {
+                        console.log('Map is rendering!');
+                    });
+                    
+                    // Check if tiles are loading
+                    liveMap.on('sourcedata', (e) => {
+                        console.log('Source data event:', e.sourceId, e.isSourceLoaded);
+                    });
+                    
+                    liveMap.on('error', (e) => {
+                        console.error('Map error:', e);
+                        // Try a different style if the current one fails
+                        if (e.error && e.error.message && e.error.message.includes('style')) {
+                            console.log('Trying alternative map style...');
+                            const currentTheme = document.documentElement.getAttribute('data-theme') || 'light';
+                            const fallbackStyle = currentTheme === 'dark' 
+                                ? 'mapbox://styles/mapbox/dark-v11' 
+                                : 'mapbox://styles/mapbox/light-v11';
+                            liveMap.setStyle(fallbackStyle);
+                        }
+                    });
+                    
+                    liveMap.on('load', () => {
+                        console.log('Map loaded successfully');
+                        console.log('Map style loaded:', liveMap.isStyleLoaded());
+                        console.log('Map style:', liveMap.getStyle());
+                        console.log('Map bounds:', liveMap.getBounds());
+                    });
+                    
+                    // Trigger resize after a short delay to ensure proper rendering
+                    setTimeout(() => {
+                        if (liveMap) {
+                            console.log('Triggering map resize...');
+                            liveMap.resize();
+                        }
+                    }, 100);
+                    
+                    // Wait for map to load before adding data
+                    liveMap.on('load', () => {
+                        console.log('Map loaded successfully');
+                        console.log('Map style loaded:', liveMap.isStyleLoaded());
+                        // Add data once map is loaded
+                        if (previewData) {
+                            console.log('Adding preview data after map load');
+                            addDataToMap(previewData);
+                            previewData = null;
+                        }
+                    });
+                    
+                    liveMap.on('error', (error) => {
+                        console.error('Map error:', error);
+                        showPreviewError('Map error: ' + error.message);
+                    });
+                    
+                    // Add a timeout to check if map loads
+                    setTimeout(() => {
+                        if (!liveMap.isStyleLoaded()) {
+                            console.warn('Map style not loaded after 5 seconds, trying to add data anyway');
+                            if (previewData) {
+                                addDataToMap(previewData);
+                                previewData = null;
+                            }
+                        }
+                    }, 5000);
+                    
+                    // Store the data to add once map is loaded
+                    previewData = data;
+                    return; // Don't add data yet, wait for map to load
+                } catch (error) {
+                    console.error('Error creating Mapbox map:', error);
+                    showPreviewError('Error creating map: ' + error.message);
+                    return;
+                }
+            }
+        
+        function showLivePreview(data) {
+            console.log('showLivePreview called with:', data);
+            // Store the data for potential color updates
+            previewData = data;
+            mapPreviewPlaceholder.style.display = 'none';
+            mapPreviewContainer.style.display = 'flex';
+            
+            // Update the date range subtitle
+            updatePreviewDateRangeSubtitle();
+            
+            // Force a reflow to ensure the container is visible before creating the map
+            mapPreviewContainer.offsetHeight;
+            
+            // Ensure map container has proper dimensions
+            console.log('Map container dimensions:', {
+                width: liveMapContainer.offsetWidth,
+                height: liveMapContainer.offsetHeight,
+                style: liveMapContainer.style.cssText
+            });
+            
+            // Force container to have dimensions if it doesn't
+            if (liveMapContainer.offsetWidth === 0 || liveMapContainer.offsetHeight === 0) {
+                console.warn('Map container has no dimensions, setting defaults');
+                liveMapContainer.style.width = '100%';
+                liveMapContainer.style.height = '100%';
+                liveMapContainer.style.minHeight = '100%';
+            }
+            
+            // Always ensure container has proper dimensions
+            console.log('Setting map container dimensions...');
+            liveMapContainer.style.width = '100%';
+            liveMapContainer.style.height = '100%';
+            liveMapContainer.style.minHeight = '100%';
+            liveMapContainer.style.position = 'relative';
+            liveMapContainer.style.overflow = 'hidden';
+            
+            // Clear loading timeout
+            if (window.previewLoadingTimeout) {
+                clearTimeout(window.previewLoadingTimeout);
+                window.previewLoadingTimeout = null;
+            }
+            
+            // Clear any loading state and text
+            const loadingElements = liveMapContainer.querySelectorAll('.loading-spinner, div');
+            loadingElements.forEach(element => {
+                if (element.textContent.includes('Loading preview') || element.classList.contains('loading-spinner')) {
+                    element.remove();
+                }
+            });
+            
+            // ALWAYS create a fresh map - remove existing one if it exists
+            if (liveMap) {
+                console.log('Removing existing map to create fresh one...');
+                if (previewMapPopup) {
+                    previewMapPopup.remove();
+                    previewMapPopup = null;
+                }
+                liveMap.remove();
+                liveMap = null;
+            }
+            
+            // Clear the container completely
+            liveMapContainer.innerHTML = '';
+            
+            // Create fresh map
+            console.log('Creating fresh Mapbox map...');
+            setTimeout(() => {
+                initializeMap(data);
+            }, 50);
+        }
+        
+        // Removed updateMapData function - we always create fresh maps now
+        
+        function addDataToMap(data) {
+            console.log('addDataToMap called with data:', data);
+            console.log('Map object:', liveMap);
+            console.log('Map style loaded:', liveMap ? liveMap.isStyleLoaded() : 'No map');
+            
+            // Ensure map is ready (fresh map should always be ready)
+            if (!liveMap || !liveMap.isStyleLoaded()) {
+                console.log('Map not ready, waiting...');
+                setTimeout(() => addDataToMap(data), 100);
+                return;
+            }
+            
+            // Fresh map should always have valid style
+            const mapStyle = liveMap.getStyle();
+            if (!mapStyle || !mapStyle.version) {
+                console.log('Map style invalid, this should not happen with fresh map');
+                return;
+            }
+            
+            // No need to clear existing layers - this is a fresh map
+            console.log('Adding data to fresh map...');
+            
+            // Add new data if available
+            console.log('Checking location_data:', data.location_data);
+            if (data.location_data && data.location_data.length > 0) {
+                console.log('Map state check - Style loaded:', liveMap.isStyleLoaded());
+                console.log('Map state check - Style available:', !!liveMap.getStyle());
+                console.log('Map state check - Container:', liveMapContainer.offsetWidth, 'x', liveMapContainer.offsetHeight);
+                console.log('Processing', data.location_data.length, 'data points');
+                
+                // Extract available fields for color selection
+                const sampleItem = data.location_data[0];
+                if (sampleItem) {
+                    availableFields = Object.keys(sampleItem);
+                    populateColorFieldOptions(availableFields);
+                }
+                
+                // Create color scale based on current field
+                let colorValues = [];
+                if (currentColorField === 'date') {
+                    // Extract date values from the data using common date field names
+                    colorValues = data.location_data.map(item => {
+                        if (item.date) return item.date;
+                        if (item.dba_start_date) return item.dba_start_date;
+                        if (item.dba_end_date) return item.dba_end_date;
+                        if (item.location_start_date) return item.location_start_date;
+                        if (item.location_end_date) return item.location_end_date;
+                        if (item.business_start_date) return item.business_start_date;
+                        if (item.business_end_date) return item.business_end_date;
+                        if (item.report_datetime) return item.report_datetime;
+                        if (item.incident_datetime) return item.incident_datetime;
+                        if (item.date_issued) return item.date_issued;
+                        if (item.date_filed) return item.date_filed;
+                        return new Date().toISOString().split('T')[0]; // fallback
+                    });
+                } else {
+                    // Extract values from the selected field
+                    colorValues = data.location_data.map(item => {
+                        const value = item[currentColorField];
+                        // Handle null, undefined, empty strings, and convert to string
+                        if (value === null || value === undefined || value === '') {
+                            return 'Unknown';
+                        }
+                        return String(value).trim();
+                    });
+                }
+                
+                console.log('Color field:', currentColorField);
+                console.log('Color values:', colorValues);
+                console.log('Sample color values:', colorValues.slice(0, 5));
+                
+                colorScale = createColorScale(colorValues, currentColorField);
+                console.log('Color scale:', colorScale);
+                
+                const features = data.location_data.map(item => {
+                    console.log('Processing item:', item);
+                    
+                    // Extract coordinates with validation
+                    let lon, lat;
+                    if (item.lon !== undefined && item.lat !== undefined) {
+                        lon = parseFloat(item.lon);
+                        lat = parseFloat(item.lat);
+                    } else if (item.coordinates && Array.isArray(item.coordinates) && item.coordinates.length >= 2) {
+                        lon = parseFloat(item.coordinates[0]);
+                        lat = parseFloat(item.coordinates[1]);
+                    } else {
+                        console.error('Invalid coordinates for item:', item);
+                        return null;
+                    }
+                    
+                    // Validate coordinates
+                    if (isNaN(lon) || isNaN(lat)) {
+                        console.error('NaN coordinates for item:', item, 'lon:', lon, 'lat:', lat);
+                        return null;
+                    }
+                    
+                    // Check if coordinates are in valid ranges
+                    if (lon < -180 || lon > 180 || lat < -90 || lat > 90) {
+                        console.error('Coordinates out of range for item:', item, 'lon:', lon, 'lat:', lat);
+                        return null;
+                    }
+                    
+                    // Determine color for this point
+                    let pointColor = '#ad35fa'; // default purple
+                    let strokeColor = '#ffffff'; // default white stroke
+                    
+                    if (colorScale && Object.keys(colorScale).length > 0) {
+                        let colorKey;
+                        if (currentColorField === 'date') {
+                            colorKey = item.date || item.dba_start_date || item.dba_end_date || 
+                                     item.location_start_date || item.location_end_date || 
+                                     item.business_start_date || item.business_end_date ||
+                                     item.report_datetime || item.incident_datetime ||
+                                     item.date_issued || item.date_filed ||
+                                     new Date().toISOString().split('T')[0];
+                        } else {
+                            const value = item[currentColorField];
+                            // Handle null, undefined, empty strings, and convert to string
+                            if (value === null || value === undefined || value === '') {
+                                colorKey = 'Unknown';
+                            } else {
+                                colorKey = String(value).trim();
+                            }
+                        }
+                        
+                        console.log('Color key:', colorKey, 'for item:', item.title || 'Unknown');
+                        console.log('Available color keys:', Object.keys(colorScale));
+                        
+                        if (colorScale[colorKey]) {
+                            pointColor = colorScale[colorKey];
+                            // Use purple stroke for white points, white stroke for colored points
+                            strokeColor = pointColor === '#ffffff' || pointColor === 'rgb(255, 255, 255)' ? '#ad35fa' : '#ffffff';
+                            console.log('Assigned color:', pointColor, 'for key:', colorKey);
+                        } else {
+                            console.log('No color found for key:', colorKey);
+                            console.log('Available keys:', Object.keys(colorScale));
+                            console.log('Key type:', typeof colorKey, 'Value:', colorKey);
+                            // Try to find a matching key (case-insensitive)
+                            const matchingKey = Object.keys(colorScale).find(key => 
+                                String(key).toLowerCase() === String(colorKey).toLowerCase()
+                            );
+                            if (matchingKey) {
+                                pointColor = colorScale[matchingKey];
+                                strokeColor = pointColor === '#ffffff' || pointColor === 'rgb(255, 255, 255)' ? '#ad35fa' : '#ffffff';
+                                console.log('Found matching key (case-insensitive):', matchingKey, 'Assigned color:', pointColor);
+                            }
+                        }
+                    } else {
+                        console.log('No color scale available or color scale is empty');
+                    }
+                    
+                    // Create properties object with all available data
+                    const properties = {
+                        title: item.title || 'Point',
+                        description: item.description || '',
+                        value: item.value || 1,
+                        color: pointColor,
+                        strokeColor: strokeColor,
+                        scale: item.scale || 0.4  // Use scale from aggregated data or default
+                    };
+                    
+                    // Ensure colors are in the correct format for Mapbox
+                    if (properties.color && properties.color.startsWith('rgb(')) {
+                        // Convert rgb() to hex for better Mapbox compatibility
+                        const rgbMatch = properties.color.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
+                        if (rgbMatch) {
+                            const r = parseInt(rgbMatch[1]);
+                            const g = parseInt(rgbMatch[2]);
+                            const b = parseInt(rgbMatch[3]);
+                            properties.color = `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+                        }
+                    }
+                    
+                    console.log('Final properties for', item.title || 'Unknown', ':', {
+                        color: properties.color,
+                        strokeColor: properties.strokeColor,
+                        colorKey: currentColorField
+                    });
+                    
+                    // Add all other properties from the original item, without overwriting computed color/strokeColor
+                    Object.keys(item).forEach(key => {
+                        if (key !== 'lat' && key !== 'lon' && key !== 'coordinates' && 
+                            key !== 'title' && key !== 'description' && key !== 'value' &&
+                            key !== 'color' && key !== 'strokeColor') {
+                            properties[key] = item[key];
+                        }
+                    });
+                    
+                    return {
+                        type: 'Feature',
+                        properties: properties,
+                        geometry: {
+                            type: 'Point',
+                            coordinates: [lon, lat]
+                        }
+                    };
+                }).filter(feature => feature !== null);
+                console.log('Created features:', features);
+                console.log('Sample feature properties:', features[0]?.properties);
+                console.log('Sample feature has color property:', features[0]?.properties?.hasOwnProperty('color'));
+                console.log('Sample feature color value:', features[0]?.properties?.color);
+                
+                if (!features || features.length === 0) {
+                    console.error('No valid features created from location data');
+                    showPreviewError('No valid location data found');
+                    return;
+                }
+                
+                try {
+                    const geojsonData = {
+                        type: 'FeatureCollection',
+                        features: features
+                    };
+                    console.log('GeoJSON data being sent to Mapbox:', JSON.stringify(geojsonData.features[0], null, 2));
+                    
+                    liveMap.addSource('preview-points', {
+                        type: 'geojson',
+                        data: geojsonData
+                    });
+                    console.log('Added map source successfully');
+                    
+                    liveMap.addLayer({
+                        id: 'preview-points',
+                        type: 'circle',
+                        source: 'preview-points',
+                        paint: {
+                            'circle-radius': ['*', ['get', 'scale'], 15],  // Scale the radius based on the scale property
+                            'circle-color': ['get', 'color'],
+                            'circle-stroke-width': 1,
+                            'circle-stroke-color': ['get', 'strokeColor']
+                        }
+                    });
+                    
+                    // Store the layer reference for potential updates
+                    window.previewPointsLayer = liveMap.getLayer('preview-points');
+                    console.log('Added map layer successfully');
+                    
+                    // Paint is already bound to feature properties
+                    
+                    // Ensure the map container has proper height
+                    const mapContainer = document.getElementById('map-preview-container');
+                    if (mapContainer) {
+                        mapContainer.style.minHeight = '100%';
+                        mapContainer.style.height = '100%';
+                    }
+                    
+                    // Add popup for tooltips
+                    previewMapPopup = new mapboxgl.Popup({
+                        closeButton: false,
+                        closeOnClick: false
+                    });
+                    
+                    // Add mouse events for tooltips
+                    liveMap.on('mouseenter', 'preview-points', (e) => {
+                        liveMap.getCanvas().style.cursor = 'pointer';
+                        
+                        const coordinates = e.features[0].geometry.coordinates.slice();
+                        const properties = e.features[0].properties;
+                        
+                        // Create compact tooltip content
+                        let tooltipContent = `<div class="tsf-tooltip">`;
+                        tooltipContent += `<div class="tsf-tooltip-title">${properties.title}</div>`;
+                        
+                        // Add count information if this is an aggregated point
+                        if (properties.count && properties.count > 1) {
+                            tooltipContent += `<div class="tsf-tooltip-row">
+                                <div class="tsf-tooltip-key">Count:</div>
+                                <div class="tsf-tooltip-val">${properties.count} points</div>
+                            </div>`;
+                        }
+                        
+                        // Add all available properties as tooltip content (excluding location fields)
+                        const locationFields = new Set(['lat','lon','long','latitude','longitude','coordinates','point','point_geom','intersection','address','street','city','state','zip']);
+                        Object.keys(properties).forEach(key => {
+                            if (key === 'title' || key === 'color' || key === 'strokeColor' || key === 'tooltip_fields') return;
+                            if (locationFields.has(key)) return;
+                            // Extra safety: skip any field name that looks like location
+                            if (/(^|_)(lat|lon|long|coord|address|street|city|state|zip|point|geom)(_|$)/i.test(key)) return;
+                            const value = properties[key];
+                            if (value && value !== '') {
+                                const displayKey = key.split('_').map(word => 
+                                    word.charAt(0).toUpperCase() + word.slice(1)
+                                ).join(' ');
+                                tooltipContent += `
+                                    <div class="tsf-tooltip-row">
+                                        <div class="tsf-tooltip-key">${displayKey}:</div>
+                                        <div class="tsf-tooltip-val">${value}</div>
+                                    </div>`;
+                            }
+                        });
+                        tooltipContent += `</div>`;
+                        
+                        previewMapPopup.setLngLat(coordinates).setHTML(tooltipContent).addTo(liveMap);
+                    });
+                    
+                    liveMap.on('mouseleave', 'preview-points', () => {
+                        liveMap.getCanvas().style.cursor = '';
+                        previewMapPopup.remove();
+                    });
+                    
+                    // Update info overlay and legend
+                    updateInfoOverlay(features.length);
+                    updateLegend(colorScale, currentColorField);
+                    
+                    // Don't force color update on initial load - colors should already be set correctly
+                    console.log('Initial load complete - colors should be set from feature properties');
+                    
+                } catch (error) {
+                    console.error('Error adding map source/layer:', error);
+                    showPreviewError('Error adding map data: ' + error.message);
+                    return;
+                }
+                
+                // Fit map to data bounds
+                const bounds = new mapboxgl.LngLatBounds();
+                features.forEach(feature => {
+                    const coords = feature.geometry.coordinates;
+                    if (coords && coords.length >= 2 && !isNaN(coords[0]) && !isNaN(coords[1])) {
+                        bounds.extend(coords);
+                    }
+                });
+                
+                if (bounds.isEmpty()) {
+                    console.warn('No valid bounds calculated, using default SF bounds');
+                    liveMap.setCenter([-122.4194, 37.7749]);
+                    liveMap.setZoom(10);
+                } else {
+                    liveMap.fitBounds(bounds, { padding: 50, maxZoom: 15 });
+                }
+                console.log('Map bounds set successfully');
+                
+                // Clear any remaining loading state
+                const loadingElement = liveMapContainer.querySelector('.loading-spinner');
+                if (loadingElement) {
+                    loadingElement.remove();
+                }
+                
+                // Clear any loading text
+                const loadingText = liveMapContainer.querySelector('div');
+                if (loadingText && loadingText.textContent.includes('Loading preview')) {
+                    loadingText.remove();
+                }
+            } else {
+                console.log('No location data available');
+                showPreviewError('No location data available');
+            }
+        }
+
+        function generateMap() {
+            const metricId = metricSelect.value;
+            const anomalyType = anomalySelect.value;
+            const district = districtSelect.value;
+            const periodType = periodSelect.value;
+            const timePeriods = timePeriodsSelect.value === 'since_2024' ? timePeriodsSelect.value : parseInt(timePeriodsSelect.value);
+
+            // Get anomaly field name and value from the selected option
+            let anomalyFieldName = null;
+            let anomalyFieldValue = null;
+            
+            if (anomalyType && anomalyType !== '') {
+                // Get the selected option to read the field name
+                const selectedOption = anomalySelect.querySelector(`option[value="${anomalyType}"]`);
+                if (selectedOption) {
+                    anomalyFieldName = selectedOption.getAttribute('data-field-name');
+                    anomalyFieldValue = anomalyType;
+                    console.log('Anomaly data from option:', { anomalyFieldName, anomalyFieldValue });
+                } else {
+                    // Fallback: treat as legacy format
+                    anomalyFieldValue = anomalyType;
+                    console.log('Selected option not found, using legacy format:', anomalyFieldValue);
+                }
+            }
+
+            if (!metricId) {
+                showAlert('Please select a metric', 'error');
+                return;
+            }
+
+            // Update UI - show spinner in button only
+            generateBtn.disabled = true;
+            generateBtn.innerHTML = '<span class="loading-spinner"></span> Generating Map...';
+            
+            // Keep the map preview as is - don't change it
+            // mapPreview.className = 'map-preview loading';
+            // mapPreview.innerHTML = `<div><span class="loading-spinner"></span><p>Generating your map...</p></div>`;
+            
+            mapActions.style.display = 'none';
+            clearAlerts();
+
+            // Get scale dots checkbox value
+            const scaleDots = document.getElementById('scale-dots-checkbox').checked;
+            
+            // Send request
+            const requestBody = {
+                metric_id: metricId,
+                anomaly_type: anomalyFieldValue,
+                anomaly_field_name: anomalyFieldName,
+                district: district,
+                period_type: periodType,
+                time_periods: timePeriods,
+                color_field: currentColorField,
+                scale_dots: scaleDots
+            };
+            
+            console.log('Request body:', requestBody);
+            
+            fetch('/api/generate-map', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(requestBody)
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    currentMapId = data.map_id;
+                    currentMapUrl = data.view_url;
+                    
+                    // Show small success message with link
+                    showAlert(`Map generated successfully! <a href="${data.view_url}" target="_blank" style="color: inherit; text-decoration: underline; font-weight: bold;">View Map</a>`, 'success');
+                    
+                    // Keep the map preview unchanged - don't replace it
+                    // mapPreview.className = 'map-preview';
+                    // mapPreview.innerHTML = `<div>...</div>`;
+                    
+                    // Don't show map actions - we just show the link in the alert
+                    // mapActions.style.display = 'flex';
+                    
+                    // Reload recent maps
+                    loadRecentMaps();
+                } else {
+                    throw new Error(data.message || 'Failed to generate map');
+                }
+            })
+            .catch(error => {
+                console.error('Error generating map:', error);
+                showAlert('Error generating map: ' + error.message, 'error');
+                
+                // Don't change the map preview on error either
+                // mapPreview.className = 'map-preview error';
+                // mapPreview.innerHTML = `<div>...</div>`;
+            })
+            .finally(() => {
+                // Reset generate button
+                generateBtn.disabled = false;
+                generateBtn.innerHTML = '<i class="fas fa-map"></i> Generate Map';
+            });
+        }
+
+        function loadRecentMaps() {
+            return fetch('/api/maps?limit=6')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        displayRecentMaps(data.maps);
+                    } else {
+                        showAlert('Failed to load recent maps: ' + data.message, 'error');
+                    }
+                })
+                .catch(error => {
+                    console.error('Error loading recent maps:', error);
+                    showAlert('Error loading recent maps', 'error');
+                });
+        }
+
+        function displayRecentMaps(maps) {
+            if (!maps || maps.length === 0) {
+                recentMapsGrid.innerHTML = `
+                    <div class="map-card">
+                        <p style="text-align: center; color: var(--text-secondary);">
+                            No maps found. Generate your first map above!
+                        </p>
+                    </div>
+                `;
+                return;
+            }
+
+            recentMapsGrid.innerHTML = maps.map(map => {
+                const metadata = typeof map.metadata === 'string' ? 
+                    JSON.parse(map.metadata) : map.metadata || {};
+                
+                const createdDate = new Date(map.created_at).toLocaleDateString();
+                const createdTime = new Date(map.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+                const metricName = metadata.metric_id ? 
+                    (metrics.find(m => m.id === metadata.metric_id)?.metric_name || metadata.metric_id) : 
+                    'Unknown Metric';
+                const mapType = map.type || 'Unknown';
+                
+                return `
+                    <div class="map-card" onclick="viewMap('${map.id}')">
+                        <h4>${map.title || 'Untitled Map'}</h4>
+                        <p>${metadata.description || 'No description available'}</p>
+                        <div class="map-meta">
+                            <span><i class="fas fa-chart-bar"></i> ${metricName}</span>
+                            <span><i class="fas fa-map"></i> ${mapType}</span>
+                        </div>
+                        <div class="map-meta">
+                            <span><i class="fas fa-calendar"></i> ${createdDate}</span>
+                            <span><i class="fas fa-clock"></i> ${createdTime}</span>
+                        </div>
+                        <div class="map-actions">
+                            <button class="map-action-btn" onclick="event.stopPropagation(); viewMap('${map.id}')">
+                                <i class="fas fa-eye"></i> View
+                            </button>
+                            <button class="map-action-btn" onclick="event.stopPropagation(); editMap('${map.id}')">
+                                <i class="fas fa-edit"></i> Edit
+                            </button>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function showAlert(message, type) {
+            const alertDiv = document.createElement('div');
+            alertDiv.className = `alert alert-${type}`;
+            alertDiv.innerHTML = `
+                <i class="fas fa-${type === 'success' ? 'check-circle' : type === 'error' ? 'exclamation-triangle' : 'info-circle'}"></i>
+                ${message}
+            `;
+            
+            alertContainer.appendChild(alertDiv);
+            
+            // Auto-remove after 8 seconds for success messages (longer to read the link)
+            const autoRemoveTime = type === 'success' ? 8000 : 5000;
+            setTimeout(() => {
+                if (alertDiv.parentNode) {
+                    alertDiv.parentNode.removeChild(alertDiv);
+                }
+            }, autoRemoveTime);
+        }
+
+        function clearAlerts() {
+            alertContainer.innerHTML = '';
+        }
+
+        function toggleRecentMaps(btn) {
+            const content = document.getElementById('recent-maps-content');
+            const toggleBtn = btn || document.getElementById('recent-maps-toggle');
+            const icon = toggleBtn.querySelector('i');
+            
+            if (content.classList.contains('hidden')) {
+                content.classList.remove('hidden');
+                icon.className = 'fas fa-chevron-down';
+                toggleBtn.innerHTML = '<i class="fas fa-chevron-down"></i> Hide';
+            } else {
+                content.classList.add('hidden');
+                icon.className = 'fas fa-chevron-right';
+                toggleBtn.innerHTML = '<i class="fas fa-chevron-right"></i> Show';
+            }
+        }
+
+        function viewMap(mapId) {
+            window.open(`/map/${mapId}`, '_blank');
+        }
+
+        function editMap(mapId) {
+            window.open(`/map/${mapId}?edit=true`, '_blank');
+        }
+
+        function refreshRecentMaps() {
+            const refreshBtn = document.querySelector('.recent-maps-toggle');
+            const icon = refreshBtn.querySelector('i');
+            
+            // Add spinning animation
+            icon.className = 'fas fa-sync-alt fa-spin';
+            refreshBtn.disabled = true;
+            
+            loadRecentMaps().finally(() => {
+                // Remove spinning animation
+                icon.className = 'fas fa-sync-alt';
+                refreshBtn.disabled = false;
+            });
+        }
+        
+        // Color utility functions
+        function createColorScale(values, fieldType = 'date') {
+            if (!values || values.length === 0) return null;
+            
+            console.log('createColorScale called with:', { values: values.slice(0, 10), fieldType });
+            
+            // Check if this is a date/datetime field
+            const isDateField = fieldType === 'date' || 
+                               fieldType.includes('date') || 
+                               fieldType.includes('datetime') ||
+                               fieldType.includes('time');
+            
+            if (isDateField) {
+                // Create date-based gradient from white (oldest) to purple (newest)
+                const uniqueDates = [...new Set(values)].sort();
+                const colorScale = {};
+                
+                console.log('Sorted dates (oldest to newest):', uniqueDates);
+                
+                uniqueDates.forEach((date, index) => {
+                    const ratio = index / (uniqueDates.length - 1);
+                    // Interpolate from white (#ffffff) to purple (#ad35fa)
+                    // White = oldest (index 0), Purple = newest (last index)
+                    const r = Math.round(255 * (1 - ratio) + 173 * ratio);
+                    const g = Math.round(255 * (1 - ratio) + 53 * ratio);
+                    const b = Math.round(255 * (1 - ratio) + 250 * ratio);
+                    colorScale[date] = `rgb(${r}, ${g}, ${b})`;
+                    
+                    console.log(`Date: ${date}, Index: ${index}, Ratio: ${ratio.toFixed(3)}, Color: rgb(${r}, ${g}, ${b})`);
+                });
+                
+                console.log('Date color scale created (white=oldest, purple=newest):', colorScale);
+                return colorScale;
+            } else {
+                // For categorical fields, use distinct colors - expanded palette to avoid recycling
+                const colors = [
+                    '#ad35fa', '#3182CE', '#38A169', '#E53E3E', '#DD6B20',
+                    '#805AD5', '#2B6CB0', '#2F855A', '#C53030', '#C05621',
+                    '#9F7AEA', '#4299E1', '#48BB78', '#F56565', '#ED8936',
+                    '#1A365D', '#2D3748', '#4A5568', '#718096', '#A0AEC0',
+                    '#E2E8F0', '#F7FAFC', '#FF0080', '#00FF80', '#8000FF',
+                    '#FF8000', '#0080FF', '#80FF00', '#FF0080', '#00FFFF',
+                    '#FF00FF', '#FFFF00', '#8B4513', '#228B22', '#FF1493',
+                    '#00CED1', '#FFD700', '#FF69B4', '#32CD32', '#FF4500',
+                    '#9370DB', '#20B2AA', '#FF6347', '#7B68EE', '#3CB371',
+                    '#FF7F50', '#6A5ACD', '#00FA9A', '#FFB6C1', '#4169E1',
+                    '#DC143C', '#00BFFF', '#FF8C00', '#9932CC', '#8FBC8F',
+                    '#FF69B4', '#00CED1', '#FFD700', '#FF1493', '#32CD32',
+                    '#FF4500', '#9370DB', '#20B2AA', '#FF6347', '#7B68EE',
+                    '#3CB371', '#FF7F50', '#6A5ACD', '#00FA9A', '#FFB6C1',
+                    '#4169E1', '#DC143C', '#00BFFF', '#FF8C00', '#9932CC'
+                ];
+                
+                const uniqueValues = [...new Set(values)].filter(v => v !== null && v !== undefined && v !== '');
+                const colorScale = {};
+                
+                uniqueValues.forEach((value, index) => {
+                    colorScale[value] = colors[index % colors.length];
+                });
+                
+                console.log('Categorical color scale created:', colorScale);
+                return colorScale;
+            }
+        }
+        
+        function updateLegend(colorScale, fieldName) {
+            if (!colorScale || Object.keys(colorScale).length === 0) {
+                mapLegend.style.display = 'none';
+                return;
+            }
+            
+            // Check if this is a date field
+            const isDateField = fieldName === 'date' || 
+                               fieldName.includes('date') || 
+                               fieldName.includes('datetime') ||
+                               fieldName.includes('time');
+            
+            if (isDateField && Object.keys(colorScale).length > 3) {
+                // For date fields with many values, show a simplified range legend
+                const entries = Object.entries(colorScale);
+                const sortedEntries = entries.sort((a, b) => new Date(a[0]) - new Date(b[0]));
+                
+                const earliestDate = new Date(sortedEntries[0][0]);
+                const latestDate = new Date(sortedEntries[sortedEntries.length - 1][0]);
+                const earliestColor = sortedEntries[0][1];
+                const latestColor = sortedEntries[sortedEntries.length - 1][1];
+                
+                const items = `
+                    <div class="legend-item">
+                        <div class="legend-color" style="background-color: ${earliestColor};"></div>
+                        <div class="legend-label">${earliestDate.toLocaleDateString()}</div>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-gradient" style="background: linear-gradient(to right, ${earliestColor}, ${latestColor});"></div>
+                        <div class="legend-label">Date Range</div>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color" style="background-color: ${latestColor};"></div>
+                        <div class="legend-label">${latestDate.toLocaleDateString()}</div>
+                    </div>
+                `;
+                
+                console.log('Simplified date range legend created');
+                legendItems.innerHTML = items;
+                mapLegend.style.display = 'block';
+            } else {
+                // For non-date fields or date fields with few values, show all items
+                const items = Object.entries(colorScale).map(([value, color]) => {
+                    const displayValue = isDateField ? 
+                        new Date(value).toLocaleDateString() : 
+                        String(value);
+                    
+                    return `
+                        <div class="legend-item">
+                            <div class="legend-color" style="background-color: ${color};"></div>
+                            <div class="legend-label">${displayValue}</div>
+                        </div>
+                    `;
+                }).join('');
+                
+                console.log('Full legend items created:', items);
+                legendItems.innerHTML = items;
+                mapLegend.style.display = 'block';
+            }
+        }
+        
+        function updateInfoOverlay(pointCount) {
+            pointCountSpan.textContent = pointCount;
+            mapInfoOverlay.style.display = 'block';
+        }
+        
+        function populateColorFieldOptions(fields) {
+            // Store current selection
+            const currentSelection = colorFieldSelect.value;
+            
+            // Clear existing options and add the default date option
+            colorFieldSelect.innerHTML = '<option value="date">Date (Default)</option>';
+            
+            // If we have a specific date field from metric config, update the default option
+            if (currentColorField && currentColorField !== 'date') {
+                const defaultOption = colorFieldSelect.querySelector('option[value="date"]');
+                if (defaultOption) {
+                    defaultOption.textContent = `${currentColorField.split('_').map(word => 
+                        word.charAt(0).toUpperCase() + word.slice(1)
+                    ).join(' ')} (Default)`;
+                }
+            }
+            
+            console.log('Available fields for coloring:', fields);
+            
+            // Define location-related fields to exclude (only exclude actual location/coordinate fields)
+            const locationFields = ['lat', 'lon', 'long', 'latitude', 'longitude', 'coordinates', 'point', 'point_geom', 'intersection', 'address', 'street', 'city', 'state', 'zip'];
+            
+            // Add all data fields that could be useful for coloring
+            fields.forEach(field => {
+                if (!locationFields.includes(field) && field !== 'title' && field !== 'description' && field !== 'color' && field !== 'strokeColor' && field !== 'value' && field !== 'tooltip_fields') {
+                    const option = document.createElement('option');
+                    option.value = field;
+                    // Format field name for display (convert snake_case to Title Case)
+                    const displayName = field
+                        .split('_')
+                        .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+                        .join(' ');
+                    option.textContent = displayName;
+                    colorFieldSelect.appendChild(option);
+                    console.log('Added color option:', field, '->', displayName);
+                }
+            });
+            
+            console.log('Final color field options:', Array.from(colorFieldSelect.options).map(opt => opt.value));
+            
+            // Set the color field based on currentColorField (which should be set from metric config)
+            if (currentColorField && Array.from(colorFieldSelect.options).some(opt => opt.value === currentColorField)) {
+                colorFieldSelect.value = currentColorField;
+                console.log('Set color field selection to metric default:', currentColorField);
+            } else if (currentColorField && currentColorField !== 'date') {
+                // If the current color field is a specific date field but not in the dropdown, add it
+                const option = document.createElement('option');
+                option.value = currentColorField;
+                option.textContent = currentColorField.split('_').map(word => 
+                    word.charAt(0).toUpperCase() + word.slice(1)
+                ).join(' ');
+                colorFieldSelect.appendChild(option);
+                colorFieldSelect.value = currentColorField;
+                console.log('Added and set specific date field:', currentColorField);
+            } else if (currentSelection && Array.from(colorFieldSelect.options).some(opt => opt.value === currentSelection)) {
+                colorFieldSelect.value = currentSelection;
+                console.log('Restored color field selection to:', currentSelection);
+            }
+            
+            // Show the color field group if we have options
+            if (colorFieldSelect.options.length > 1) {
+                colorFieldGroup.style.display = 'block';
+            } else {
+                colorFieldGroup.style.display = 'none';
+            }
+        }
+        
+        function updateMapColors(data) {
+            if (!liveMap || !data.location_data || data.location_data.length === 0) {
+                return;
+            }
+            
+            // Create new color scale based on current field
+            let colorValues = [];
+            if (currentColorField === 'date') {
+                colorValues = data.location_data.map(item => {
+                    if (item.date) return item.date;
+                    if (item.dba_start_date) return item.dba_start_date;
+                    if (item.dba_end_date) return item.dba_end_date;
+                    if (item.location_start_date) return item.location_start_date;
+                    if (item.location_end_date) return item.location_end_date;
+                    if (item.business_start_date) return item.business_start_date;
+                    if (item.business_end_date) return item.business_end_date;
+                    if (item.report_datetime) return item.report_datetime;
+                    if (item.incident_datetime) return item.incident_datetime;
+                    if (item.date_issued) return item.date_issued;
+                    if (item.date_filed) return item.date_filed;
+                    return new Date().toISOString().split('T')[0];
+                });
+            } else {
+                colorValues = data.location_data.map(item => {
+                    const value = item[currentColorField];
+                    // Handle null, undefined, empty strings, and convert to string
+                    if (value === null || value === undefined || value === '') {
+                        return 'Unknown';
+                    }
+                    return String(value).trim();
+                });
+            }
+            
+            console.log('UpdateMapColors - Color field:', currentColorField);
+            console.log('UpdateMapColors - Color values:', colorValues);
+            console.log('UpdateMapColors - Sample color values:', colorValues.slice(0, 5));
+            
+            colorScale = createColorScale(colorValues, currentColorField);
+            console.log('UpdateMapColors - Color scale:', colorScale);
+            
+            // Update the map source with new colors
+            const features = data.location_data.map(item => {
+                    let lon, lat;
+                    if (item.lon !== undefined && item.lat !== undefined) {
+                        lon = parseFloat(item.lon);
+                        lat = parseFloat(item.lat);
+                    } else if (item.coordinates && Array.isArray(item.coordinates) && item.coordinates.length >= 2) {
+                        lon = parseFloat(item.coordinates[0]);
+                        lat = parseFloat(item.coordinates[1]);
+                    } else {
+                        return null;
+                    }
+                    
+                    if (isNaN(lon) || isNaN(lat)) {
+                        return null;
+                    }
+                    
+                    console.log('Processing item:', item.title || 'Unknown', 'with color:', item.color);
+                
+                // Determine color for this point
+                let pointColor = '#ad35fa'; // default purple
+                let strokeColor = '#ffffff';
+                
+                if (colorScale && Object.keys(colorScale).length > 0) {
+                    let colorKey;
+                    if (currentColorField === 'date') {
+                        colorKey = item.date || item.dba_start_date || item.dba_end_date || 
+                                 item.location_start_date || item.location_end_date || 
+                                 item.business_start_date || item.business_end_date ||
+                                 item.report_datetime || item.incident_datetime ||
+                                 item.date_issued || item.date_filed ||
+                                 new Date().toISOString().split('T')[0];
+                    } else {
+                        const value = item[currentColorField];
+                        // Handle null, undefined, empty strings, and convert to string
+                        if (value === null || value === undefined || value === '') {
+                            colorKey = 'Unknown';
+                        } else {
+                            colorKey = String(value).trim();
+                        }
+                    }
+                    
+                    console.log('UpdateMapColors - Color key:', colorKey, 'for item:', item.title || 'Unknown');
+                    console.log('UpdateMapColors - Available color keys:', Object.keys(colorScale));
+                    
+                    if (colorScale[colorKey]) {
+                        pointColor = colorScale[colorKey];
+                        strokeColor = pointColor === '#ffffff' || pointColor === 'rgb(255, 255, 255)' ? '#6B46C1' : '#ffffff';
+                        console.log('UpdateMapColors - Assigned color:', pointColor, 'for key:', colorKey);
+                    } else {
+                        console.log('UpdateMapColors - No color found for key:', colorKey);
+                        console.log('UpdateMapColors - Available keys:', Object.keys(colorScale));
+                        console.log('UpdateMapColors - Key type:', typeof colorKey, 'Value:', colorKey);
+                        // Try to find a matching key (case-insensitive)
+                        const matchingKey = Object.keys(colorScale).find(key => 
+                            String(key).toLowerCase() === String(colorKey).toLowerCase()
+                        );
+                        if (matchingKey) {
+                            pointColor = colorScale[matchingKey];
+                            strokeColor = pointColor === '#ffffff' || pointColor === 'rgb(255, 255, 255)' ? '#ad35fa' : '#ffffff';
+                            console.log('UpdateMapColors - Found matching key (case-insensitive):', matchingKey, 'Assigned color:', pointColor);
+                        }
+                    }
+                } else {
+                    console.log('UpdateMapColors - No color scale available or color scale is empty');
+                }
+                
+                // Create properties object with all available data
+                const properties = {
+                    title: item.title || 'Point',
+                    description: item.description || '',
+                    value: item.value || 1,
+                    color: pointColor,
+                    strokeColor: strokeColor
+                };
+                // Normalize rgb() colors to hex for Mapbox compatibility
+                if (properties.color && properties.color.startsWith('rgb(')) {
+                    const rgbMatch = properties.color.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
+                    if (rgbMatch) {
+                        const r = parseInt(rgbMatch[1]);
+                        const g = parseInt(rgbMatch[2]);
+                        const b = parseInt(rgbMatch[3]);
+                        properties.color = `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+                    }
+                }
+                if (properties.strokeColor && properties.strokeColor.startsWith('rgb(')) {
+                    const rgbMatch = properties.strokeColor.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
+                    if (rgbMatch) {
+                        const r = parseInt(rgbMatch[1]);
+                        const g = parseInt(rgbMatch[2]);
+                        const b = parseInt(rgbMatch[3]);
+                        properties.strokeColor = `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+                    }
+                }
+                
+                // Add all other properties from the original item, without overwriting computed color/strokeColor
+                Object.keys(item).forEach(key => {
+                    if (key !== 'lat' && key !== 'lon' && key !== 'coordinates' && 
+                        key !== 'title' && key !== 'description' && key !== 'value' &&
+                        key !== 'color' && key !== 'strokeColor') {
+                        properties[key] = item[key];
+                    }
+                });
+                
+                return {
+                    type: 'Feature',
+                    properties: properties,
+                    geometry: {
+                        type: 'Point',
+                        coordinates: [lon, lat]
+                    }
+                };
+            }).filter(feature => feature !== null);
+            
+            // Update the map source
+            const source = liveMap.getSource('preview-points');
+            if (source) {
+                const newData = {
+                    type: 'FeatureCollection',
+                    features: features
+                };
+                source.setData(newData);
+                console.log('Updated map source with', features.length, 'features');
+                console.log('Sample feature properties:', features[0]?.properties);
+                console.log('Sample feature color:', features[0]?.properties?.color);
+                console.log('Sample feature strokeColor:', features[0]?.properties?.strokeColor);
+                
+                // Force a map repaint to ensure colors are applied
+                liveMap.triggerRepaint();
+                console.log('Triggered map repaint');
+                
+                // Re-apply the dynamic paint property to ensure colors are used
+                setTimeout(() => {
+                    try {
+                        liveMap.setPaintProperty('preview-points', 'circle-color', ['get', 'color']);
+                        liveMap.setPaintProperty('preview-points', 'circle-stroke-color', ['get', 'strokeColor']);
+                        console.log('Re-applied dynamic paint properties after source update');
+                    } catch (error) {
+                        console.error('Error re-applying paint property:', error);
+                    }
+                }, 50);
+            } else {
+                console.error('Map source not found');
+            }
+            
+            // Update legend
+            updateLegend(colorScale, currentColorField);
+        }
+    </script>
+</body>
+</html>

@@ -281,13 +281,24 @@ def transform_query_for_weekly(original_query, date_field, category_fields, rece
     
     # Replace any date placeholders in the original query
     modified_query = original_query
+    
+    # Get fiscal year values (similar to generate_dashboard_metrics.py)
+    today = date.today()
+    this_fiscal_year = str(today.year + 1)  # Fiscal year starts in July, so current fiscal year is next calendar year
+    last_fiscal_year = str(today.year)
+    
     replacements = {
         'this_year_start': f"'{recent_start}'",
         'this_year_end': f"'{recent_end}'",
         'last_year_start': f"'{comparison_start}'",
         'last_year_end': f"'{comparison_end}'",
         'start_date': f"'{comparison_start}'",
-        'current_date': f"'{recent_end}'"
+        'current_date': f"'{recent_end}'",
+        # Add fiscal year variables
+        'this_fiscal_year_start': f"'{this_fiscal_year}'",
+        'this_fiscal_year_end': f"'{this_fiscal_year}'",
+        'last_fiscal_year_start': f"'{last_fiscal_year}'",
+        'last_fiscal_year_end': f"'{last_fiscal_year}'"
     }
     
     # Apply replacements - ensure we're not creating malformed field names

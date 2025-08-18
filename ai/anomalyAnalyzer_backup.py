@@ -3059,7 +3059,7 @@ async def generate_map_endpoint(request: Request):
             modified_query = re.sub(r'LIMIT\s+\d+', '', modified_query, flags=re.IGNORECASE)
             modified_query = re.sub(r'OFFSET\s+\d+', '', modified_query, flags=re.IGNORECASE)
             
-            # Use structured map data from metrics table
+            # Use structured map data from metrics table instead of parsing complex queries
             logger.info("Using structured map data from metrics table")
             
             # Get the structured map data
@@ -3111,12 +3111,6 @@ async def generate_map_endpoint(request: Request):
             for filter_name, filter_config in map_filters.items():
                 if filter_name == "date_field":
                     continue  # Handle date field separately
-                elif filter_name == "geometry":
-                    continue  # Already handled above
-                elif filter_name == "date_range":
-                    # Skip date_range - we'll handle this with anomaly filters
-                    logger.info(f"Skipping date_range filter - will be handled by anomaly filters")
-                    continue
                     
                 if isinstance(filter_config, dict):
                     field = filter_config.get("field")
@@ -3145,23 +3139,6 @@ async def generate_map_endpoint(request: Request):
                         district_filter = f"supervisor_district = '{district}'"
                         where_conditions.append(district_filter)
                         logger.info(f"Adding district filter: {district_filter}")
-                
-                # Handle group field filter
-                if anomaly_filters.get("group_field") and anomaly_filters.get("field_value"):
-                    group_field = anomaly_filters["group_field"]
-                    field_value = anomaly_filters["field_value"]
-                    group_filter = f"{group_field} = '{field_value}'"
-                    where_conditions.append(group_filter)
-                    logger.info(f"Adding group field filter: {group_filter}")
-                
-                # Handle time period filter from anomaly data
-                if anomaly_filters.get("time_period"):
-                    time_period = anomaly_filters["time_period"]
-                    # Use date field from map_filters or default
-                    date_field = map_filters.get("date_field", "dba_start_date")
-                    time_filter = f"{date_field} = '{time_period}'"
-                    where_conditions.append(time_filter)
-                    logger.info(f"Adding time period filter from anomaly: {time_filter}")
                 
                 # Handle time period filters
                 if isinstance(metadata, dict) and metadata.get("recent_period"):
@@ -3222,37 +3199,351 @@ async def generate_map_endpoint(request: Request):
             encoded_sql = encoded_sql.replace('+', '%20')
             modified_query = f"https://data.sfgov.org/resource/{endpoint}.json?$query={encoded_sql}"
             logger.info(f"Final URL: {modified_query}")
+                encoded_sql = modified_query.split('%24query=')[1]
+                # Use unquote with proper handling for complex SQL
+                decoded_sql = unquote(encoded_sql)
+                # Handle any remaining plus signs that should be spaces
+                decoded_sql = decoded_sql.replace('+', ' ')
+                logger.info(f"Decoded SQL after cleanup: {decoded_sql[:200]}...")
+                
+                # Always rebuild the query for mapping detail records
+                logger.info("Rebuilding query for mapping detail records")
+                logger.info(f"Original decoded SQL: {decoded_sql[:200]}...")
+                
+                # Use date field from metadata if available, otherwise extract from original query
+                metric_metadata = metric.get("metadata", {})
+                if isinstance(metric_metadata, str):
+                    try:
+                        import json
+                        metric_metadata = json.loads(metric_metadata)
+                    except json.JSONDecodeError:
+                        logger.warning(f"Could not parse metric metadata as JSON: {metric_metadata}")
+                        metric_metadata = {}
+                
+                map_filters = metric_metadata.get("map_filters", {})
+                actual_date_field = map_filters.get("date_field")
+                
+                if actual_date_field:
+                    logger.info(f"Using date field from metric metadata: {actual_date_field}")
+                else:
+                    # Fallback to extracting from original query
+                    actual_date_field = "incident_date"  # Default fallback
+                    if "requested_datetime" in decoded_sql:
+                        actual_date_field = "requested_datetime"
+                    elif "incident_date" in decoded_sql:
+                        actual_date_field = "incident_date"
+                    elif "created_date" in decoded_sql:
+                        actual_date_field = "created_date"
+                    elif "date_trunc_ym(" in decoded_sql:
+                        # Extract field from date_trunc_ym function
+                        import re
+                        match = re.search(r'date_trunc_ym\(([^)]+)\)', decoded_sql)
+                        if match:
+                            actual_date_field = match.group(1).strip()
+                            logger.info(f"Extracted date field from date_trunc_ym: {actual_date_field}")
+                    
+                    logger.info(f"Using date field from original query: {actual_date_field}")
+                
+                # Get table/endpoint info from metric
+                endpoint = metric.get("endpoint", "")
+                if endpoint:
+                    # Use stored filter metadata from the metric instead of parsing complex WHERE clauses
+                    logger.info("Using stored filter metadata from metric instead of parsing WHERE clause")
+                    
+                    # Check if metric has map_filters in metadata
+                    metric_metadata = metric.get("metadata", {})
+                    if isinstance(metric_metadata, str):
+                        try:
+                            import json
+                            metric_metadata = json.loads(metric_metadata)
+                        except json.JSONDecodeError:
+                            logger.warning(f"Could not parse metric metadata as JSON: {metric_metadata}")
+                            metric_metadata = {}
+                    
+                    map_filters = metric_metadata.get("map_filters", {})
+                    stored_filters = []
+                    
+                    if map_filters:
+                        logger.info(f"Found map_filters in metric metadata: {map_filters}")
+                        
+                        # Process stored filters
+                        for filter_name, filter_config in map_filters.items():
+                            if filter_name == "date_field":
+                                continue  # Handle date field separately
+                                
+                            if isinstance(filter_config, dict):
+                                field = filter_config.get("field")
+                                operator = filter_config.get("operator", "=")
+                                values = filter_config.get("values", []) if filter_config.get("values") else [filter_config.get("value")]
+                                
+                                if field and values:
+                                    if operator.upper() == "IN" and len(values) > 1:
+                                        # Create IN clause
+                                        values_str = "', '".join(str(v) for v in values)
+                                        filter_clause = f"{field} IN ('{values_str}')"
+                                        stored_filters.append(filter_clause)
+                                        logger.info(f"Added IN filter: {filter_clause}")
+                                    elif len(values) == 1:
+                                        # Create equality clause
+                                        filter_clause = f"{field} {operator} '{values[0]}'"
+                                        stored_filters.append(filter_clause)
+                                        logger.info(f"Added filter: {filter_clause}")
+                    
+                    # Create a clean detail query with stored filters OR extract from metric_query
+                    decoded_sql = "SELECT *"
+                    if stored_filters:
+                        filters_where = ' AND '.join(stored_filters)
+                        decoded_sql += f" WHERE {filters_where}"
+                        logger.info(f"Created detail query with stored filters: {decoded_sql}")
+                    else:
+                        # No stored filters found - extract WHERE clause from metric's original query
+                        logger.info(f"No stored filters found, extracting WHERE clause from metric_query")
+                        metric_query = metric.get("metric_query", "")
+                        if metric_query:
+                            logger.info(f"Original metric_query: {metric_query}")
+                            # Extract WHERE clause from the metric query
+                            import re
+                            where_match = re.search(r'WHERE\s+(.*)', metric_query, re.IGNORECASE | re.DOTALL)
+                            if where_match:
+                                original_where_clause = where_match.group(1).strip()
+                                logger.info(f"Extracted WHERE clause from metric_query: {original_where_clause}")
+                                decoded_sql += f" WHERE {original_where_clause}"
+                            else:
+                                logger.info(f"No WHERE clause found in metric_query")
+                        else:
+                            logger.info(f"No metric_query available, using clean detail query")
+                else:
+                    logger.warning("No endpoint found, cannot rebuild query")
+                
+                # Apply additional anomaly filters to the query (in addition to preserved original filters)
+                # Initialize additional_where_conditions here to ensure it's always available
+                additional_where_conditions = []
+                
+                if anomaly_filters:
+                    logger.info(f"Applying additional anomaly filters to query: {anomaly_filters}")
+                    
+                    # Handle district filter - only add if not already in stored filters
+                    if anomaly_filters.get("district"):
+                        district = anomaly_filters["district"]
+                        if district != "0":  # Skip if district is "0" (all districts)
+                            # Check if district filter is already in the stored filters
+                            district_filter = f"supervisor_district = '{district}'"
+                            if district_filter not in stored_filters:
+                                additional_where_conditions.append(district_filter)
+                                logger.info(f"Adding district filter: {district_filter}")
+                            else:
+                                logger.info(f"District filter already present in stored filters, skipping")
+                    
+                    # Handle group_field and field_value filter - only add if not already in stored filters
+                    if anomaly_filters.get("group_field") and anomaly_filters.get("field_value"):
+                        group_field = anomaly_filters["group_field"]
+                        field_value = anomaly_filters["field_value"]
+                        # Escape single quotes in field_value
+                        field_value = field_value.replace("'", "''")
+                        field_filter = f"{group_field} = '{field_value}'"
+                        
+                        # Check if this filter is already in the stored filters
+                        if field_filter not in stored_filters:
+                            additional_where_conditions.append(field_filter)
+                            logger.info(f"Adding group field filter: {field_filter}")
+                        else:
+                            logger.info(f"Group field filter already present in stored filters, skipping")
+                    elif anomaly_filters.get("group_field"):
+                        logger.info(f"Group field found but no field_value: {anomaly_filters['group_field']}")
+                    
+                    # Handle time period - use recent period + calculate previous period for comparison
+                    # Always add time filters since we're replacing the original date filters
+                    if isinstance(metadata, dict) and metadata.get("recent_period"):
+                        recent_period = metadata["recent_period"]
+                        recent_start = recent_period.get("start")
+                        recent_end = recent_period.get("end")
+                        
+                        # Use the actual date field extracted from the original query
+                        date_field = actual_date_field
+                        
+                        if recent_start and recent_end:
+                            # Calculate the previous month for comparison
+                            from datetime import datetime, timedelta
+                            from dateutil.relativedelta import relativedelta
+                            
+                            recent_start_date = datetime.strptime(recent_start, "%Y-%m-%d")
+                            recent_end_date = datetime.strptime(recent_end, "%Y-%m-%d")
+                            
+                            # Calculate previous month period
+                            prev_start_date = recent_start_date - relativedelta(months=1)
+                            prev_end_date = recent_end_date - relativedelta(months=1)
+                            
+                            prev_start = prev_start_date.strftime("%Y-%m-%d")
+                            prev_end = prev_end_date.strftime("%Y-%m-%d")
+                            
+                            logger.info(f"Using 2 consecutive periods - Recent: {recent_start} to {recent_end}, Previous: {prev_start} to {prev_end}")
+                            
+                            # Include data from both periods with OR condition - use simple date fields to avoid nested CASE
+                            simple_date_field = "dba_start_date"  # Use the primary date field
+                            period_condition = f"(({simple_date_field} >= '{recent_start}' AND {simple_date_field} <= '{recent_end}') OR ({simple_date_field} >= '{prev_start}' AND {simple_date_field} <= '{prev_end}'))"
+                            
+                            # Always add time filters since we're replacing the original date filters
+                            additional_where_conditions.append(period_condition)
+                            logger.info(f"Adding time period filter: {period_condition}")
+                            
+                            # Add period_type field to the SELECT clause - use simple date fields to avoid nested CASE
+                            if "SELECT *" in decoded_sql:
+                                # Use simple date fields instead of complex CASE expressions
+                                simple_date_field = "dba_start_date"  # Use the primary date field
+                                period_type_field = f"CASE WHEN {simple_date_field} >= '{recent_start}' AND {simple_date_field} <= '{recent_end}' THEN 'recent' ELSE 'comparison' END as period_type"
+                                decoded_sql = decoded_sql.replace("SELECT *", f"SELECT *, {period_type_field}")
+                                logger.info(f"Added period_type field to SELECT clause using simple date field")
+                            
+                            # Store period info for later use in data processing
+                            anomaly_period_info = {
+                                "recent_start": recent_start,
+                                "recent_end": recent_end,
+                                "prev_start": prev_start,
+                                "prev_end": prev_end,
+                                "date_field": actual_date_field
+                            }
+                        else:
+                            logger.warning("No recent_period found in metadata, using default time filter")
+                            # Add a default time filter for the last 2 months
+                            from datetime import datetime, timedelta
+                            from dateutil.relativedelta import relativedelta
+                            
+                            # Use current date as reference
+                            now = datetime.now()
+                            recent_end = now.strftime("%Y-%m-%d")
+                            recent_start = (now - relativedelta(months=1)).strftime("%Y-%m-%d")
+                            prev_end = recent_start
+                            prev_start = (now - relativedelta(months=2)).strftime("%Y-%m-%d")
+                            
+                            # Use simple date fields to avoid nested CASE
+                            simple_date_field = "dba_start_date"  # Use the primary date field
+                            period_condition = f"(({simple_date_field} >= '{recent_start}' AND {simple_date_field} <= '{recent_end}') OR ({simple_date_field} >= '{prev_start}' AND {simple_date_field} <= '{prev_end}'))"
+                            additional_where_conditions.append(period_condition)
+                            logger.info(f"Adding default time period filter: {period_condition}")
+                            
+                            # Add period_type field to the SELECT clause - use simple date fields to avoid nested CASE
+                            if "SELECT *" in decoded_sql:
+                                # Use simple date fields instead of complex CASE expressions
+                                simple_date_field = "dba_start_date"  # Use the primary date field
+                                period_type_field = f"CASE WHEN {simple_date_field} >= '{recent_start}' AND {simple_date_field} <= '{recent_end}' THEN 'recent' ELSE 'comparison' END as period_type"
+                                decoded_sql = decoded_sql.replace("SELECT *", f"SELECT *, {period_type_field}")
+                                logger.info(f"Added period_type field to SELECT clause using simple date field")
+                            
+                            anomaly_period_info = {
+                                "recent_start": recent_start,
+                                "recent_end": recent_end,
+                                "prev_start": prev_start,
+                                "prev_end": prev_end,
+                                "date_field": actual_date_field
+                            }
+                    elif anomaly_filters.get("time_period"):
+                        # Fallback to using recent_date if no recent_period in metadata
+                        time_period = anomaly_filters["time_period"]
+                        period_type = anomaly_filters.get("period_type", "month")
+                        
+                        # Use the actual date field extracted from the original query
+                        # Ensure actual_date_field is defined
+                        if 'actual_date_field' not in locals():
+                            actual_date_field = "incident_date"  # Default fallback
+                        date_field = actual_date_field
+                        
+                        if isinstance(time_period, str) and len(time_period) >= 10:  # YYYY-MM-DD format
+                            date_parts = time_period[:10].split("-")
+                            if len(date_parts) >= 3:
+                                year, month, day = date_parts[0], date_parts[1], date_parts[2]
+                                
+                                if period_type == "month":
+                                    # Use date range for the month instead of extract functions
+                                    month_start = f"{year}-{month}-01"
+                                    month_end = f"{year}-{month}-31"  # SOQL will handle month boundaries
+                                    # Always add time filters since we're using stored filters approach
+                                    additional_where_conditions.append(f"{date_field} >= '{month_start}'")
+                                    additional_where_conditions.append(f"{date_field} <= '{month_end}'")
+                                    logger.info(f"Adding month time filter: {date_field} >= '{month_start}' AND {date_field} <= '{month_end}'")
+                                elif period_type == "year":
+                                    year_start = f"{year}-01-01"
+                                    year_end = f"{year}-12-31"
+                                    # Always add time filters since we're using stored filters approach
+                                    additional_where_conditions.append(f"{date_field} >= '{year_start}'")
+                                    additional_where_conditions.append(f"{date_field} <= '{year_end}'")
+                                    logger.info(f"Adding year time filter: {date_field} >= '{year_start}' AND {date_field} <= '{year_end}'")
+                    else:
+                        logger.warning("No time period information found, using default time filter")
+                        # Add a default time filter for the last 2 months
+                        from datetime import datetime, timedelta
+                        from dateutil.relativedelta import relativedelta
+                        
+                        # Ensure actual_date_field is defined
+                        if 'actual_date_field' not in locals():
+                            actual_date_field = "incident_date"  # Default fallback
+                        
+                        # Use current date as reference
+                        now = datetime.now()
+                        recent_end = now.strftime("%Y-%m-%d")
+                        recent_start = (now - relativedelta(months=1)).strftime("%Y-%m-%d")
+                        prev_end = recent_start
+                        prev_start = (now - relativedelta(months=2)).strftime("%Y-%m-%d")
+                        
+                        period_condition = f"(({actual_date_field} >= '{recent_start}' AND {actual_date_field} <= '{recent_end}') OR ({actual_date_field} >= '{prev_start}' AND {actual_date_field} <= '{prev_end}'))"
+                        additional_where_conditions.append(period_condition)
+                        logger.info(f"Adding default time period filter: {period_condition}")
+                        
+                        # Add period_type field to the SELECT clause
+                        if "SELECT *" in decoded_sql:
+                            period_type_field = f"CASE WHEN {actual_date_field} >= '{recent_start}' AND {actual_date_field} <= '{recent_end}' THEN 'recent' ELSE 'comparison' END as period_type"
+                            decoded_sql = decoded_sql.replace("SELECT *", f"SELECT *, {period_type_field}")
+                            logger.info(f"Added period_type field to SELECT clause")
+                        
+                        anomaly_period_info = {
+                            "recent_start": recent_start,
+                            "recent_end": recent_end,
+                            "prev_start": prev_start,
+                            "prev_end": prev_end,
+                            "date_field": actual_date_field
+                        }
+                
+                # Add additional WHERE conditions to the SOQL query
+                if additional_where_conditions:
+                    logger.info(f"Adding additional WHERE conditions: {additional_where_conditions}")
+                    # Combine with existing WHERE clause if present
+                    if "WHERE" in decoded_sql.upper():
+                        # Add additional conditions to existing WHERE clause
+                        where_clause = ' AND '.join(additional_where_conditions)
+                        decoded_sql += f" AND {where_clause}"
+                        logger.info(f"SOQL query after adding additional WHERE: {decoded_sql}")
+                    else:
+                        # Create new WHERE clause
+                        where_clause = ' AND '.join(additional_where_conditions)
+                        decoded_sql += f" WHERE {where_clause}"
+                        logger.info(f"SOQL query after adding WHERE: {decoded_sql}")
+                        logger.info(f"Additional WHERE clause: {where_clause}")
+                else:
+                    logger.info("No additional WHERE conditions to add - using preserved original query filters")
+                
+                logger.info(f"Applied filters to SQL query")
+                
+                # Add a reasonable limit for mapping detail records
+                # Use higher limit since we'll choose chart type based on results
+                if "LIMIT" not in decoded_sql.upper():
+                    decoded_sql += " LIMIT 2000"  # Higher limit to allow symbol charts when needed
+                
+                logger.info(f"Final SOQL query for mapping: {decoded_sql}")
+                
+                # Re-encode the modified SQL with proper handling for complex SQL
+                from urllib.parse import quote_plus
+                logger.info(f"Original decoded SQL before encoding: {decoded_sql[:200]}...")
+                # Use quote_plus which properly handles spaces in SQL, then fix any remaining issues
+                encoded_sql = quote_plus(decoded_sql)
+                # Ensure spaces are encoded as %20 instead of + for better SoQL compatibility
+                encoded_sql = encoded_sql.replace('+', '%20')
+                modified_query = base_url + encoded_sql
+                logger.info(f"Re-encoded SQL (first 200 chars): {encoded_sql[:200]}...")
             
         else:
-            # Use structured map data from metrics table (fallback when no query URL)
-            logger.info("No query URL found, using structured map data from metrics table")
+            # This is just SQL - construct a full DataSF URL
+            logger.info("Query URL is SQL, constructing full API URL")
             
-            # Get the structured map data
-            map_query = metric.get("map_query")
-            map_filters = metric.get("map_filters", {})
-            map_config = metric.get("map_config", {})
-            
-            if isinstance(map_filters, str):
-                try:
-                    import json
-                    map_filters = json.loads(map_filters)
-                except json.JSONDecodeError:
-                    logger.warning(f"Could not parse map_filters as JSON: {map_filters}")
-                    map_filters = {}
-            
-            if isinstance(map_config, str):
-                try:
-                    import json
-                    map_config = json.loads(map_config)
-                except json.JSONDecodeError:
-                    logger.warning(f"Could not parse map_config as JSON: {map_config}")
-                    map_config = {}
-            
-            logger.info(f"Map query: {map_query}")
-            logger.info(f"Map filters: {map_filters}")
-            logger.info(f"Map config: {map_config}")
-            
-            # Build the query using structured data
+            # Extract endpoint from metric data
             endpoint = metric.get("endpoint", "")
             if not endpoint:
                 return JSONResponse(
@@ -3260,140 +3551,167 @@ async def generate_map_endpoint(request: Request):
                     content={"status": "error", "message": f"No endpoint found for metric '{metric_name}' (ID: {metric_id})"}
                 )
             
-            # Start with the map_query if available, otherwise use a basic SELECT
-            if map_query:
-                modified_sql = map_query
-                logger.info(f"Using provided map_query: {modified_sql}")
+            # Create a clean detail query for mapping
+            logger.info("Creating clean SQL query for mapping detail records")
+            
+            # Since we don't have an original query URL in this case, we'll build from scratch
+            # but preserve the original metric's WHERE clause and apply the anomaly filters
+            modified_sql = "SELECT *"
+            
+            # First, try to preserve the original metric's WHERE clause
+            metric_query = metric.get("metric_query", "")
+            original_where_conditions = []
+            
+            if metric_query:
+                logger.info(f"Original metric_query: {metric_query}")
+                # Extract WHERE clause from the metric query
+                import re
+                where_match = re.search(r'WHERE\s+(.*?)(?:GROUP BY|ORDER BY|LIMIT|$)', metric_query, re.IGNORECASE | re.DOTALL)
+                if where_match:
+                    original_where_clause = where_match.group(1).strip()
+                    logger.info(f"Extracted WHERE clause from metric_query: {original_where_clause}")
+                    original_where_conditions.append(f"({original_where_clause})")
+                else:
+                    logger.info(f"No WHERE clause found in metric_query")
             else:
-                # Fallback to basic query
-                modified_sql = "SELECT location, dba_start_date, location_start_date"
-                logger.info(f"Using fallback basic query: {modified_sql}")
+                logger.info(f"No metric_query available")
             
-            # Apply map filters
-            where_conditions = []
+            logger.info(f"Created SOQL detail query base: {modified_sql}")
             
-            # Handle geometry filters first (like within_polygon)
-            if "geometry" in map_filters:
-                geometry_config = map_filters["geometry"]
-                if isinstance(geometry_config, dict):
-                    filter_type = geometry_config.get("type")
-                    field = geometry_config.get("field")
-                    value = geometry_config.get("value")
-                    
-                    if filter_type == "within_polygon" and field and value:
-                        filter_clause = f"within_polygon({field}, '{value}')"
-                        where_conditions.append(filter_clause)
-                        logger.info(f"Added geometry filter: {filter_clause}")
+            # Apply anomaly filters to the query
+            where_conditions = []  # Initialize here so it's available even if no anomaly filters
             
-            # Add static filters from map_filters
-            for filter_name, filter_config in map_filters.items():
-                if filter_name == "date_field":
-                    continue  # Handle date field separately
-                    
-                if isinstance(filter_config, dict):
-                    field = filter_config.get("field")
-                    operator = filter_config.get("operator", "=")
-                    values = filter_config.get("values", []) if filter_config.get("values") else [filter_config.get("value")]
-                    
-                    if field and values:
-                        if operator.upper() == "IN" and len(values) > 1:
-                            values_str = "', '".join(str(v) for v in values)
-                            filter_clause = f"{field} IN ('{values_str}')"
-                            where_conditions.append(filter_clause)
-                            logger.info(f"Added IN filter: {filter_clause}")
-                        elif len(values) == 1:
-                            filter_clause = f"{field} {operator} '{values[0]}'"
-                            where_conditions.append(filter_clause)
-                            logger.info(f"Added filter: {filter_clause}")
-            
-            # Apply anomaly filters
             if anomaly_filters:
-                logger.info(f"Applying anomaly filters: {anomaly_filters}")
+                logger.info(f"Applying anomaly filters to SQL query: {anomaly_filters}")
+                
+                # Get metadata from anomaly details if we have original_anomaly_id
+                metadata = {}
+                actual_date_field = "incident_date"  # Default fallback
+                if original_anomaly_id:
+                    try:
+                        anomaly_details = get_anomaly_details(context_variables, int(original_anomaly_id))
+                        if anomaly_details.get("status") == "success":
+                            anomaly_data = anomaly_details.get("anomaly", {})
+                            metadata = anomaly_data.get("metadata", {})
+                            
+                            # Extract date field from the executed_query_url if available
+                            if isinstance(metadata, dict) and metadata.get("executed_query_url"):
+                                executed_url = metadata["executed_query_url"]
+                                if "requested_datetime" in executed_url:
+                                    actual_date_field = "requested_datetime"
+                                elif "incident_date" in executed_url:
+                                    actual_date_field = "incident_date"
+                                elif "created_date" in executed_url:
+                                    actual_date_field = "created_date"
+                                elif "date_trunc_ym(" in executed_url:
+                                    # Extract field from date_trunc_ym function
+                                    import re
+                                    match = re.search(r'date_trunc_ym\(([^)]+)\)', executed_url)
+                                    if match:
+                                        actual_date_field = match.group(1).strip()
+                                        logger.info(f"Extracted date field from executed_query_url: {actual_date_field}")
+                                
+                                logger.info(f"Using date field from executed query: {actual_date_field}")
+                    except Exception as e:
+                        logger.warning(f"Could not get metadata for filters: {e}")
                 
                 # Handle district filter
                 if anomaly_filters.get("district"):
                     district = anomaly_filters["district"]
-                    if district != "0":
-                        district_filter = f"supervisor_district = '{district}'"
-                        where_conditions.append(district_filter)
-                        logger.info(f"Adding district filter: {district_filter}")
+                    if district != "0":  # Skip if district is "0" (all districts)
+                        # Use the most common district field name for 311 Cases
+                        where_conditions.append(f"supervisor_district = '{district}'")
+                        logger.info(f"Adding district filter: supervisor_district = '{district}'")
+                    else:
+                        logger.info(f"Skipping district filter for district 0 (citywide)")
                 
-                # Handle group field filter
+                # Handle group_field and field_value filter
                 if anomaly_filters.get("group_field") and anomaly_filters.get("field_value"):
                     group_field = anomaly_filters["group_field"]
                     field_value = anomaly_filters["field_value"]
-                    group_filter = f"{group_field} = '{field_value}'"
-                    where_conditions.append(group_filter)
-                    logger.info(f"Adding group field filter: {group_filter}")
+                    # Escape single quotes in field_value
+                    field_value = field_value.replace("'", "''")
+                    field_filter = f"{group_field} = '{field_value}'"
+                    where_conditions.append(field_filter)
+                    logger.info(f"Adding group field filter: {field_filter}")
                 
-                # Handle time period filter from anomaly data
-                if anomaly_filters.get("time_period"):
-                    time_period = anomaly_filters["time_period"]
-                    # Use date field from map_filters or default
-                    date_field = map_filters.get("date_field", "dba_start_date")
-                    time_filter = f"{date_field} = '{time_period}'"
-                    where_conditions.append(time_filter)
-                    logger.info(f"Adding time period filter from anomaly: {time_filter}")
-                
-                # Handle time period filters
+                # Handle time period - use recent period + calculate previous period for comparison
                 if isinstance(metadata, dict) and metadata.get("recent_period"):
                     recent_period = metadata["recent_period"]
                     recent_start = recent_period.get("start")
                     recent_end = recent_period.get("end")
                     
+                    # Use the actual date field extracted from the executed query
+                    
                     if recent_start and recent_end:
-                        # Calculate previous period for comparison
-                        from datetime import datetime
+                        # Calculate the previous month for comparison
+                        from datetime import datetime, timedelta
                         from dateutil.relativedelta import relativedelta
                         
                         recent_start_date = datetime.strptime(recent_start, "%Y-%m-%d")
                         recent_end_date = datetime.strptime(recent_end, "%Y-%m-%d")
                         
+                        # Calculate previous month period
                         prev_start_date = recent_start_date - relativedelta(months=1)
                         prev_end_date = recent_end_date - relativedelta(months=1)
                         
                         prev_start = prev_start_date.strftime("%Y-%m-%d")
                         prev_end = prev_end_date.strftime("%Y-%m-%d")
                         
-                        # Use date field from map_filters or default
-                        date_field = map_filters.get("date_field", "dba_start_date")
+                        logger.info(f"Using 2 consecutive periods - Recent: {recent_start} to {recent_end}, Previous: {prev_start} to {prev_end}")
                         
-                        period_condition = f"(({date_field} >= '{recent_start}' AND {date_field} <= '{recent_end}') OR ({date_field} >= '{prev_start}' AND {date_field} <= '{prev_end}'))"
+                        # Include data from both periods with OR condition
+                        period_condition = f"(({actual_date_field} >= '{recent_start}' AND {actual_date_field} <= '{recent_end}') OR ({actual_date_field} >= '{prev_start}' AND {actual_date_field} <= '{prev_end}'))"
                         where_conditions.append(period_condition)
                         logger.info(f"Adding time period filter: {period_condition}")
                         
-                        # Add period_type field to SELECT
-                        if "SELECT" in modified_sql.upper():
-                            period_type_field = f"CASE WHEN {date_field} >= '{recent_start}' AND {date_field} <= '{recent_end}' THEN 'recent' ELSE 'comparison' END as period_type"
-                            modified_sql += f", {period_type_field}"
-                            logger.info(f"Added period_type field: {period_type_field}")
+                        # Add period_type field to the SELECT clause
+                        if "SELECT *" in modified_sql:
+                            period_type_field = f"CASE WHEN {actual_date_field} >= '{recent_start}' AND {actual_date_field} <= '{recent_end}' THEN 'recent' ELSE 'comparison' END as period_type"
+                            modified_sql = modified_sql.replace("SELECT *", f"SELECT *, {period_type_field}")
+                            logger.info(f"Added period_type field to SELECT clause")
                         
-                        # Store period info for later use
+                        # Store period info for later use in data processing
                         anomaly_period_info = {
                             "recent_start": recent_start,
                             "recent_end": recent_end,
                             "prev_start": prev_start,
                             "prev_end": prev_end,
-                            "date_field": date_field
+                            "date_field": actual_date_field
                         }
+                
+                logger.info(f"Applied anomaly filters to SQL query")
             
-            # Combine all WHERE conditions
-            if where_conditions:
-                where_clause = ' AND '.join(where_conditions)
-                modified_sql += f" WHERE {where_clause}"
-                logger.info(f"Added WHERE clause: {where_clause}")
+            # Combine original WHERE conditions with anomaly filters (happens even without anomaly filters)
+            all_where_conditions = original_where_conditions + where_conditions
             
-            # Add LIMIT
-            modified_sql += " LIMIT 2000"
+            # Add WHERE conditions to the SOQL query
+            if all_where_conditions:
+                logger.info(f"Adding combined WHERE conditions: {all_where_conditions}")
+                # Since we built the query as "SELECT *", we can cleanly add WHERE  
+                where_clause = ' AND '.join(all_where_conditions)
+                modified_sql = f"{modified_sql} WHERE {where_clause}"
+                logger.info(f"SOQL query after adding WHERE: {modified_sql}")
+                logger.info(f"WHERE clause: {where_clause}")
+            else:
+                logger.info("No WHERE conditions to add - using basic SELECT *")
             
-            logger.info(f"Final SOQL query: {modified_sql}")
+            # Add limit for mapping performance  
+            # Use higher limit since we'll choose chart type based on results
+            if "LIMIT" not in modified_sql.upper():
+                modified_sql += " LIMIT 2000"  # Higher limit to allow symbol charts when needed
             
-            # Construct full URL
+            logger.info(f"Final SOQL query for mapping: {modified_sql}")
+            
+            # Construct full URL with proper handling for complex SQL
             from urllib.parse import quote_plus
+            logger.info(f"SQL before encoding: {modified_sql[:200]}...")
+            # Use quote_plus which properly handles spaces in SQL, then fix any remaining issues
             encoded_sql = quote_plus(modified_sql)
+            # Ensure spaces are encoded as %20 instead of + for better SoQL compatibility
             encoded_sql = encoded_sql.replace('+', '%20')
             modified_query = f"https://data.sfgov.org/resource/{endpoint}.json?$query={encoded_sql}"
-            logger.info(f"Final URL: {modified_query}")
+            logger.info(f"Encoded SQL (first 200 chars): {encoded_sql[:200]}...")
         
         logger.info(f"Final modified query URL: {modified_query}")
         logger.info(f"Query length: {len(modified_query)} characters")
@@ -3468,7 +3786,7 @@ async def generate_map_endpoint(request: Request):
                 period_type = item.get('period_type')
                 if period_type == 'recent':
                     logger.debug(f"Item has period_type='recent', using purple")
-                    return "#ad35fa"  # Purple for recent period
+                    return "#8b5cf6"  # Purple for recent period
                 elif period_type == 'comparison':
                     logger.debug(f"Item has period_type='comparison', using grey")
                     return "#9ca3af"  # Grey for previous period
@@ -3497,7 +3815,7 @@ async def generate_map_endpoint(request: Request):
                 # Check if in recent period
                 if recent_start_obj <= item_date_obj <= recent_end_obj:
                     logger.debug(f"Item date {item_date} is in recent period, using purple")
-                    return "#ad35fa"  # Purple for recent period
+                    return "#8b5cf6"  # Purple for recent period
                 else:
                     logger.debug(f"Item date {item_date} is in previous period, using grey")
                     return "#9ca3af"  # Grey for previous period
@@ -3607,19 +3925,14 @@ async def generate_map_endpoint(request: Request):
             if 'lat' in item and 'long' in item and item['lat'] and item['long']:
                 try:
                     color = get_period_color(item, period_info)
-                    location_item = {
+                    location_data.append({
                         "lat": float(item['lat']),
                         "lon": float(item['long']),
                         "title": item.get('service_name', item.get('title', '')),
                         "tooltip": generate_metric_tooltip(item, metric_name, metric),
                         "value": item.get('value', 1),
                         "markerColor": color
-                    }
-                    # Add all original data fields for coloring options
-                    for key, value in item.items():
-                        if key not in ['lat', 'lon', 'long', 'lng', 'latitude', 'longitude', 'title', 'tooltip', 'value', 'markerColor', 'color']:
-                            location_item[key] = value
-                    location_data.append(location_item)
+                    })
                     continue
                 except (ValueError, TypeError):
                     pass
@@ -3628,19 +3941,14 @@ async def generate_map_endpoint(request: Request):
             elif 'lat' in item and 'lng' in item and item['lat'] and item['lng']:
                 try:
                     color = get_period_color(item, period_info)
-                    location_item = {
+                    location_data.append({
                         "lat": float(item['lat']),
                         "lon": float(item['lng']),
                         "title": item.get('service_name', item.get('title', '')),
                         "tooltip": generate_metric_tooltip(item, metric_name, metric),
                         "value": item.get('value', 1),
                         "color": color
-                    }
-                    # Add all original data fields for coloring options
-                    for key, value in item.items():
-                        if key not in ['lat', 'lon', 'long', 'lng', 'latitude', 'longitude', 'title', 'tooltip', 'value', 'markerColor', 'color']:
-                            location_item[key] = value
-                    location_data.append(location_item)
+                    })
                     continue
                 except (ValueError, TypeError):
                     pass
@@ -3649,19 +3957,14 @@ async def generate_map_endpoint(request: Request):
             elif 'lat' in item and 'lon' in item and item['lat'] and item['lon']:
                 try:
                     color = get_period_color(item, period_info)
-                    location_item = {
+                    location_data.append({
                         "lat": float(item['lat']),
                         "lon": float(item['lon']),
                         "title": item.get('service_name', item.get('title', '')),
                         "tooltip": generate_metric_tooltip(item, metric_name, metric),
                         "value": item.get('value', 1),
                         "markerColor": color
-                    }
-                    # Add all original data fields for coloring options
-                    for key, value in item.items():
-                        if key not in ['lat', 'lon', 'long', 'lng', 'latitude', 'longitude', 'title', 'tooltip', 'value', 'markerColor', 'color']:
-                            location_item[key] = value
-                    location_data.append(location_item)
+                    })
                     continue
                 except (ValueError, TypeError):
                     pass
@@ -3670,19 +3973,14 @@ async def generate_map_endpoint(request: Request):
             elif 'latitude' in item and 'longitude' in item and item['latitude'] and item['longitude']:
                 try:
                     color = get_period_color(item, period_info)
-                    location_item = {
+                    location_data.append({
                         "lat": float(item['latitude']),
                         "lon": float(item['longitude']),
                         "title": item.get('service_name', item.get('title', '')),
                         "tooltip": generate_metric_tooltip(item, metric_name, metric),
                         "value": item.get('value', 1),
                         "markerColor": color
-                    }
-                    # Add all original data fields for coloring options
-                    for key, value in item.items():
-                        if key not in ['lat', 'lon', 'long', 'lng', 'latitude', 'longitude', 'title', 'tooltip', 'value', 'markerColor', 'color']:
-                            location_item[key] = value
-                    location_data.append(location_item)
+                    })
                     continue
                 except (ValueError, TypeError):
                     pass
@@ -3690,35 +3988,25 @@ async def generate_map_endpoint(request: Request):
             # Priority 5: DataSF location object (contains lat/lng)
             elif 'location' in item and item['location']:
                 color = get_period_color(item, period_info)
-                location_item = {
+                location_data.append({
                     "location": item['location'],
                     "title": item.get('service_name', item.get('title', '')),
                     "tooltip": generate_metric_tooltip(item, metric_name, metric),
                     "value": item.get('value', 1),
                     "markerColor": color
-                }
-                # Add all original data fields for coloring options
-                for key, value in item.items():
-                    if key not in ['location', 'title', 'tooltip', 'value', 'markerColor', 'color']:
-                        location_item[key] = value
-                location_data.append(location_item)
+                })
                 continue
             
             # Priority 6: Address (requires geocoding - least preferred)
             elif 'address' in item and item['address']:
                 color = get_period_color(item, period_info)
-                location_item = {
+                location_data.append({
                     "address": item['address'],
                     "title": item.get('service_name', item.get('address', '')),
                     "tooltip": generate_metric_tooltip(item, metric_name, metric),
                     "value": item.get('value', 1),
                     "markerColor": color
-                }
-                # Add all original data fields for coloring options
-                for key, value in item.items():
-                    if key not in ['address', 'title', 'tooltip', 'value', 'markerColor', 'color']:
-                        location_item[key] = value
-                location_data.append(location_item)
+                })
         
         if not location_data:
             return JSONResponse(
@@ -3728,7 +4016,7 @@ async def generate_map_endpoint(request: Request):
         
         # Log what types of location data were found
         location_types = []
-        color_counts = {"#ad35fa": 0, "#9ca3af": 0, "#6366f1": 0}  # Purple, Grey, Default
+        color_counts = {"#8b5cf6": 0, "#9ca3af": 0, "#6366f1": 0}  # Purple, Grey, Default
         
         for item in location_data:
             if "lat" in item and "lon" in item:
@@ -3757,7 +4045,7 @@ async def generate_map_endpoint(request: Request):
         
         # Log period color distribution
         if period_info:
-            logger.info(f"Period color distribution: {color_counts['#ad35fa']} recent (purple), {color_counts['#9ca3af']} previous (grey)")
+            logger.info(f"Period color distribution: {color_counts['#8b5cf6']} recent (purple), {color_counts['#9ca3af']} previous (grey)")
         else:
             logger.info(f"No period info available - using default colors")
         

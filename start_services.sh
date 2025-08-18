@@ -335,18 +335,6 @@ init_database() {
     fi
 }
 
-# Check for Node.js
-check_node() {
-    if ! command -v node &> /dev/null; then
-        echo "Node.js is not installed. Ghost Bridge will not start."
-        echo "To install Node.js, please run: curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash - && sudo apt-get install -y nodejs"
-        return 1
-    else
-        echo "Node.js is installed: $(node --version)"
-        return 0
-    fi
-}
-
 # Check for Qdrant
 check_qdrant() {
     if ! command -v qdrant &> /dev/null; then
@@ -362,7 +350,6 @@ check_qdrant() {
 # Kill any lingering processes
 pkill -f qdrant || true
 pkill -f main.py || true
-pkill -f ghostBridge.js || true
 
 # Create logs directory
 mkdir -p ai/logs
@@ -390,20 +377,6 @@ if check_qdrant; then
     wait_for_service "http://0.0.0.0:6333/healthz" "Qdrant"
 else
     echo "Continuing without Qdrant..."
-fi
-
-# Start Ghost Bridge
-echo "Starting Ghost Bridge..."
-if check_node; then
-    cd ai
-    # Check if Ghost Bridge configuration exists
-    if [ -f .env ] && grep -q "GHOST_URL" .env; then
-        echo "Found Ghost configuration, starting Ghost Bridge..."
-        node tools/ghost_bridge/ghostBridge.js &
-    else
-        echo "Ghost Bridge configuration is missing. Please add GHOST_URL to your .env file."
-    fi
-    cd ..
 fi
 
 # Hold the script open

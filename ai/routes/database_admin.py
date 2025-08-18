@@ -3,6 +3,7 @@ import json
 import shutil
 import subprocess
 import tempfile
+import zipfile
 from datetime import datetime
 from pathlib import Path
 import logging
@@ -358,4 +359,97 @@ async def restore_database(backup_file: UploadFile = File(...)):
         return JSONResponse({
             "status": "error",
             "message": str(e)
-        }, status_code=500) 
+        }, status_code=500)
+
+@router.get("/api/session-logs-info")
+async def get_session_logs_info():
+    """Get information about session logs including count and latest session."""
+    logger.debug("Get session logs info called")
+    
+    try:
+        # Get the path to the session logs directory
+        script_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        logs_dir = os.path.join(script_dir, 'logs', 'sessions')
+        
+        total_sessions = 0
+        latest_session = None
+        logs_directory = logs_dir
+        
+        if os.path.exists(logs_dir):
+            # Count session log files
+            session_files = [f for f in os.listdir(logs_dir) if f.endswith('.json') and f.startswith('session_')]
+            total_sessions = len(session_files)
+            
+            # Find the latest session
+            if session_files:
+                session_files.sort(key=lambda x: os.path.getmtime(os.path.join(logs_dir, x)), reverse=True)
+                latest_file = session_files[0]
+                latest_time = os.path.getmtime(os.path.join(logs_dir, latest_file))
+                latest_session = datetime.fromtimestamp(latest_time).strftime("%Y-%m-%d %H:%M:%S")
+        else:
+            logs_directory = "Directory not found"
+        
+        return JSONResponse({
+            "status": "success",
+            "total_sessions": total_sessions,
+            "latest_session": latest_session,
+            "logs_directory": logs_directory
+        })
+        
+    except Exception as e:
+        logger.error(f"Error getting session logs info: {str(e)}")
+        return JSONResponse({
+            "status": "error",
+            "message": str(e)
+        }, status_code=500)
+
+@router.get("/api/download-session-logs")
+async def download_session_logs():
+    """Download all session logs as a ZIP file."""
+    logger.debug("Download session logs called")
+    
+    try:
+        # Get the path to the session logs directory
+        script_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        logs_dir = os.path.join(script_dir, 'logs', 'sessions')
+        
+        if not os.path.exists(logs_dir):
+            return JSONResponse({
+                "status": "error",
+                "message": "Session logs directory not found"
+            }, status_code=404)
+        
+        # Find all session log files
+        session_files = [f for f in os.listdir(logs_dir) if f.endswith('.json') and f.startswith('session_')]
+        
+        if not session_files:
+            return JSONResponse({
+                "status": "error",
+                "message": "No session log files found"
+            }, status_code=404)
+        
+        # Create a temporary ZIP file
+        temp_zip_path = tempfile.mktemp(suffix='.zip')
+        
+        with zipfile.ZipFile(temp_zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+            for session_file in session_files:
+                file_path = os.path.join(logs_dir, session_file)
+                # Add file to ZIP with just the filename (no path)
+                zipf.write(file_path, session_file)
+        
+        # Return the ZIP file
+        return FileResponse(
+            path=temp_zip_path,
+            filename=f"session_logs_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip",
+            media_type="application/zip",
+            headers={
+                "Content-Disposition": f"attachment; filename=session_logs_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
+            }
+        )
+        
+    except Exception as e:
+        logger.error(f"Error downloading session logs: {str(e)}")
+        return JSONResponse({
+            "status": "error",
+            "message": str(e)
+        }, status_code=500)

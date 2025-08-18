@@ -485,6 +485,27 @@
             cursor: pointer;
             margin-top: 10px;
         }
+        
+        /* Map configuration section styles */
+        .metric-form-group h3 {
+            color: var(--text-primary);
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 15px;
+        }
+        
+        .metric-form-group small {
+            display: block;
+            margin-top: 5px;
+            font-size: 12px;
+            line-height: 1.4;
+        }
+        
+        .metric-form-group textarea {
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+            font-size: 13px;
+            line-height: 1.4;
+        }
         .metric-form-actions {
             display: flex;
             justify-content: flex-end;
@@ -1769,6 +1790,57 @@
                     </select>
                 </div>
                 
+                <!-- Map Configuration Section -->
+                <div class="metric-form-group">
+                    <h3 style="margin-top: 30px; border-bottom: 2px solid var(--accent-color); padding-bottom: 10px;">🗺️ Map Configuration</h3>
+                </div>
+                
+                <div class="metric-form-group">
+                    <label for="mapQuery">Map Query</label>
+                    <textarea id="mapQuery" name="mapQuery" placeholder="e.g. SELECT *, location FROM endpoint_table"></textarea>
+                    <small style="color: var(--text-secondary);">Simplified base query for map generation without complex transformations</small>
+                </div>
+                
+                <div class="metric-form-group">
+                    <label for="mapFilters">Map Filters (JSON)</label>
+                    <div style="display: flex; gap: 10px; align-items: center; margin-bottom: 5px;">
+                        <button type="button" class="btn btn-subtle" onclick="formatJSON('mapFilters')" style="font-size: 12px; padding: 4px 8px;">Format JSON</button>
+                        <button type="button" class="btn btn-subtle" onclick="clearField('mapFilters')" style="font-size: 12px; padding: 4px 8px;">Clear</button>
+                    </div>
+                    <textarea id="mapFilters" name="mapFilters" placeholder='{
+  "geometry": {
+    "type": "within_polygon",
+    "field": "location"
+  },
+  "date_range": {
+    "field": "dba_start_date",
+    "fallback_field": "location_start_date"
+  },
+  "static_filters": [
+    {"field": "status", "operator": "=", "value": "active"}
+  ]
+}'></textarea>
+                    <small style="color: var(--text-secondary);">Structured filters that can be applied programmatically (geometry, date ranges, etc.)</small>
+                </div>
+                
+                <div class="metric-form-group">
+                    <label for="mapConfig">Map Config (JSON)</label>
+                    <div style="display: flex; gap: 10px; align-items: center; margin-bottom: 5px;">
+                        <button type="button" class="btn btn-subtle" onclick="formatJSON('mapConfig')" style="font-size: 12px; padding: 4px 8px;">Format JSON</button>
+                        <button type="button" class="btn btn-subtle" onclick="clearField('mapConfig')" style="font-size: 12px; padding: 4px 8px;">Clear</button>
+                    </div>
+                    <textarea id="mapConfig" name="mapConfig" placeholder='{
+  "date_field": "dba_start_date",
+  "location_field": "location",
+  "title_template": "{metric_name}",
+  "supports_districts": true,
+  "supports_time_periods": true,
+  "chart_type_preference": "symbol",
+  "data_point_threshold": 100
+}'></textarea>
+                    <small style="color: var(--text-secondary);">Map-specific configuration including date fields, location fields, and rendering options</small>
+                </div>
+                
                 <div class="metric-form-actions">
                     <button type="button" class="cancel-btn" onclick="closeMetricDefinitionModal()">Cancel</button>
                     <button type="submit" class="save-btn">Save Metric</button>
@@ -2306,6 +2378,11 @@
                 document.getElementById('isActive').value = metric.is_active ? 'true' : 'false';
                 document.getElementById('showOnDash').value = metric.show_on_dash ? 'true' : 'false';
                 
+                // Populate map fields
+                document.getElementById('mapQuery').value = metric.map_query || '';
+                document.getElementById('mapFilters').value = metric.map_filters ? JSON.stringify(metric.map_filters, null, 2) : '';
+                document.getElementById('mapConfig').value = metric.map_config ? JSON.stringify(metric.map_config, null, 2) : '';
+                
                 console.log('Form populated successfully');
                 
             } catch (error) {
@@ -2315,10 +2392,60 @@
             }
         }
 
+        // Helper function to validate JSON
+        function validateJSON(jsonString, fieldName) {
+            if (!jsonString || jsonString.trim() === '') {
+                return true; // Empty is valid
+            }
+            try {
+                JSON.parse(jsonString);
+                return true;
+            } catch (e) {
+                alert(`Invalid JSON in ${fieldName}: ${e.message}`);
+                return false;
+            }
+        }
+        
+        // Helper function to format JSON
+        function formatJSON(fieldId) {
+            const textarea = document.getElementById(fieldId);
+            const value = textarea.value.trim();
+            
+            if (!value) {
+                alert('No JSON to format');
+                return;
+            }
+            
+            try {
+                const parsed = JSON.parse(value);
+                const formatted = JSON.stringify(parsed, null, 2);
+                textarea.value = formatted;
+            } catch (e) {
+                alert(`Invalid JSON: ${e.message}`);
+            }
+        }
+        
+        // Helper function to clear a field
+        function clearField(fieldId) {
+            const textarea = document.getElementById(fieldId);
+            textarea.value = '';
+        }
+        
         async function handleMetricFormSubmission(event) {
             event.preventDefault();
             
             console.log('Metric form submission triggered - this should not happen when running metrics');
+            
+            // Validate JSON fields before submission
+            const mapFilters = document.getElementById('mapFilters').value;
+            const mapConfig = document.getElementById('mapConfig').value;
+            
+            if (!validateJSON(mapFilters, 'Map Filters')) {
+                return;
+            }
+            if (!validateJSON(mapConfig, 'Map Config')) {
+                return;
+            }
             
             const isEditMode = document.getElementById('isEditMode').value === 'true';
             const form = event.target;
@@ -2326,7 +2453,9 @@
             
             // Convert FormData to object and map field names to API expectations
             const metricData = {};
+            console.log('Form data entries:');
             for (let [key, value] of formData.entries()) {
+                console.log(`  ${key}: ${value} (type: ${typeof value})`);
                 switch(key) {
                     case 'metricName':
                         metricData.name = value;
@@ -2370,11 +2499,32 @@
                     case 'showOnDash':
                         metricData.show_on_dash = value === 'true';
                         break;
+                    case 'mapQuery':
+                        metricData.map_query = value;
+                        break;
+                    case 'mapFilters':
+                        try {
+                            metricData.map_filters = value ? JSON.parse(value) : {};
+                        } catch (e) {
+                            console.error('Invalid JSON in mapFilters:', e);
+                            metricData.map_filters = {};
+                        }
+                        break;
+                    case 'mapConfig':
+                        try {
+                            metricData.map_config = value ? JSON.parse(value) : {};
+                        } catch (e) {
+                            console.error('Invalid JSON in mapConfig:', e);
+                            metricData.map_config = {};
+                        }
+                        break;
                     default:
                         metricData[key] = value;
                         break;
                 }
             }
+            
+            console.log('Final metric data to send:', metricData);
             
             try {
                 let response;
@@ -2701,6 +2851,7 @@
                         <span class="metric-id">ID: ${selectedMetric.id}</span>
                         <span class="metric-category">${selectedMetric.category} > ${selectedMetric.subcategory}</span>
                         <span class="metric-endpoint">${selectedMetric.endpoint}</span>
+                        ${selectedMetric.map_query ? '<span class="metric-map-config" style="color: #28a745; font-weight: 600;">🗺️ Map Config</span>' : ''}
                     </div>
                 </div>
             `;
@@ -3985,7 +4136,7 @@
         }
         
         function createChartCard(chart, chartType) {
-            const { id, title, url, dwUrl, anomaly_type, percent_change, period_date } = chart;
+            const { id, title, url, dwUrl, anomaly_type, percent_change, period_date, isEmbedded } = chart;
             
             // Determine CSS class for anomaly cards
             let cardClass = 'chart-card';
@@ -4010,6 +4161,11 @@
                 }
             }
             
+            // Add embedded indicator for maps
+            if (chartType === 'maps' && isEmbedded) {
+                additionalInfo += `<div class="anomaly-info" style="color: #17a2b8;"><i class="fas fa-code"></i> Embedded View</div>`;
+            }
+            
             // Use onload event to adjust iframe height dynamically
             return `
                 <div class="${cardClass}">
@@ -4023,7 +4179,11 @@
                             `<iframe src="${url}" frameborder="0" onload="adjustIframeHeight(this)"></iframe>`}
                     </div>
                     <div class="chart-card-footer">
-                        ${dwUrl ? `
+                        ${chartType === 'maps' && isEmbedded ? `
+                            <button class="chart-dw-btn" onclick="window.open('/backend/map-chart?id=${id}', '_blank')">
+                                <i class="fas fa-external-link-alt"></i> Full View
+                            </button>
+                        ` : dwUrl ? `
                             <button class="chart-dw-btn" onclick="window.open('${dwUrl}', '_blank')">
                                 View in Datawrapper
                             </button>
@@ -4243,13 +4403,28 @@
                 
                 const maps = data.maps || [];
                 
-                // Transform maps to modal format
-                return maps.filter(map => map.published_url).map(map => ({
-                    id: map.id,
-                    title: map.title || `Map ${map.id}`,
-                    url: map.published_url,
-                    dwUrl: null
-                }));
+                // Transform maps to modal format - handle both published and non-published maps
+                return maps.map(map => {
+                    if (map.published_url) {
+                        // Use published URL if available
+                        return {
+                            id: map.id,
+                            title: map.title || `Map ${map.id}`,
+                            url: map.published_url,
+                            dwUrl: null,
+                            isEmbedded: false
+                        };
+                    } else {
+                        // Use embedded map template for maps without published URLs
+                        return {
+                            id: map.id,
+                            title: map.title || `Map ${map.id}`,
+                            url: `/backend/map-chart?id=${map.id}`,
+                            dwUrl: null,
+                            isEmbedded: true
+                        };
+                    }
+                });
                 
             } catch (error) {
                 console.error('Error loading maps:', error);

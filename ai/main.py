@@ -185,6 +185,7 @@ from routes.dw_charts import router as dw_charts_router
 from routes.database_admin import router as database_admin_router, set_templates as set_database_admin_templates
 from routes.evals import router as evals_router, set_templates as set_evals_templates
 from routes.weekly_analysis import router as weekly_analysis_router
+from routes.map_generator import router as map_generator_router, set_templates as set_map_generator_templates
 
 app = FastAPI()
 
@@ -535,7 +536,10 @@ async def get_metric_by_id(metric_id: int):
                 m.location_fields,
                 m.category_fields,
                 m.metadata,
-                m.is_active
+                m.is_active,
+                m.map_query,
+                m.map_filters,
+                m.map_config
             FROM metrics m
             WHERE m.id = %s
         """, (metric_id,))
@@ -720,6 +724,11 @@ logger.debug("Included database admin router at /backend")
 # Mount weekly analysis router
 app.include_router(weekly_analysis_router, tags=["weekly-analysis"])
 logger.debug("Included weekly analysis router")
+
+# Mount map generator router
+set_map_generator_templates(templates)
+app.include_router(map_generator_router, tags=["map-generator"])
+logger.debug("Included map generator router")
 
 # Add redirect for anomaly analyzer without trailing slash
 @app.get("/anomaly-analyzer")

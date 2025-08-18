@@ -649,9 +649,10 @@ async def create_new_metric(request: Request):
                 metric_name, metric_key, category, subcategory, endpoint,
                 summary, definition, data_sf_url, ytd_query, metric_query,
                 dataset_title, dataset_category, show_on_dash, item_noun,
-                location_fields, category_fields, metadata, greendirection, is_active
+                location_fields, category_fields, metadata, greendirection, is_active,
+                map_query, map_filters, map_config
             ) VALUES (
-                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
             ) RETURNING id
         """, (
             data['name'],
@@ -672,7 +673,10 @@ async def create_new_metric(request: Request):
             json.dumps(data.get('category_fields', [])),
             json.dumps(data.get('metadata', {})),
             data.get('greendirection', 'up'),
-            True
+            True,
+            data.get('map_query', ''),
+            json.dumps(data.get('map_filters', {})),
+            json.dumps(data.get('map_config', {}))
         ))
         
         new_metric_id = cursor.fetchone()['id']
@@ -869,6 +873,7 @@ async def edit_metric(metric_identifier: str, request: Request):
         
         data = await request.json()
         logger.info(f"Updating metric {metric_identifier} with data: {data}")
+        logger.info(f"Data types: {[(k, type(v)) for k, v in data.items()]}")
         
         connection = get_postgres_connection()
         if not connection:
@@ -896,13 +901,13 @@ async def edit_metric(metric_identifier: str, request: Request):
         
         logger.info(f"Processing update fields: {list(data.keys())}")
         logger.info(f"Raw data: {data}")
+        logger.info(f"Raw data types: {[(k, type(v), str(v)[:100]) for k, v in data.items()]}")
         
         for field, value in data.items():
             logger.info(f"Processing field: {field} = {value} (type: {type(value)})")
             if field in ['name', 'category', 'subcategory', 'endpoint', 'summary', 'definition',
                         'data_sf_url', 'ytd_query', 'metric_query', 'dataset_title', 'dataset_category',
-                        'show_on_dash', 'item_noun', 'location_fields', 'category_fields', 'metadata',
-                        'greendirection', 'is_active']:
+                        'show_on_dash', 'item_noun', 'greendirection', 'is_active', 'map_query']:
                 if field == 'name':
                     update_fields.append("metric_name = %s")
                     params.append(value)
@@ -913,8 +918,10 @@ async def edit_metric(metric_identifier: str, request: Request):
                 elif field == 'key':
                     logger.info(f"Skipping field 'key' as it's not allowed to be updated")
                     continue  # Don't allow updating the key
-                elif field in ['location_fields', 'category_fields', 'metadata']:
+                elif field in ['location_fields', 'category_fields', 'metadata', 'map_filters', 'map_config']:
                     update_fields.append(f"{field} = %s")
+                    logger.info(f"Processing JSON field {field} with value type: {type(value)}")
+                    logger.info(f"JSON field {field} value: {value}")
                     json_value = json.dumps(value)
                     params.append(json_value)
                     logger.info(f"Added {field} = %s with JSON value: {json_value}")

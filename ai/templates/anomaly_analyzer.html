@@ -2015,7 +2015,7 @@
                             console.log(`Setting map ${index + 1} iframe src to:`, map.published_url);
                             mapIframe.src = map.published_url;
                         } else {
-                            console.warn(`No published_url found for map ${index + 1}, trying backend endpoint`);
+                            console.warn(`No published_url found for map ${index + 1}, using embedded mode`);
                             const mapUrl = `/backend/map-chart?id=${map.id}`;
                             mapIframe.src = mapUrl;
                         }
@@ -2186,7 +2186,7 @@
                                 console.log(`Setting map ${index + 1} iframe src to:`, map.published_url);
                                 mapIframe.src = map.published_url;
                             } else {
-                                console.warn(`No published_url found for map ${index + 1}, trying backend endpoint`);
+                                console.warn(`No published_url found for map ${index + 1}, using embedded mode`);
                                 const mapUrl = `/backend/map-chart?id=${map.id}`;
                                 mapIframe.src = mapUrl;
                             }

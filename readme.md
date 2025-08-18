@@ -9,7 +9,7 @@ TransparentSF is a web-based application that combined AI agents with public dat
 - Automated analysis of public datasets
 - AI-powered insights generation
 - Interactive chat interface for data exploration
-- Integration with Ghost CMS for publishing insights
+
 - Anomaly detection with PostgreSQL storage
 - AI-powered newsletter narration with ElevenLabs text-to-speech
 
@@ -18,10 +18,10 @@ TransparentSF is a web-based application that combined AI agents with public dat
 - **Backend**: Python
 - **Vector Database**: Qdrant
 - **Database**: PostgreSQL
-- **Content Management**: Ghost CMS
+
 - **APIs**:  
   - OpenAI API for analysis  
-  - Ghost CMS API for content publishing
+
   - ElevenLabs API for text-to-speech narration
 
 ## Installation
@@ -31,8 +31,7 @@ TransparentSF is a web-based application that combined AI agents with public dat
 - Docker (for Qdrant) 
 - PostgreSQL (for anomaly storage)
 - OpenAI API key
-- Ghost admin API key (optional)
-  - Publishing ghost blogs
+
 
 **Steps:**
 
@@ -53,8 +52,7 @@ TransparentSF is a web-based application that combined AI agents with public dat
    Create a `.env` file in the project root with the following variables:
    ```env
    OPENAI_API_KEY=your_openai_api_key
-   GHOST_URL=your_ghost_cms_url
-   GHOST_ADMIN_API_KEY=your_ghost_admin_api_key
+
    PERPLEXITY_API_KEY=your_perplexity_api_key # Optional: For automated newsletter generation
    ELEVENLABS_API_KEY=your_elevenlabs_api_key # Optional: For newsletter narration
    ELEVENLABS_VOICE_ID=21m00Tcm4TlvDq8ikWAM # Optional: Default is Rachel voice
@@ -107,7 +105,7 @@ TransparentSF is a web-based application that combined AI agents with public dat
    This script will:
    - Start the main backend service
    - Start Qdrant for vector search
-   - Start the Ghost Bridge for CMS integration
+
    - Ensure all services are ready before proceeding
 
 2. **Access the application:**
@@ -170,7 +168,7 @@ TransparentSF is a web-based application that combined AI agents with public dat
   - `/data`: Data storage and configuration
     - `/prompts`: AI prompt templates
     - `/datasets`: Dataset storage
-- (deprecated) `ghostbridge.js`: Ghost CMS integration
+
 
 ### Agent System
 
@@ -315,7 +313,7 @@ This project is licensed under the ISC License. See the [LICENSE](LICENSE) file 
 
 - San Francisco's DataSF efforts and all the departments that publish data
 - OpenAI for AI capabilities
-- Ghost CMS team for the content management platform
+
 
 ---
 

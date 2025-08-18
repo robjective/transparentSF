@@ -2494,23 +2494,16 @@
                         alert('Please select a newsletter to re-run email version.');
                         return;
                     }
-                    // Get the original or revised filename (prefer revised if available)
-                    const revisedFilename = selectedOption.dataset.revisedFilename;
-                    const originalFilename = selectedOption.value;
-                    const filename = revisedFilename || originalFilename;
-                    
+                    const filename = selectedOption.value;
                     rerunPostProofingBtn.disabled = true;
                     const originalText = rerunPostProofingBtn.textContent;
                     rerunPostProofingBtn.innerHTML = '<div style="display: flex; align-items: center; justify-content: center;"><span class="loading"></span> Re-running...</div>';
                     try {
-                        // Construct the report path from the filename
-                        const report_path = `output/reports/${filename}`;
-                        
                         // Call backend endpoint to re-run chart expansion and email version
                         const response = await fetch('/backend/rerun_email_version', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ report_path })
+                            body: JSON.stringify({ filename })
                         });
                         const data = await response.json();
                         if (data.status === 'success') {
@@ -2759,7 +2752,7 @@
                         
                         alert(successMessage);
                         // Optionally refresh the newsletter details
-                        loadReportDetails(filename);
+                        updateReportDetails(filename);
                     } else {
                         alert(`Error: ${result.message || 'Unknown error occurred'}`);
                     }

@@ -87,12 +87,13 @@ def load_json_file(file_path):
         logger.error(f"Error loading JSON file {file_path}: {e}")
         return None
 
-def get_time_ranges(period_type):
+def get_time_ranges(period_type, is_fiscal_year=False):
     """
     Calculate recent and comparison periods based on period type.
     
     Args:
         period_type (str): One of 'year', 'month', 'day', or 'ytd'
+        is_fiscal_year (bool): Whether this is fiscal year data
     
     Returns:
         tuple: (recent_period, comparison_period) each containing start and end dates
@@ -100,16 +101,45 @@ def get_time_ranges(period_type):
     today = date.today()
     
     if period_type == 'ytd':
-        # Current year from Jan 1 to yesterday
-        recent_period = {
-            'start': date(today.year, 1, 1),
-            'end': today - timedelta(days=1)
-        }
-        # Same days last year
-        comparison_period = {
-            'start': date(today.year - 1, 1, 1),
-            'end': date(today.year - 1, today.month, today.day) - timedelta(days=1)
-        }
+        if is_fiscal_year:
+            # For fiscal year data, use fiscal year logic
+            # Current fiscal year (starts in July, so current fiscal year is next calendar year)
+            current_fiscal_year = today.year + 1  # FY2026
+            previous_fiscal_year = today.year     # FY2025
+            
+            # For YTD, we want to show progress within the current fiscal year
+            # From July 1 of the previous calendar year to today
+            fy_start_month = 7  # July
+            fy_start_day = 1
+            
+            if today.month >= fy_start_month:
+                # We're in the current fiscal year (July 2025 - June 2026)
+                fy_start_year = today.year  # 2025
+                fy_end_year = today.year + 1  # 2026
+            else:
+                # We're in the previous fiscal year (July 2024 - June 2025)
+                fy_start_year = today.year - 1  # 2024
+                fy_end_year = today.year  # 2025
+            
+            recent_period = {
+                'start': date(fy_start_year, fy_start_month, fy_start_day),  # July 1 of fiscal year start
+                'end': today  # Today (for YTD progress)
+            }
+            comparison_period = {
+                'start': date(fy_start_year - 1, fy_start_month, fy_start_day),  # July 1 of previous fiscal year
+                'end': date(fy_start_year, fy_start_month, fy_start_day) - timedelta(days=1)  # June 30 of previous fiscal year
+            }
+        else:
+            # Current year from Jan 1 to yesterday
+            recent_period = {
+                'start': date(today.year, 1, 1),
+                'end': today - timedelta(days=1)
+            }
+            # Same days last year
+            comparison_period = {
+                'start': date(today.year - 1, 1, 1),
+                'end': date(today.year - 1, today.month, today.day) - timedelta(days=1)
+            }
     elif period_type == 'year':
         # Use previous year as the recent period
         previous_year = today.year - 1
@@ -124,41 +154,88 @@ def get_time_ranges(period_type):
             'end': date(previous_year - 1, 12, 31)
         }
     elif period_type == 'month':
-        # Use the previous complete month
-        if today.month == 1:
-            recent_month = 12
-            recent_year = today.year - 1
-        else:
-            recent_month = today.month - 1
-            recent_year = today.year
+        if is_fiscal_year:
+            # For fiscal year data, use fiscal year logic
+            # Determine which fiscal year we're in
+            if today.month >= 7:  # July or later
+                current_fy_year = today.year + 1  # FY2026
+            else:  # January to June
+                current_fy_year = today.year  # FY2025
             
-        # Calculate last day of the month
-        if recent_month == 12:
-            last_day = 31
-        elif recent_month in [4, 6, 9, 11]:
-            last_day = 30
-        elif recent_month == 2:
-            # Handle leap years
-            if recent_year % 4 == 0 and (recent_year % 100 != 0 or recent_year % 400 == 0):
-                last_day = 29
+            # Use the previous complete month
+            if today.month == 1:
+                recent_month = 12
+                recent_year = today.year - 1
             else:
-                last_day = 28
-        else:
-            last_day = 31
+                recent_month = today.month - 1
+                recent_year = today.year
             
-        recent_period = {
-            'start': date(recent_year, recent_month, 1),
-            'end': date(recent_year, recent_month, last_day)
-        }
-        
-        # Compare to previous 24 months
-        comparison_start_month = recent_month
-        comparison_start_year = recent_year - 2
-        
-        comparison_period = {
-            'start': date(comparison_start_year, comparison_start_month, 1),
-            'end': date(recent_year, recent_month, 1) - timedelta(days=1)
-        }
+            # Calculate last day of the month
+            if recent_month == 12:
+                last_day = 31
+            elif recent_month in [4, 6, 9, 11]:
+                last_day = 30
+            elif recent_month == 2:
+                # Handle leap years
+                if recent_year % 4 == 0 and (recent_year % 100 != 0 or recent_year % 400 == 0):
+                    last_day = 29
+                else:
+                    last_day = 28
+            else:
+                last_day = 31
+            
+            recent_period = {
+                'start': date(recent_year, recent_month, 1),
+                'end': date(recent_year, recent_month, last_day)
+            }
+            
+            # For fiscal year data, compare to the same month in the previous fiscal year
+            # and include data from the current fiscal year
+            if recent_month >= 7:  # July to December
+                comparison_year = recent_year - 1  # Previous calendar year
+            else:  # January to June
+                comparison_year = recent_year - 1  # Previous calendar year
+            
+            comparison_period = {
+                'start': date(comparison_year, recent_month, 1),
+                'end': date(recent_year, recent_month, last_day)
+            }
+        else:
+            # Use the previous complete month
+            if today.month == 1:
+                recent_month = 12
+                recent_year = today.year - 1
+            else:
+                recent_month = today.month - 1
+                recent_year = today.year
+                
+            # Calculate last day of the month
+            if recent_month == 12:
+                last_day = 31
+            elif recent_month in [4, 6, 9, 11]:
+                last_day = 30
+            elif recent_month == 2:
+                # Handle leap years
+                if recent_year % 4 == 0 and (recent_year % 100 != 0 or recent_year % 400 == 0):
+                    last_day = 29
+                else:
+                    last_day = 28
+            else:
+                last_day = 31
+                
+            recent_period = {
+                'start': date(recent_year, recent_month, 1),
+                'end': date(recent_year, recent_month, last_day)
+            }
+            
+            # Compare to previous 24 months
+            comparison_start_month = recent_month
+            comparison_start_year = recent_year - 2
+            
+            comparison_period = {
+                'start': date(comparison_start_year, comparison_start_month, 1),
+                'end': date(recent_year, recent_month, 1) - timedelta(days=1)
+            }
     else:  # day
         # Last complete day
         yesterday = today - timedelta(days=1)
@@ -286,8 +363,11 @@ def process_metric_analysis(metric_info, period_type='month', process_districts=
     # Determine period description based on period_type
     period_desc = 'Monthly' if period_type == 'month' else 'Annual'
     
+    # Check if this is a fiscal year query
+    is_fiscal_year_query = 'fiscal_year' in metric_info.get('query_data', {}).get('ytd_query', '').lower()
+    
     # Get time ranges based on period type
-    recent_period, comparison_period = get_time_ranges(period_type)
+    recent_period, comparison_period = get_time_ranges(period_type, is_fiscal_year=is_fiscal_year_query)
     
     # Create context variables and set the dataset
     context_variables = {}
@@ -375,6 +455,47 @@ def process_metric_analysis(metric_info, period_type='month', process_districts=
         recent_period, 
         comparison_period
     )
+    
+    # If we have category fields, we need to modify the query to include them
+    if category_fields and len(category_fields) > 0:
+        # Check if this is a fiscal year query
+        is_fiscal_year_query = 'fiscal_year' in original_query.lower()
+        
+        if is_fiscal_year_query:
+            # For fiscal year queries, we need to add category fields to the SELECT and GROUP BY
+            # The current query is: SELECT fiscal_year as date, SUM(amount) as value WHERE...
+            # We need to add category fields to both SELECT and GROUP BY
+            
+            # Extract category field names
+            category_field_names = []
+            for field in category_fields:
+                if isinstance(field, dict):
+                    field_name = field.get('fieldName', '')
+                    if field_name:
+                        category_field_names.append(field_name)
+            
+            if category_field_names:
+                # Add category fields to SELECT clause
+                select_parts = transformed_query.split('SELECT ')[1].split(' WHERE')[0]
+                if 'SUM(' in select_parts:
+                    # Insert category fields after the date field but before the SUM
+                    parts = select_parts.split(',')
+                    if len(parts) >= 2:
+                        # Add category fields after the date field
+                        category_select = ', '.join(category_field_names)
+                        new_select = f"{parts[0]}, {category_select}, {parts[1]}"
+                        transformed_query = transformed_query.replace(select_parts, new_select)
+                        
+                        # Add category fields to GROUP BY
+                        if 'GROUP BY' in transformed_query:
+                            group_by_part = transformed_query.split('GROUP BY ')[1].split(' ORDER BY')[0]
+                            new_group_by = f"{group_by_part}, {category_select}"
+                            transformed_query = transformed_query.replace(f"GROUP BY {group_by_part}", f"GROUP BY {new_group_by}")
+                        else:
+                            # Add GROUP BY if it doesn't exist
+                            order_by_part = transformed_query.split('ORDER BY')[0]
+                            category_select = ', '.join(category_field_names)
+                            transformed_query = f"{order_by_part} GROUP BY {category_select} ORDER BY {transformed_query.split('ORDER BY ')[1]}"
     
     logging.info(f"Transformed query: {transformed_query}")
     
@@ -1370,14 +1491,50 @@ def transform_query_for_period(original_query, date_field, category_fields, peri
     # Replace any date placeholders in the original query
     # We make a copy to avoid modifying the original query while iterating
     modified_query = original_query
-    replacements = {
-        'this_year_start': f"'{recent_start}'",
-        'this_year_end': f"'{recent_end}'",
-        'last_year_start': f"'{comparison_start}'",
-        'last_year_end': f"'{comparison_end}'",
-        'start_date': f"'{comparison_start}'",
-        'current_date': f"'{recent_end}'"
-    }
+    
+    # Check if this is a fiscal year query (contains fiscal_year field)
+    is_fiscal_year_query = 'fiscal_year' in original_query.lower()
+    
+    if is_fiscal_year_query:
+        # For fiscal year queries, use fiscal year ranges instead of calendar year ranges
+        today = date.today()
+        this_fiscal_year = str(today.year + 1)  # Current fiscal year
+        last_fiscal_year = str(today.year)      # Previous fiscal year
+        
+        # For annual analysis, we want to compare the last fiscal year to previous fiscal years
+        if period_type == 'year':
+            # Use last fiscal year as the "recent" period
+            recent_fiscal_year = last_fiscal_year
+            # Use 6 years before as the comparison period
+            comparison_fiscal_year = str(today.year - 6)
+        else:
+            # For other period types, use current and previous fiscal years
+            recent_fiscal_year = this_fiscal_year
+            comparison_fiscal_year = last_fiscal_year
+        
+        replacements = {
+            'this_year_start': f"'{recent_fiscal_year}'",
+            'this_year_end': f"'{recent_fiscal_year}'",
+            'last_year_start': f"'{comparison_fiscal_year}'",
+            'last_year_end': f"'{comparison_fiscal_year}'",
+            'start_date': f"'{comparison_fiscal_year}'",
+            'current_date': f"'{recent_fiscal_year}'",
+            # Add fiscal year variables
+            'this_fiscal_year_start': f"'{recent_fiscal_year}'",
+            'this_fiscal_year_end': f"'{recent_fiscal_year}'",
+            'last_fiscal_year_start': f"'{comparison_fiscal_year}'",
+            'last_fiscal_year_end': f"'{comparison_fiscal_year}'"
+        }
+    else:
+        # For regular calendar year queries, use the original logic
+        replacements = {
+            'this_year_start': f"'{recent_start}'",
+            'this_year_end': f"'{recent_end}'",
+            'last_year_start': f"'{comparison_start}'",
+            'last_year_end': f"'{comparison_end}'",
+            'start_date': f"'{comparison_start}'",
+            'current_date': f"'{recent_end}'"
+        }
     
     # Apply replacements correctly - ensure we're not creating malformed field names
     for placeholder, value in replacements.items():

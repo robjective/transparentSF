@@ -1372,6 +1372,7 @@
             <button data-href="/anomaly-analyzer" class="dashboard-btn">Data Review</button>
             <button data-href="/backend/monthly-reports" class="analysis-btn">Newsletter</button>
             <button data-href="/backend/metric-control" class="dashboard-btn">Metric Control</button>
+            <button data-href="/map-generator" class="dashboard-btn">Map Generator</button>
             <button data-href="/backend/query" class="dashboard-btn">Query Tool</button>
             <button data-href="/backend/evals-interface" class="dashboard-btn">Agent Evals</button>
 
@@ -2186,7 +2187,9 @@
                                 // Handle agent stop condition
                                 if (data.agent_stopped) {
                                     console.log('Agent stopped due to stop condition:', data);
+                                    console.log('About to call showContinueButton with reason:', data.reason);
                                     showContinueButton(data.reason);
+                                    console.log('Called showContinueButton - continue button should now be visible');
                                     break;  // Stop processing but don't show error
                                 }
                                 
@@ -2243,10 +2246,21 @@
             const stopBtn = document.getElementById('explainer-stop');
             const continueBtn = document.getElementById('explainer-continue');
             
+            console.log('Button elements found:', {
+                sendBtn: !!sendBtn,
+                stopBtn: !!stopBtn, 
+                continueBtn: !!continueBtn
+            });
+            
             // Hide send and stop buttons, show continue button
-            sendBtn.style.display = 'none';
-            stopBtn.style.display = 'none';
-            continueBtn.style.display = 'inline-block';
+            if (sendBtn) sendBtn.style.display = 'none';
+            if (stopBtn) stopBtn.style.display = 'none';
+            if (continueBtn) {
+                continueBtn.style.display = 'inline-block';
+                console.log('Continue button display set to inline-block');
+            } else {
+                console.error('Continue button not found!');
+            }
             
             // Reset processing state
             isExplainerProcessing = false;

@@ -24,8 +24,9 @@ TASK_INSTRUCTIONS = """Your task is to:
 3. Analyze anomalies in the dataset to see if they are related to the change
 4. Collect Data use set_dataset to get exactly what you need from DataSF. You can should query the endpoint of the metric in question and look for columns that might explain the change. 
 5. Review maps, charts and visual data to determine how to best explain the chart. 
-6. Provide clear, comprehensive explanations with supporting evidence.  You don't need to be breif, more is more, so be as complete and thorough as possible.
-7. Return your findings in the form of a JSON object with the following keys:
+6. Understand the metric's map field configuration (map_query, map_filters, map_config) to explain how geographic data is structured and filtered.
+7. Provide clear, comprehensive explanations with supporting evidence. You don't need to be brief, more is more, so be as complete and thorough as possible.
+8. Return your findings in the form of a JSON object with the following keys:
     - "explanation": A string with your explanation
     - "charts": a list of charts placeholders, formatted ONLY as either [CHART:anomaly:anomaly_id] or [CHART:time_series_id:chart_id] or [CHART:map:map_id].  
     - "trend_analysis" - Your discussion of the trend in the metric short, medium, and long term."""
@@ -33,14 +34,15 @@ TASK_INSTRUCTIONS = """Your task is to:
 # Workflow instructions
 WORKFLOW_INSTRUCTIONS = """MANDATORY WORKFLOW (follow this exact sequence):
 1. FIRST, check your notes!
-4. SECOND, Get information about the metric from the get_dashboard_metric tool.  It will show you the metric's endpoint and common queries.
-2. THIRD, Query the anomalies_db for this metric and period_type and group_filter and district_filter and limit 30 and only_anomalies=True to see whats happening in this metric in this period for this group in this district. 
-4. FOURTH, Use get_charts_for_review to review the recent charts for this metric.  If there are charts that are relevant to the change, then include them in your explanation.
+2. SECOND, Get information about the metric from the get_dashboard_metric tool. It will show you the metric's endpoint, common queries, and map field configuration.
+3. THIRD, Query the anomalies_db for this metric and period_type and group_filter and district_filter and limit 30 and only_anomalies=True to see whats happening in this metric in this period for this group in this district. 
+4. FOURTH, Use get_charts_for_review to review the recent charts for this metric. If there are charts that are relevant to the change, then include them in your explanation.
 5. FIFTH, Apply category best practices, see below. 
 6. SIXTH, contextualize this change vs the historical data, you can use the data from get_dashboard_metric to do this. 
 7. SEVENTH, if an anomaly is explanatory, then be sure to include a link to the anomaly chart
 8. EIGHTH, if you still don't have enough information to understand the data, then use set_dataset to get exactly what you need from DataSF. You can use the queries that you see in the get_dashboard_metric tool data as a starting point, make sure to use the right fieldNames with the right case. Read more about that in the set_dataset() tool. 
-9. NINTH, if the data has a strong geographic component, create a map visualization to show spatial patterns using the generate_map function.  If there are a small number of datapoints in the month (say 30 or fewer, it can be helpful to plot them out on a locator map.  Use the location point, address or intersection, see below)"""
+9. NINTH, if the data has a strong geographic component, create a map visualization to show spatial patterns using the generate_map function. If there are a small number of datapoints in the month (say 30 or fewer, it can be helpful to plot them out on a locator map. Use the location point, address or intersection, see below)
+10. TENTH, when analyzing geographic patterns, examine the metric's map_query, map_filters, and map_config fields to understand how the system builds map queries and what geographic data is available."""
 
 # Category-specific best practices
 CATEGORY_BEST_PRACTICES = """Best Practices for explaining certain categories: 
@@ -269,6 +271,206 @@ GENERATE_MAP_INSTRUCTIONS = """- generate_map: Create a map visualization for ge
   7. Remember to use proper SOQL syntax:
      - No FROM clause needed
 """
+
+# Map field system instructions
+MAP_FIELD_SYSTEM_INSTRUCTIONS = """MAP FIELD SYSTEM UNDERSTANDING:
+
+The TransparentSF system uses a sophisticated map field system to generate geographic visualizations. Understanding this system is crucial for creating effective metrics and explaining geographic patterns.
+
+MAP FIELD STRUCTURE:
+Each metric in the database has three map-related fields:
+1. map_query: The base SQL query for map generation
+2. map_filters: JSON configuration for applying filters programmatically
+3. map_config: JSON configuration for map rendering and behavior
+
+MAP_QUERY FIELD:
+- Purpose: Provides the base SELECT statement for map data
+- Format: Standard SQL without WHERE clauses (filters are applied separately)
+- Examples:
+  * "SELECT location, dba_name, naic_code_description FROM endpoint_table"
+  * "SELECT latitude, longitude, incident_category, incident_description FROM endpoint_table"
+  * "SELECT building_address, number_of_units_certified, permit_type FROM endpoint_table"
+
+MAP_FILTERS FIELD (JSON):
+Contains structured filters that are applied programmatically:
+
+1. Geometry Filters:
+   ```json
+   {
+     "geometry": {
+       "type": "within_polygon",
+       "field": "location",
+       "value": "MULTIPOLYGON(...)"
+     }
+   }
+   ```
+   - Used for neighborhood-specific analysis (e.g., Calle 24, Chinatown)
+   - Restricts data to specific geographic boundaries
+
+2. Date Range Filters:
+   ```json
+   {
+     "date_range": {
+       "field": "dba_start_date",
+       "fallback_field": "location_start_date",
+       "fallback_condition": "dba_start_date < '2023-07-01'"
+     }
+   }
+   ```
+   - Handles complex date logic for business data
+   - Supports fallback fields for different business scenarios
+   - Can include CASE statements for complex logic
+
+3. Static Filters:
+   ```json
+   {
+     "static_filters": [
+       {"field": "status", "operator": "=", "value": "active"},
+       {"field": "incident_category", "operator": "IN", "values": ["Assault", "Robbery"]}
+     ]
+   }
+   ```
+   - Applied consistently across all map queries
+   - Can use various operators (=, IN, >, <, etc.)
+
+4. Direct Filters:
+   ```json
+   {
+     "incident_category_filter": {
+       "field": "Incident_Category",
+       "values": ["Assault", "Homicide", "Rape", "Robbery"],
+       "operator": "IN"
+     }
+   }
+   ```
+   - Named filters for specific use cases
+   - Automatically applied when generating maps
+
+MAP_CONFIG FIELD (JSON):
+Controls map rendering and behavior:
+
+1. Basic Configuration:
+   ```json
+   {
+     "date_field": "dba_start_date",
+     "location_field": "location",
+     "title_template": "{metric_name}",
+     "data_point_threshold": 100
+   }
+   ```
+
+2. Advanced Configuration:
+   ```json
+   {
+     "date_field": "CASE WHEN dba_start_date >= last_year_start THEN dba_start_date ELSE location_start_date END",
+     "location_field": "location",
+     "supports_districts": true,
+     "supports_time_periods": true,
+     "chart_type_preference": "symbol",
+     "data_point_threshold": 2000,
+     "category_fields": [
+       {"name": "incident_category", "fieldName": "incident_category", "description": "Category of the incident"}
+     ]
+   }
+   ```
+
+MAP QUERY BUILDING PROCESS:
+The system automatically builds complete queries by combining:
+1. Base map_query
+2. Date range filters from map_config.date_field or map_filters.date_range
+3. Geometry filters from map_filters.geometry
+4. Static filters from map_filters.static_filters
+5. Direct filters from map_filters
+6. District filters (if specified)
+7. Anomaly filters (if specified)
+8. Data point limits from map_config.data_point_threshold
+
+COMPLEX DATE LOGIC HANDLING:
+The system handles complex CASE statements in date fields:
+- Business openings: Checks both dba_start_date and location_start_date
+- Business closures: Checks both dba_end_date and location_end_date
+- Automatically applies appropriate date logic based on field content
+
+CREATING NEW METRICS WITH MAP FIELDS:
+When creating metrics that should support maps, include:
+
+1. For Business Metrics:
+   ```json
+   {
+     "map_query": "SELECT dba_name, naic_code_description, business_corridor, neighborhoods_analysis_boundaries, supervisor_district, administratively_closed, location, dba_start_date, location_start_date",
+     "map_filters": {
+       "date_range": {
+         "field": "CASE WHEN dba_start_date >= last_year_start THEN dba_start_date ELSE location_start_date END",
+         "fallback_field": "location_start_date",
+         "fallback_condition": "dba_start_date < last_year_start"
+       }
+     },
+     "map_config": {
+       "date_field": "CASE WHEN dba_start_date >= last_year_start THEN dba_start_date ELSE location_start_date END",
+       "location_field": "location",
+       "supports_districts": true,
+       "chart_type_preference": "symbol",
+       "data_point_threshold": 2000
+     }
+   }
+   ```
+
+2. For Crime Metrics:
+   ```json
+   {
+     "map_query": "SELECT location, incident_description, latitude, longitude, incident_category",
+     "map_filters": {
+       "incident_category_filter": {
+         "field": "Incident_Category",
+         "values": ["Assault", "Homicide", "Rape", "Robbery"],
+         "operator": "IN"
+       }
+     },
+     "map_config": {
+       "date_field": "Report_Datetime",
+       "location_field": "location",
+       "supports_districts": true,
+       "chart_type_preference": "point",
+       "data_point_threshold": 1000
+     }
+   }
+   ```
+
+3. For Housing Metrics:
+   ```json
+   {
+     "map_query": "SELECT building_permit_application, building_address, number_of_units_certified, permit_type, location",
+     "map_config": {
+       "date_field": "date_issued",
+       "location_field": "location",
+       "supports_districts": true,
+       "chart_type_preference": "symbol",
+       "data_point_threshold": 500
+     }
+   }
+   ```
+
+BEST PRACTICES FOR MAP FIELDS:
+1. Keep map_query simple - avoid complex WHERE clauses
+2. Use map_filters for all filtering logic
+3. Set appropriate data_point_threshold based on data volume
+4. Include location_field in map_config for proper geocoding
+5. Use chart_type_preference to guide visualization choice
+6. Include category_fields for better anomaly analysis
+7. Test map queries with set_dataset before creating metrics
+
+COMMON PATTERNS:
+1. Business Data: Use CASE statements for date logic, prefer symbol maps
+2. Crime Data: Use direct filters for categories, prefer point maps
+3. Housing Data: Use simple date fields, prefer symbol maps for unit counts
+4. Service Data: Use static filters for service types, prefer district maps
+
+This understanding enables you to:
+- Explain how map queries are built and applied
+- Create new metrics with appropriate map support
+- Debug map generation issues
+- Understand geographic patterns in data
+- Provide better explanations of spatial trends"""
 
 # DataSF map examples
 DATASF_MAP_EXAMPLES = """SERIES MAPS WITH DATASF DATA - PRACTICAL EXAMPLES:
@@ -506,9 +708,21 @@ When you are asked about metrics, you should follow this workflow:
     category_fields=[
         {{"name": "incident_category", "fieldName": "incident_category", "description": "Category of the incident"}},
         {{"name": "incident_subcategory", "fieldName": "incident_subcategory", "description": "Subcategory of the incident"}}
-    ]
+    ],
+    map_query="SELECT location, incident_description, latitude, longitude, incident_category",
+    map_filters={{"incident_category_filter": {{"field": "Incident_Category", "values": ["Assault", "Homicide", "Rape", "Robbery", "Human Trafficking (A), Commercial Sex Acts", "Human Trafficking, Commercial Sex Acts", "Human Trafficking (B), Involuntary Servitude", "Offences Against The Family And Children", "Weapons Carrying Etc", "Weapons Offense", "Weapons Offence"], "operator": "IN"}}}},
+    map_config={{"date_field": "Report_Datetime", "location_field": "location", "supports_districts": true, "chart_type_preference": "point", "data_point_threshold": 1000}}
     )
   Use this to add new metrics to the system. Required fields: name, key, category, endpoint.
+  
+  MAP FIELD GUIDANCE:
+  When creating metrics that should support maps, include the map_query, map_filters, and map_config fields:
+  
+  1. map_query: Base SELECT statement without WHERE clauses
+  2. map_filters: JSON object with structured filters (geometry, date_range, static_filters, direct filters)
+  3. map_config: JSON object with rendering configuration (date_field, location_field, chart_type_preference, etc.)
+  
+  See the MAP_FIELD_SYSTEM_INSTRUCTIONS for detailed examples and best practices.
  
   The ytd_query should calculate year-to-date totals, while metric_query should calculate current period totals.
   Location fields and category fields are optional but recommended for better data analysis.
@@ -567,6 +781,7 @@ def get_system_prompt(name: str, description: str, summary: str, map_type: str) 
         CATEGORY_BEST_PRACTICES,
         CHART_INSTRUCTIONS,
         GENERATE_MAP_INSTRUCTIONS,
+        MAP_FIELD_SYSTEM_INSTRUCTIONS,
     ]
     
     return "\n\n".join(prompt_parts)
@@ -614,6 +829,11 @@ PROMPT_SECTIONS = {
         'name': 'Map Generation Tool',
         'description': 'Comprehensive instructions for creating maps and visualizations',
         'content': GENERATE_MAP_INSTRUCTIONS
+    },
+    'map_field_system': {
+        'name': 'Map Field System',
+        'description': 'Understanding map queries, filters, and configuration for metrics',
+        'content': MAP_FIELD_SYSTEM_INSTRUCTIONS
     },
     'datasf_maps': {
         'name': 'DataSF Map Examples',

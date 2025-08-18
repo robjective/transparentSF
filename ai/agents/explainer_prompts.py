@@ -570,6 +570,206 @@ When you are asked about metrics, you should follow this workflow:
   
 """
 
+# Map field system instructions
+MAP_FIELD_SYSTEM_INSTRUCTIONS = """MAP FIELD SYSTEM UNDERSTANDING:
+
+The TransparentSF system uses a sophisticated map field system to generate geographic visualizations. Understanding this system is crucial for creating effective metrics and explaining geographic patterns.
+
+MAP FIELD STRUCTURE:
+Each metric in the database has three map-related fields:
+1. map_query: The base SQL query for map generation
+2. map_filters: JSON configuration for applying filters programmatically
+3. map_config: JSON configuration for map rendering and behavior
+
+MAP_QUERY FIELD:
+- Purpose: Provides the base SELECT statement for map data
+- Format: Standard SQL without WHERE clauses (filters are applied separately)
+- Examples:
+  * "SELECT location, dba_name, naic_code_description FROM endpoint_table"
+  * "SELECT latitude, longitude, incident_category, incident_description FROM endpoint_table"
+  * "SELECT building_address, number_of_units_certified, permit_type FROM endpoint_table"
+
+MAP_FILTERS FIELD (JSON):
+Contains structured filters that are applied programmatically:
+
+1. Geometry Filters:
+   ```json
+   {
+     "geometry": {
+       "type": "within_polygon",
+       "field": "location",
+       "value": "MULTIPOLYGON(...)"
+     }
+   }
+   ```
+   - Used for neighborhood-specific analysis (e.g., Calle 24, Chinatown)
+   - Restricts data to specific geographic boundaries
+
+2. Date Range Filters:
+   ```json
+   {
+     "date_range": {
+       "field": "dba_start_date",
+       "fallback_field": "location_start_date",
+       "fallback_condition": "dba_start_date < '2023-07-01'"
+     }
+   }
+   ```
+   - Handles complex date logic for business data
+   - Supports fallback fields for different business scenarios
+   - Can include CASE statements for complex logic
+
+3. Static Filters:
+   ```json
+   {
+     "static_filters": [
+       {"field": "status", "operator": "=", "value": "active"},
+       {"field": "incident_category", "operator": "IN", "values": ["Assault", "Robbery"]}
+     ]
+   }
+   ```
+   - Applied consistently across all map queries
+   - Can use various operators (=, IN, >, <, etc.)
+
+4. Direct Filters:
+   ```json
+   {
+     "incident_category_filter": {
+       "field": "Incident_Category",
+       "values": ["Assault", "Homicide", "Rape", "Robbery"],
+       "operator": "IN"
+     }
+   }
+   ```
+   - Named filters for specific use cases
+   - Automatically applied when generating maps
+
+MAP_CONFIG FIELD (JSON):
+Controls map rendering and behavior:
+
+1. Basic Configuration:
+   ```json
+   {
+     "date_field": "dba_start_date",
+     "location_field": "location",
+     "title_template": "{metric_name}",
+     "data_point_threshold": 100
+   }
+   ```
+
+2. Advanced Configuration:
+   ```json
+   {
+     "date_field": "CASE WHEN dba_start_date >= last_year_start THEN dba_start_date ELSE location_start_date END",
+     "location_field": "location",
+     "supports_districts": true,
+     "supports_time_periods": true,
+     "chart_type_preference": "symbol",
+     "data_point_threshold": 2000,
+     "category_fields": [
+       {"name": "incident_category", "fieldName": "incident_category", "description": "Category of the incident"}
+     ]
+   }
+   ```
+
+MAP QUERY BUILDING PROCESS:
+The system automatically builds complete queries by combining:
+1. Base map_query
+2. Date range filters from map_config.date_field or map_filters.date_range
+3. Geometry filters from map_filters.geometry
+4. Static filters from map_filters.static_filters
+5. Direct filters from map_filters
+6. District filters (if specified)
+7. Anomaly filters (if specified)
+8. Data point limits from map_config.data_point_threshold
+
+COMPLEX DATE LOGIC HANDLING:
+The system handles complex CASE statements in date fields:
+- Business openings: Checks both dba_start_date and location_start_date
+- Business closures: Checks both dba_end_date and location_end_date
+- Automatically applies appropriate date logic based on field content
+
+CREATING NEW METRICS WITH MAP FIELDS:
+When creating metrics that should support maps, include:
+
+1. For Business Metrics:
+   ```json
+   {
+     "map_query": "SELECT dba_name, naic_code_description, business_corridor, neighborhoods_analysis_boundaries, supervisor_district, administratively_closed, location, dba_start_date, location_start_date",
+     "map_filters": {
+       "date_range": {
+         "field": "CASE WHEN dba_start_date >= last_year_start THEN dba_start_date ELSE location_start_date END",
+         "fallback_field": "location_start_date",
+         "fallback_condition": "dba_start_date < last_year_start"
+       }
+     },
+     "map_config": {
+       "date_field": "CASE WHEN dba_start_date >= last_year_start THEN dba_start_date ELSE location_start_date END",
+       "location_field": "location",
+       "supports_districts": true,
+       "chart_type_preference": "symbol",
+       "data_point_threshold": 2000
+     }
+   }
+   ```
+
+2. For Crime Metrics:
+   ```json
+   {
+     "map_query": "SELECT location, incident_description, latitude, longitude, incident_category",
+     "map_filters": {
+       "incident_category_filter": {
+         "field": "Incident_Category",
+         "values": ["Assault", "Homicide", "Rape", "Robbery"],
+         "operator": "IN"
+       }
+     },
+     "map_config": {
+       "date_field": "Report_Datetime",
+       "location_field": "location",
+       "supports_districts": true,
+       "chart_type_preference": "point",
+       "data_point_threshold": 1000
+     }
+   }
+   ```
+
+3. For Housing Metrics:
+   ```json
+   {
+     "map_query": "SELECT building_permit_application, building_address, number_of_units_certified, permit_type, location",
+     "map_config": {
+       "date_field": "date_issued",
+       "location_field": "location",
+       "supports_districts": true,
+       "chart_type_preference": "symbol",
+       "data_point_threshold": 500
+     }
+   }
+   ```
+
+BEST PRACTICES FOR MAP FIELDS:
+1. Keep map_query simple - avoid complex WHERE clauses
+2. Use map_filters for all filtering logic
+3. Set appropriate data_point_threshold based on data volume
+4. Include location_field in map_config for proper geocoding
+5. Use chart_type_preference to guide visualization choice
+6. Include category_fields for better anomaly analysis
+7. Test map queries with set_dataset before creating metrics
+
+COMMON PATTERNS:
+1. Business Data: Use CASE statements for date logic, prefer symbol maps
+2. Crime Data: Use direct filters for categories, prefer point maps
+3. Housing Data: Use simple date fields, prefer symbol maps for unit counts
+4. Service Data: Use static filters for service types, prefer district maps
+
+This understanding enables you to:
+- Explain how map queries are built and applied
+- Create new metrics with appropriate map support
+- Debug map generation issues
+- Understand geographic patterns in data
+- Provide better explanations of spatial trends"""
+
 # Function to combine all sections into the complete instructions
 def get_complete_instructions():
     """Combine all prompt sections into the complete instructions."""
@@ -583,6 +783,7 @@ def get_complete_instructions():
         CORE_TOOLS_INSTRUCTIONS,
         SET_DATASET_INSTRUCTIONS,
         GENERATE_MAP_INSTRUCTIONS,
+        MAP_FIELD_SYSTEM_INSTRUCTIONS,
         METRICS_TOOLS_INSTRUCTIONS
     ]
     
@@ -632,6 +833,11 @@ PROMPT_SECTIONS = {
         'name': 'Map Generation Tool',
         'description': 'Comprehensive instructions for creating maps and visualizations',
         'content': GENERATE_MAP_INSTRUCTIONS
+    },
+    'map_field_system': {
+        'name': 'Map Field System',
+        'description': 'Understanding map queries, filters, and configuration for metrics',
+        'content': MAP_FIELD_SYSTEM_INSTRUCTIONS
     },
     'datasf_maps': {
         'name': 'DataSF Map Examples',
@@ -865,3 +1071,4 @@ IMPORTANT NOTES:
    - 7 days for recent point data
    - 30 days for monthly aggregations
    - 1 month for change calculations"""
+

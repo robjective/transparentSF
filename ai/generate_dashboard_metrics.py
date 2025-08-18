@@ -119,6 +119,7 @@ def load_metrics_from_db():
                 m.display_order,
                 m.is_active,
                 m.show_on_dash,
+                m.greendirection,
                 d.title as dataset_title,
                 d.category as dataset_category
             FROM metrics m
@@ -171,7 +172,8 @@ def load_metrics_from_db():
                 'city_id': metric['city_id'],
                 'display_order': metric['display_order'],
                 'is_active': metric['is_active'],
-                'show_on_dash': metric['show_on_dash']
+                'show_on_dash': metric['show_on_dash'],
+                'greendirection': metric['greendirection'] or 'up'
             }
             
             dashboard_queries[category][subcategory]['queries'][query_name] = query_data
@@ -218,6 +220,7 @@ def load_single_metric_from_db(metric_id):
                     m.display_order,
                     m.is_active,
                     m.show_on_dash,
+                    m.greendirection,
                     d.title as dataset_title,
                     d.category as dataset_category
                 FROM metrics m
@@ -244,6 +247,7 @@ def load_single_metric_from_db(metric_id):
                     m.display_order,
                     m.is_active,
                     m.show_on_dash,
+                    m.greendirection,
                     d.title as dataset_title,
                     d.category as dataset_category
                 FROM metrics m
@@ -279,7 +283,8 @@ def load_single_metric_from_db(metric_id):
             'city_id': metric['city_id'],
             'display_order': metric['display_order'],
             'is_active': metric['is_active'],
-            'show_on_dash': metric['show_on_dash']
+            'show_on_dash': metric['show_on_dash'],
+            'greendirection': metric['greendirection'] or 'up'
         }
         
         # Return in the expected format
@@ -381,13 +386,29 @@ def get_date_ranges(target_date=None, query=None):
         # Also adjust last_year_end to maintain the same day of year
         last_year_end = yesterday.replace(year=yesterday.year-1).strftime('%Y-%m-%d')
     
+    # Calculate fiscal year ranges
+    # San Francisco fiscal year runs from July 1 to June 30
+    # If we're in the first half of the year (Jan-Jun), current fiscal year started last July
+    # If we're in the second half of the year (Jul-Dec), current fiscal year started this July
+    if target_date.month >= 7:  # July or later
+        this_fiscal_year = str(this_year + 1)  # Fiscal year is next calendar year
+        last_fiscal_year = str(this_year)
+    else:  # January through June
+        this_fiscal_year = str(this_year)
+        last_fiscal_year = str(this_year - 1)
+    
     logger.info(f"Date ranges: this_year={this_year_start} to {this_year_end}, last_year={last_year_start} to {last_year_end}")
+    logger.info(f"Fiscal year ranges: this_fiscal_year={this_fiscal_year}, last_fiscal_year={last_fiscal_year}")
     
     return {
         'this_year_start': this_year_start,
         'this_year_end': this_year_end,
         'last_year_start': last_year_start,
-        'last_year_end': last_year_end
+        'last_year_end': last_year_end,
+        'this_fiscal_year_start': this_fiscal_year,
+        'this_fiscal_year_end': this_fiscal_year,
+        'last_fiscal_year_start': last_fiscal_year,
+        'last_fiscal_year_end': last_fiscal_year
     }
 
 def debug_query(query, endpoint, date_ranges, query_name=None):
@@ -735,7 +756,7 @@ def process_query_for_district(query, endpoint, date_ranges, query_name=None):
                     
                     # Add monthly data if available
                     if monthly_ranges:
-                        monthly_data = process_monthly_query(query, endpoint, monthly_ranges, query_name, district='0')
+                        monthly_data = process_monthly_query(query, endpoint, monthly_ranges, date_ranges, query_name, district='0')
                         if monthly_data:
                             results['0'].update(monthly_data)
                     
@@ -750,7 +771,7 @@ def process_query_for_district(query, endpoint, date_ranges, query_name=None):
                             
                             # Add monthly data for this district if available
                             if monthly_ranges:
-                                monthly_data = process_monthly_query(query, endpoint, monthly_ranges, query_name, district=str(district))
+                                monthly_data = process_monthly_query(query, endpoint, monthly_ranges, date_ranges, query_name, district=str(district))
                                 if monthly_data:
                                     results[str(district)].update(monthly_data)
                 else:
@@ -766,7 +787,7 @@ def process_query_for_district(query, endpoint, date_ranges, query_name=None):
                         
                         # Add monthly data if available
                         if monthly_ranges:
-                            monthly_data = process_monthly_query(query, endpoint, monthly_ranges, query_name, district='0')
+                            monthly_data = process_monthly_query(query, endpoint, monthly_ranges, date_ranges, query_name, district='0')
                             if monthly_data:
                                 results['0'].update(monthly_data)
                         
@@ -781,7 +802,7 @@ def process_query_for_district(query, endpoint, date_ranges, query_name=None):
                                 
                                 # Add monthly data for this district if available
                                 if monthly_ranges:
-                                    monthly_data = process_monthly_query(query, endpoint, monthly_ranges, query_name, district=str(district))
+                                    monthly_data = process_monthly_query(query, endpoint, monthly_ranges, date_ranges, query_name, district=str(district))
                                     if monthly_data:
                                         results[str(district)].update(monthly_data)
             else:
@@ -796,7 +817,7 @@ def process_query_for_district(query, endpoint, date_ranges, query_name=None):
                     
                     # Add monthly data if available
                     if monthly_ranges:
-                        monthly_data = process_monthly_query(query, endpoint, monthly_ranges, query_name, district='0')
+                        monthly_data = process_monthly_query(query, endpoint, monthly_ranges, date_ranges, query_name, district='0')
                         if monthly_data:
                             results['0'].update(monthly_data)
             
@@ -830,7 +851,7 @@ def process_query_for_district(query, endpoint, date_ranges, query_name=None):
     
     return None
 
-def process_monthly_query(query, endpoint, monthly_ranges, query_name=None, district=None):
+def process_monthly_query(query, endpoint, monthly_ranges, date_ranges, query_name=None, district=None):
     """Process a query to get monthly comparison data."""
     try:
         logger.info(f"Processing monthly query for {query_name}" + (f" (District {district})" if district else ""))
@@ -841,6 +862,13 @@ def process_monthly_query(query, endpoint, monthly_ranges, query_name=None, dist
         monthly_query = monthly_query.replace('this_year_end', 'this_month_end')
         monthly_query = monthly_query.replace('last_year_start', 'last_month_start')
         monthly_query = monthly_query.replace('last_year_end', 'last_month_end')
+        
+        # Handle fiscal year variables - use the same fiscal year values from the main query
+        # Replace fiscal year variables with actual values from date_ranges
+        monthly_query = monthly_query.replace('this_fiscal_year_start', f"'{date_ranges['this_fiscal_year_start']}'")
+        monthly_query = monthly_query.replace('this_fiscal_year_end', f"'{date_ranges['this_fiscal_year_end']}'")
+        monthly_query = monthly_query.replace('last_fiscal_year_start', f"'{date_ranges['last_fiscal_year_start']}'")
+        monthly_query = monthly_query.replace('last_fiscal_year_end', f"'{date_ranges['last_fiscal_year_end']}'")
         
         # Replace the column names in the SELECT clause
         monthly_query = monthly_query.replace('this_year', 'this_month')
@@ -951,6 +979,16 @@ def process_ytd_trend_query(query, endpoint, date_ranges=None, target_date=None,
         modified_query = query.replace("date_trunc_y(date_sub_y(current_date, 1))", f"'{date_ranges['last_year_start']}'")
         modified_query = modified_query.replace("current_date", f"'{date_ranges['this_year_end']}'")
         modified_query = modified_query.replace("last_year_start", f"'{date_ranges['last_year_start']}'")
+        
+        # Handle fiscal year variables
+        if 'this_fiscal_year_start' in date_ranges:
+            modified_query = modified_query.replace("this_fiscal_year_start", f"'{date_ranges['this_fiscal_year_start']}'")
+        if 'this_fiscal_year_end' in date_ranges:
+            modified_query = modified_query.replace("this_fiscal_year_end", f"'{date_ranges['this_fiscal_year_end']}'")
+        if 'last_fiscal_year_start' in date_ranges:
+            modified_query = modified_query.replace("last_fiscal_year_start", f"'{date_ranges['last_fiscal_year_start']}'")
+        if 'last_fiscal_year_end' in date_ranges:
+            modified_query = modified_query.replace("last_fiscal_year_end", f"'{date_ranges['last_fiscal_year_end']}'")
         
         # Check for hardcoded date patterns in the query and replace them
         this_year = datetime.strptime(date_ranges['this_year_end'], '%Y-%m-%d').year
@@ -1293,6 +1331,11 @@ def generate_ytd_metrics(queries_data, output_dir, target_date=None):
                                 metric_base["show"] = query_data["show_on_dash"]
                             else:
                                 metric_base["show"] = True  # Default to showing if not specified
+                            # Add greendirection field
+                            if "greendirection" in query_data:
+                                metric_base["greendirection"] = query_data["greendirection"]
+                            else:
+                                metric_base["greendirection"] = 'up'  # Default to up if not specified
                         
                         # Get the last data date from metric results if available
                         metric_last_data_date = None
@@ -1509,6 +1552,10 @@ def generate_ytd_metrics(queries_data, output_dir, target_date=None):
                         "metadata": metric.get('metadata', {})
                     }
                     
+                    # Add greendirection to metadata
+                    if 'greendirection' in metric:
+                        metric_copy['metadata']['greendirection'] = metric['greendirection']
+                    
                     # Add monthly data if available
                     if 'thisMonth' in metric:
                         metric_copy['thisMonth'] = metric['thisMonth']
@@ -1566,9 +1613,7 @@ def generate_ytd_metrics(queries_data, output_dir, target_date=None):
                     if 'show' in metric:
                         metric_data['show'] = metric['show']
                     
-                    # Add trend data if it exists
-                    if 'trend_data' in metric:
-                        metric_data['trend_data'] = metric['trend_data']
+                    # Note: trend_data is no longer added to individual metric files per user request
                     
                     # Add district breakdown for citywide metrics (district 0)
                     if district_str == '0':

@@ -431,7 +431,7 @@ def create_time_series_chart_from_data(chart_data, metadata):
         
         # Configure chart for multiple lines
         lines_config = {}
-        colors = ["#ad35fa", "#00bcd4", "#ff9800", "#4caf50", "#f44336", "#9c27b0", "#607d8b"]  # Multiple colors
+        colors = ["#ad35fa", "#00bcd4", "#ff9800", "#4caf50", "#f44336", "#9c27b0", "#607d8b", "#1A365D", "#2D3748", "#4A5568", "#718096", "#A0AEC0", "#E2E8F0", "#F7FAFC", "#FF0080", "#00FF80", "#8000FF", "#FF8000", "#0080FF", "#80FF00", "#00FFFF", "#FF00FF", "#FFFF00", "#8B4513", "#228B22", "#FF1493", "#00CED1", "#FFD700", "#FF69B4", "#32CD32", "#FF4500", "#9370DB", "#20B2AA", "#FF6347", "#7B68EE", "#3CB371", "#FF7F50", "#6A5ACD", "#00FA9A", "#FFB6C1", "#4169E1", "#DC143C", "#00BFFF", "#FF8C00", "#9932CC", "#8FBC8F", "#FF69B4", "#00CED1", "#FFD700", "#FF1493", "#32CD32", "#FF4500", "#9370DB", "#20B2AA", "#FF6347", "#7B68EE", "#3CB371", "#FF7F50", "#6A5ACD", "#00FA9A", "#FFB6C1", "#4169E1", "#DC143C", "#00BFFF", "#FF8C00", "#9932CC"]  # Expanded color palette
         
         for i, group in enumerate(groups):
             color = colors[i % len(colors)]  # Cycle through colors if more groups than colors
