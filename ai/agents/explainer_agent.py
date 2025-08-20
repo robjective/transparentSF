@@ -118,8 +118,8 @@ function_mapping = {
 
 # Load environment variables
 from .config.models import get_default_model
-# Use gpt-5 as the default model for explainer agent
-AGENT_MODEL = os.getenv("AGENT_MODEL", "gpt-5")
+# Use claude-3-7-sonnet as the default model for explainer agent
+AGENT_MODEL = os.getenv("AGENT_MODEL", "claude-3-7-sonnet")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 if not OPENAI_API_KEY:

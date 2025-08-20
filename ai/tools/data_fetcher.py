@@ -359,6 +359,10 @@ def build_map_query(map_query, map_filters, map_config, district, period_type, t
     # Calculate date ranges based on period_type and time_periods
     target_date = date.today() - timedelta(days=1)
     
+    # Debug logging
+    logger.info(f"DEBUG: period_type={period_type}, time_periods={time_periods}, type(time_periods)={type(time_periods)}")
+    logger.info(f"DEBUG: target_date={target_date}")
+    
     if period_type == "month":
         # Get the last N months using proper month calculation
         end_date = target_date
@@ -369,7 +373,15 @@ def build_map_query(map_query, map_filters, map_config, district, period_type, t
             start_date = date(2024, 1, 1)
         else:
             # Calculate start date by subtracting months properly
-            start_date = end_date - relativedelta(months=int(time_periods))
+            try:
+                time_periods_int = int(time_periods)
+                start_date = end_date - relativedelta(months=time_periods_int)
+                logger.info(f"DEBUG: Calculated start_date={start_date} for time_periods={time_periods_int}")
+            except (ValueError, TypeError) as e:
+                logger.error(f"ERROR: Invalid time_periods value '{time_periods}': {e}")
+                # Fallback to a reasonable default
+                start_date = end_date - relativedelta(months=2)
+                logger.info(f"DEBUG: Using fallback start_date={start_date}")
     elif period_type == "week":
         # Get the last N weeks using proper week calculation
         end_date = target_date
@@ -380,15 +392,36 @@ def build_map_query(map_query, map_filters, map_config, district, period_type, t
             start_date = date(2024, 1, 1)
         else:
             # Calculate start date by subtracting weeks properly
-            start_date = end_date - timedelta(weeks=int(time_periods))
+            try:
+                time_periods_int = int(time_periods)
+                start_date = end_date - timedelta(weeks=time_periods_int)
+                logger.info(f"DEBUG: Calculated start_date={start_date} for time_periods={time_periods_int} weeks")
+            except (ValueError, TypeError) as e:
+                logger.error(f"ERROR: Invalid time_periods value '{time_periods}' for weeks: {e}")
+                start_date = end_date - timedelta(weeks=2)
+                logger.info(f"DEBUG: Using fallback start_date={start_date}")
     elif period_type == "quarter":
         # Get the last N quarters using proper quarter calculation
         end_date = target_date
-        start_date = end_date - relativedelta(months=3 * int(time_periods))
+        try:
+            time_periods_int = int(time_periods)
+            start_date = end_date - relativedelta(months=3 * time_periods_int)
+            logger.info(f"DEBUG: Calculated start_date={start_date} for time_periods={time_periods_int} quarters")
+        except (ValueError, TypeError) as e:
+            logger.error(f"ERROR: Invalid time_periods value '{time_periods}' for quarters: {e}")
+            start_date = end_date - relativedelta(months=6)
+            logger.info(f"DEBUG: Using fallback start_date={start_date}")
     elif period_type == "year":
         # Get the last N years using proper year calculation
         end_date = target_date
-        start_date = end_date - relativedelta(years=int(time_periods))
+        try:
+            time_periods_int = int(time_periods)
+            start_date = end_date - relativedelta(years=time_periods_int)
+            logger.info(f"DEBUG: Calculated start_date={start_date} for time_periods={time_periods_int} years")
+        except (ValueError, TypeError) as e:
+            logger.error(f"ERROR: Invalid time_periods value '{time_periods}' for years: {e}")
+            start_date = end_date - relativedelta(years=1)
+            logger.info(f"DEBUG: Using fallback start_date={start_date}")
     else:
         # Default to last 2 months
         end_date = target_date
@@ -400,22 +433,34 @@ def build_map_query(map_query, map_filters, map_config, district, period_type, t
     # Add date range filter if specified in map_config
     date_field = map_config.get('date_field')
     if date_field:
+        # Debug logging for date range
+        logger.info(f"DEBUG: Using date_field='{date_field}'")
+        logger.info(f"DEBUG: start_date={start_date}, end_date={end_date}")
+        
         # Check if the date_field is a complex case statement
         if 'CASE WHEN' in date_field.upper():
             # For complex case statements, we need to handle them differently
             # Extract the base fields from the case statement
             if 'dba_start_date' in date_field and 'location_start_date' in date_field:
                 # Use the same logic as the metric query - check both fields for openings
-                where_conditions.append(f"((dba_start_date >= '{start_date.strftime('%Y-%m-%d')}' AND dba_start_date <= '{end_date.strftime('%Y-%m-%d')}') OR (location_start_date >= '{start_date.strftime('%Y-%m-%d')}' AND location_start_date <= '{end_date.strftime('%Y-%m-%d')}' AND dba_start_date < '{start_date.strftime('%Y-%m-%d')}'))")
+                date_condition = f"((dba_start_date >= '{start_date.strftime('%Y-%m-%d')}' AND dba_start_date <= '{end_date.strftime('%Y-%m-%d')}') OR (location_start_date >= '{start_date.strftime('%Y-%m-%d')}' AND location_start_date <= '{end_date.strftime('%Y-%m-%d')}' AND dba_start_date < '{start_date.strftime('%Y-%m-%d')}'))"
+                where_conditions.append(date_condition)
+                logger.info(f"DEBUG: Added complex date condition: {date_condition}")
             elif 'dba_end_date' in date_field and 'location_end_date' in date_field:
                 # Use the same logic as the metric query - check both fields for closures
-                where_conditions.append(f"((dba_end_date >= '{start_date.strftime('%Y-%m-%d')}' AND dba_end_date <= '{end_date.strftime('%Y-%m-%d')}') OR (location_end_date >= '{start_date.strftime('%Y-%m-%d')}' AND location_end_date <= '{end_date.strftime('%Y-%m-%d')}' AND dba_end_date < '{start_date.strftime('%Y-%m-%d')}'))")
+                date_condition = f"((dba_end_date >= '{start_date.strftime('%Y-%m-%d')}' AND dba_end_date <= '{end_date.strftime('%Y-%m-%d')}') OR (location_end_date >= '{start_date.strftime('%Y-%m-%d')}' AND location_end_date <= '{end_date.strftime('%Y-%m-%d')}' AND dba_end_date < '{start_date.strftime('%Y-%m-%d')}'))"
+                where_conditions.append(date_condition)
+                logger.info(f"DEBUG: Added complex date condition: {date_condition}")
             else:
                 # Fallback to simple field usage
-                where_conditions.append(f"{date_field} >= '{start_date.strftime('%Y-%m-%d')}' AND {date_field} <= '{end_date.strftime('%Y-%m-%d')}'")
+                date_condition = f"{date_field} >= '{start_date.strftime('%Y-%m-%d')}' AND {date_field} <= '{end_date.strftime('%Y-%m-%d')}'"
+                where_conditions.append(date_condition)
+                logger.info(f"DEBUG: Added simple date condition: {date_condition}")
         else:
             # Simple field name
-            where_conditions.append(f"{date_field} >= '{start_date.strftime('%Y-%m-%d')}' AND {date_field} <= '{end_date.strftime('%Y-%m-%d')}'")
+            date_condition = f"{date_field} >= '{start_date.strftime('%Y-%m-%d')}' AND {date_field} <= '{end_date.strftime('%Y-%m-%d')}'"
+            where_conditions.append(date_condition)
+            logger.info(f"DEBUG: Added simple date condition: {date_condition}")
     
     # Add geometry filter if specified in map_filters
     if map_filters and 'geometry' in map_filters:

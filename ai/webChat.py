@@ -12,7 +12,7 @@ from tools.data_fetcher import set_dataset
 from tools.vector_query import query_docs  #
 from tools.genChart import generate_time_series_chart
 from tools.retirementdata import read_csv_with_encoding
-
+# from tools.genGhostPost import generate_ghost_post  # Removed - module doesn't exist
 from tools.generate_map import generate_map, get_map_by_id, get_recent_maps
 from tools.gen_map_dw import create_datawrapper_map
 from tools.notes_manager import get_notes, load_and_combine_notes, initialize_notes

@@ -124,11 +124,9 @@ Analysis results are saved to:
 ai/output/weekly/
 ├── 0/                    # Citywide analysis
 │   ├── 1.md
-│   ├── 1.json
 │   └── ...
 ├── 1/                    # District 1 analysis
 │   ├── 1.md
-│   ├── 1.json
 │   └── ...
 └── weekly_newsletter_YYYY-MM-DD.md
 ``` 

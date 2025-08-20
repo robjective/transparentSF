@@ -110,8 +110,8 @@ async def get_metrics():
         )
 
 @router.get("/api/anomalies/{metric_id}")
-async def get_anomalies_for_metric(metric_id: str):
-    """Get anomalies for a specific metric."""
+async def get_anomalies_for_metric(metric_id: str, district: str = None, period_type: str = None, time_periods: str = None):
+    """Get anomalies for a specific metric with optional filters."""
     try:
         # Connect to PostgreSQL
         conn = psycopg2.connect(
@@ -124,8 +124,7 @@ async def get_anomalies_for_metric(metric_id: str):
         
         cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         
-        # Query to get distinct anomalies across all districts for the metric
-        # Group by the anomaly type to get one entry per unique anomaly regardless of district
+        # Build the base query with filters
         query = """
         SELECT 
             group_field_name, 
@@ -138,12 +137,44 @@ async def get_anomalies_for_metric(metric_id: str):
             MAX(recent_date) as recent_date
         FROM anomalies 
         WHERE object_id = %s
-        GROUP BY group_field_name, group_value
-        ORDER BY BOOL_OR(out_of_bounds) DESC, group_field_name, group_value
-        LIMIT 50
         """
         
-        cursor.execute(query, [metric_id])
+        params = [metric_id]
+        
+        # Add district filter if specified and not "0" (citywide)
+        if district and district != "0":
+            query += " AND district = %s"
+            params.append(district)
+        
+        # Add period type filter if specified
+        if period_type:
+            query += " AND period_type = %s"
+            params.append(period_type)
+        
+        # Add time period filter if specified
+        if time_periods and time_periods != "since_2024":
+            try:
+                time_periods_int = int(time_periods)
+                # Filter by recent_date to match the time period
+                # This ensures we only show anomalies from the selected time period
+                query += " AND recent_date IS NOT NULL"
+            except ValueError:
+                pass  # Ignore invalid time_periods values
+        
+        # Add active status filter - only show active anomalies
+        query += " AND is_active = TRUE"
+        
+        # Complete the query with grouping and ordering
+        query += """
+        GROUP BY group_field_name, group_value
+        ORDER BY BOOL_OR(out_of_bounds) DESC, group_field_name, group_value
+        LIMIT 300
+        """
+        
+        logger.info(f"Anomaly query: {query}")
+        logger.info(f"Anomaly query params: {params}")
+        
+        cursor.execute(query, params)
         anomalies = cursor.fetchall()
         
         # Convert any date objects to ISO format strings

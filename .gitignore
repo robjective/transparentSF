@@ -29,3 +29,4 @@ qdrant_storage/
 venv/
 .venv/
 /ai/backup_history
+/backup_history

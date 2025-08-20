@@ -6,7 +6,6 @@ weekly newsletters.
 """
 
 import os
-import json
 import logging
 from datetime import datetime
 from dotenv import load_dotenv
@@ -110,10 +109,6 @@ def save_weekly_analysis(result, metric_id, district=None):
     md_filename = f"{file_metric_id}.md"
     md_path = os.path.join(output_path, md_filename)
     
-    # Also save as JSON for programmatic access
-    json_filename = f"{file_metric_id}.json"
-    json_path = os.path.join(output_path, json_filename)
-    
     # Check for other files with similar metric names and remove them
     # This helps avoid duplicate files when names change
     query_name = result.get('name', '')
@@ -126,8 +121,7 @@ def save_weekly_analysis(result, metric_id, district=None):
             file_path = os.path.join(output_path, filename)
             # Check if it might be a previously saved version with different naming
             if (cleaned_name in filename and 
-                filename != md_filename and 
-                filename != json_filename and
+                filename != md_filename and
                 not filename.startswith(".")):  # Skip hidden files
                 try:
                     os.remove(file_path)
@@ -136,7 +130,7 @@ def save_weekly_analysis(result, metric_id, district=None):
                     logger.warning(f"Could not remove old file {file_path}: {str(e)}")
     
     # Log the file path being used
-    logger.info(f"Saving weekly analysis to: {md_path} and {json_path}")
+    logger.info(f"Saving weekly analysis to: {md_path}")
     
     # Get the markdown and HTML content
     markdown_content = result.get('content', '')
@@ -161,36 +155,16 @@ def save_weekly_analysis(result, metric_id, district=None):
     except Exception as e:
         logger.error(f"Error writing markdown file to {md_path}: {str(e)}")
     
-    try:
-        # Write JSON file with both markdown and HTML content
-        json_data = {
-            'metric_id': file_metric_id,
-            'name': result.get('name', ''),
-            'content': markdown_content,
-            'html_contents': html_content,
-            'date_range': result.get('date_range', ''),
-            'generated_at': datetime.now().isoformat(),
-            'data_as_of': data_as_of,
-            'date_field': date_field_name
-        }
-        
-        with open(json_path, 'w') as f:
-            json.dump(json_data, f, indent=2)
-        logger.info(f"Successfully wrote JSON file to {json_path}")
-    except Exception as e:
-        logger.error(f"Error writing JSON file to {json_path}: {str(e)}")
-    
     # Get district description based on district value
     if district == 0 or district is None:
         district_info = " for Citywide"
     else:
         district_info = f" for District {district}"
         
-    logger.info(f"Saved weekly analysis for {file_metric_id}{district_info} to {md_path} and {json_path}")
+    logger.info(f"Saved weekly analysis for {file_metric_id}{district_info} to {md_path}")
     
     return {
-        'md_path': md_path,
-        'json_path': json_path
+        'md_path': md_path
     }
 
 def generate_weekly_newsletter(results):
@@ -217,7 +191,6 @@ def generate_weekly_newsletter(results):
         metric_id = result.get('metric_id', '')
         query_name = result.get('name', '')
         file_path = result.get('md_path', '')
-        json_path = result.get('json_path', '')
         
         logger.info(f"Adding result {i+1}/{len(results)} to newsletter: {metric_id} - {query_name}")
         
@@ -231,13 +204,6 @@ def generate_weekly_newsletter(results):
             logger.info(f"Added link to markdown analysis file: {md_relative_path}")
         else:
             logger.warning(f"No markdown file path for {metric_id} - {query_name}")
-            
-        if json_path:
-            json_relative_path = os.path.relpath(json_path, OUTPUT_DIR)
-            newsletter_content += f"[View JSON data]({json_relative_path})\n\n"
-            logger.info(f"Added link to JSON data file: {json_relative_path}")
-        else:
-            logger.warning(f"No JSON file path for {metric_id} - {query_name}")
         
         # Include a summary of key findings (this would need to be extracted from the analysis)
         newsletter_content += "Key findings:\n"

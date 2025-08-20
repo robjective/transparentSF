@@ -51,7 +51,7 @@
         }
 
         body.embedded-mode .map-container {
-            height: 100vh;
+            height: calc(100vh - 80px); /* Leave space for embedded subtitle and query link */
         }
 
         body.embedded-mode .toggle-nav-btn {
@@ -60,6 +60,45 @@
 
         body.embedded-mode .map-navigation {
             display: none;
+        }
+
+        /* Embedded subtitle and query link */
+        .embedded-subtitle {
+            display: none;
+            background-color: var(--bg-secondary);
+            border-bottom: 1px solid var(--border-primary);
+            padding: 10px 20px;
+            font-size: 0.9em;
+            color: var(--text-secondary);
+            font-style: italic;
+        }
+
+        .embedded-query-link {
+            display: none;
+            background-color: var(--bg-secondary);
+            border-top: 1px solid var(--border-primary);
+            padding: 8px 20px;
+            text-align: center;
+            font-size: 0.8em;
+        }
+
+        .embedded-query-link a {
+            color: var(--accent-color);
+            text-decoration: none;
+            transition: color 0.3s ease;
+        }
+
+        .embedded-query-link a:hover {
+            color: var(--accent-hover);
+            text-decoration: underline;
+        }
+
+        body.embedded-mode .embedded-subtitle {
+            display: block;
+        }
+
+        body.embedded-mode .embedded-query-link {
+            display: block;
         }
 
         .header {
@@ -458,6 +497,13 @@
         </div>
     </div>
 
+    <!-- Embedded Subtitle (hidden by default, shown in embedded mode) -->
+    <div class="embedded-subtitle" id="embedded-date-range-subtitle">
+        {% if metadata.period_type and metadata.time_periods %}
+            {{ metadata.period_type }} for {{ metadata.time_periods }}
+        {% endif %}
+    </div>
+
     <!-- Map Container -->
     <div class="map-container">
         <div id="map"></div>
@@ -513,6 +559,13 @@
             <p>Failed to load map</p>
             <p id="error-text" style="font-size: 0.9em;"></p>
         </div>
+    </div>
+
+    <!-- Embedded Query Link (hidden by default, shown in embedded mode) -->
+    <div class="embedded-query-link">
+        <a href="#" id="executed-query-link" target="_blank">
+            <i class="fas fa-chart-line"></i> View Chart Data
+        </a>
     </div>
 
     <!-- Map Navigation Toggle Button -->
@@ -612,6 +665,68 @@
             const dateRange = `${formatDate(startDate)} - ${formatDate(endDate)}`;
             const periodDescription = timePeriods === 'since_2024' ? 'Since 2024' : `Last ${timePeriods} ${periodType}${parseInt(timePeriods) > 1 ? 's' : ''}`;
             subtitleElement.textContent = `${periodDescription} (${dateRange})`;
+        }
+
+        // Function to update embedded subtitle with calculated date range
+        function updateEmbeddedSubtitle() {
+            const embeddedSubtitleElement = document.getElementById('embedded-date-range-subtitle');
+            if (!embeddedSubtitleElement) {
+                console.log('Embedded subtitle element not found');
+                return;
+            }
+            
+            if (!mapData.metadata) {
+                console.log('No metadata available for embedded subtitle calculation');
+                return;
+            }
+
+            const periodType = mapData.metadata.period_type;
+            const timePeriods = mapData.metadata.time_periods;
+            
+            if (!periodType || !timePeriods) {
+                console.log('Period type or time periods not available in metadata');
+                return;
+            }
+
+            // Calculate date range based on period_type and time_periods
+            const endDate = new Date();
+            endDate.setDate(endDate.getDate() - 1); // Yesterday as target date
+            
+            let startDate = new Date();
+            
+            if (periodType === 'month') {
+                if (timePeriods === 'since_2024') {
+                    startDate = new Date(2024, 0, 1); // January 1, 2024
+                } else {
+                    startDate.setMonth(startDate.getMonth() - parseInt(timePeriods));
+                }
+            } else if (periodType === 'week') {
+                if (timePeriods === 'since_2024') {
+                    startDate = new Date(2024, 0, 1);
+                } else {
+                    startDate.setDate(startDate.getDate() - (parseInt(timePeriods) * 7));
+                }
+            } else if (periodType === 'quarter') {
+                startDate.setMonth(startDate.getMonth() - (parseInt(timePeriods) * 3));
+            } else if (periodType === 'year') {
+                startDate.setFullYear(startDate.getFullYear() - parseInt(timePeriods));
+            } else {
+                // Default to last 2 months
+                startDate.setDate(startDate.getDate() - 60);
+            }
+
+            // Format dates
+            const formatDate = (date) => {
+                return date.toLocaleDateString('en-US', { 
+                    year: 'numeric', 
+                    month: 'short', 
+                    day: 'numeric' 
+                });
+            };
+
+            const dateRange = `${formatDate(startDate)} - ${formatDate(endDate)}`;
+            const periodDescription = timePeriods === 'since_2024' ? 'Since 2024' : `Last ${timePeriods} ${periodType}${parseInt(timePeriods) > 1 ? 's' : ''}`;
+            embeddedSubtitleElement.textContent = `${periodDescription} (${dateRange})`;
         }
 
         // Mapbox access token (you'll need to set this in your environment)
@@ -1175,6 +1290,7 @@
         // Initialize map when page loads
         document.addEventListener('DOMContentLoaded', function() {
             updateDateRangeSubtitle();
+            updateEmbeddedSubtitle();
             initMap();
             loadRecentMaps();
             initEmbeddedMode();
@@ -1272,6 +1388,29 @@
             if (isEmbedded) {
                 // Add embedded mode class to body
                 document.body.classList.add('embedded-mode');
+                
+                // Update embedded subtitle with calculated date range
+                updateEmbeddedSubtitle();
+                
+                // Set up the executed query link
+                const queryLinkElement = document.getElementById('executed-query-link');
+                if (queryLinkElement && mapData.metadata) {
+                    // Construct the query URL based on metadata
+                    const queryParams = new URLSearchParams();
+                    
+                    if (mapData.metadata.metric_id) {
+                        queryParams.append('metric_id', mapData.metadata.metric_id);
+                    }
+                    if (mapData.metadata.district) {
+                        queryParams.append('district', mapData.metadata.district);
+                    }
+                    if (mapData.metadata.period_type) {
+                        queryParams.append('period_type', mapData.metadata.period_type);
+                    }
+                    
+                    const queryUrl = `/api/chart-by-metric?${queryParams.toString()}`;
+                    queryLinkElement.href = queryUrl;
+                }
                 
                 // Add "Full View" link to the map overlay
                 const mapOverlay = document.querySelector('.map-overlay');

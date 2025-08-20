@@ -135,14 +135,14 @@ async def get_metric_weekly_analysis(metric_id: str, district: Optional[int] = N
             district_info = f"district {district}" if district is not None else "citywide"
             raise HTTPException(status_code=404, detail=f"Analysis directory not found for {district_info}")
         
-        # Look for the metric's JSON file
-        json_path = os.path.join(metric_dir, f"{metric_id}.json")
+        # Look for the metric's markdown file
+        md_path = os.path.join(metric_dir, f"{metric_id}.md")
         
-        if not os.path.exists(json_path):
+        if not os.path.exists(md_path):
             raise HTTPException(status_code=404, detail=f"No weekly analysis found for metric {metric_id}")
         
-        # Read the JSON file
-        with open(json_path, 'r') as f:
+        # Read the markdown file
+        with open(md_path, 'r') as f:
             analysis_data = f.read()
         
         return JSONResponse({

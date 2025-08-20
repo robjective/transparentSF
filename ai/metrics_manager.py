@@ -595,7 +595,7 @@ async def run_specific_metric_async(request: Request):
                 from tools.analysis.weekly import run_weekly_analysis
                 return run_weekly_analysis(
                     metrics_list=[str(metric_id)],
-                    process_districts=(district_id == 0)
+                    process_districts=True  # Always process districts for weekly analysis
                 )
             else:
                 from generate_metric_analysis import process_metric_analysis
@@ -1510,6 +1510,7 @@ async def backup_metrics_table_api():
             "--table=public.metrics",
             "--inserts",
             "--column-inserts",
+            "--no-owner",
             "-f", backup_file
         ]
         

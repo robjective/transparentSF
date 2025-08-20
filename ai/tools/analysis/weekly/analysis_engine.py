@@ -249,16 +249,18 @@ def process_weekly_analysis(metric_info, process_districts=False):
     # Log available columns in dataset
     logger.info(f"Available columns in dataset: {dataset.columns.tolist()}")
     
-    # Check if supervisor_district is actually in the dataset columns
+    # Check if supervisor_district is actually in the dataset columns AFTER the query is executed
     dataset_columns = [col.lower() for col in dataset.columns.tolist()]
     if 'supervisor_district' not in dataset_columns and district_field.lower() not in dataset_columns:
-        logger.warning(f"supervisor_district field not found in dataset columns. Removing it from category fields.")
+        logger.warning(f"supervisor_district field not found in dataset columns after query execution. Removing it from category fields.")
         # Remove supervisor_district from category fields
         category_fields = [field for field in category_fields if (isinstance(field, str) and field.lower() != 'supervisor_district') or 
                           (isinstance(field, dict) and field.get('fieldName', '').lower() != 'supervisor_district')]
         # Set process_districts to False since we don't have district information
         process_districts = False
         has_district = False
+    else:
+        logger.info(f"Found supervisor_district field in dataset columns: {[col for col in dataset.columns if 'supervisor_district' in col.lower()]}")
     
     # Create or update value field if needed
     if value_field not in dataset.columns:
@@ -379,20 +381,9 @@ def process_weekly_analysis(metric_info, process_districts=False):
             logger.error(f"Error standardizing {time_field} field format: {e}")
     
     # Set up filter conditions for date filtering (using the actual time field)
-    filter_conditions = [
-        {
-            'field': time_field,
-            'operator': '>=',
-            'value': comparison_period['start'].isoformat(),
-            'is_date': True
-        },
-        {
-            'field': time_field,
-            'operator': '<=', 
-            'value': recent_period['end'].isoformat(),
-            'is_date': True
-        }
-    ]
+    # Don't use filter conditions for weekly analysis - let genChart handle the filtering internally
+    # The data is already filtered by date in the weekly query transformation
+    filter_conditions = []
     
     # Generate main time series chart
     logger.info(f"Generating main time series chart for {query_name}")
@@ -432,7 +423,7 @@ def process_weekly_analysis(metric_info, process_districts=False):
             agg_functions=agg_functions,
             store_in_db=True,
             object_type='weekly_analysis',
-            object_id=metric_info.get('metric_id', metric_info.get('id', 'unknown')),
+            object_id=str(metric_info.get('metric_id', metric_info.get('id', 'unknown'))),
             object_name=query_name,
             skip_aggregation=False  # Let genChart handle the aggregation
         )
@@ -509,7 +500,7 @@ def process_weekly_analysis(metric_info, process_districts=False):
                 group_field=field_name,
                 store_in_db=True,
                 object_type='weekly_analysis',
-                object_id=metric_info.get('metric_id', metric_info.get('id', 'unknown')),
+                object_id=str(metric_info.get('metric_id', metric_info.get('id', 'unknown'))),
                 object_name=query_name,
                 skip_aggregation=False  # Let genChart handle the aggregation
             )
@@ -541,8 +532,9 @@ def process_weekly_analysis(metric_info, process_districts=False):
                 agg_function=list(agg_functions.values())[0],
                 y_axis_label=query_name,
                 title=f"{query_name} - {value_field} by {field_name}",
+                filter_conditions=[],  # No district filter for citywide analysis
                 object_type='weekly_analysis',
-                object_id=metric_info.get('metric_id', metric_info.get('id', 'unknown')),
+                object_id=str(metric_info.get('metric_id', metric_info.get('id', 'unknown'))),
                 object_name=query_name
             )
             
@@ -650,15 +642,16 @@ def process_weekly_analysis(metric_info, process_districts=False):
                     # Create a district-specific HTML content list
                     district_html_contents = []
                     
-                    # Create district-specific filter conditions that include the district
+                    # Create district-specific filter conditions WITH the district filter
+                    # so that store_time_series.py can properly identify the district
                     district_filter_conditions = filter_conditions.copy()
                     
-                    # Use the converted district number for filter condition
+                    # Add district filter condition so the database storage knows which district this is
+                    # Even though data is pre-filtered, we need this for proper district tracking in DB
                     district_filter_conditions.append({
-                        'field': district_col,
+                        'field': 'supervisor_district',
                         'operator': '=',
-                        'value': district_num,
-                        'is_date': False
+                        'value': district_num
                     })
                     
                     # Generate chart for this district
@@ -667,11 +660,11 @@ def process_weekly_analysis(metric_info, process_districts=False):
                         time_series_field=time_field,
                         numeric_fields=value_field,
                         aggregation_period='week',
-                        filter_conditions=district_filter_conditions,  # Use district-specific filter conditions
+                        filter_conditions=district_filter_conditions,  # Use filter conditions with district info for DB storage
                         agg_functions=agg_functions,
                         store_in_db=True,
                         object_type='weekly_analysis',
-                        object_id=metric_info.get('metric_id', metric_info.get('id', 'unknown')),
+                        object_id=str(metric_info.get('metric_id', metric_info.get('id', 'unknown'))),
                         object_name=query_name,
                         skip_aggregation=False  # Let genChart handle the aggregation
                     )
@@ -713,12 +706,12 @@ def process_weekly_analysis(metric_info, process_districts=False):
                                     time_series_field=time_field,
                                     numeric_fields=value_field,
                                     aggregation_period='week',
-                                    filter_conditions=district_filter_conditions,  # Use district-specific filter conditions
+                                    filter_conditions=district_filter_conditions,  # Use district-specific filter conditions with district info
                                     agg_functions=agg_functions,
                                     group_field=field_name,
                                     store_in_db=True,
                                     object_type='weekly_analysis',
-                                    object_id=metric_info.get('metric_id', metric_info.get('id', 'unknown')),
+                                    object_id=str(metric_info.get('metric_id', metric_info.get('id', 'unknown'))),
                                     object_name=query_name,
                                     skip_aggregation=False  # Let genChart handle the aggregation
                                 )
@@ -750,8 +743,13 @@ def process_weekly_analysis(metric_info, process_districts=False):
                                     agg_function=list(agg_functions.values())[0],
                                     y_axis_label=query_name,
                                     title=f"{query_name} - District {district_num} - {value_field} by {field_name}",
+                                    filter_conditions=[{
+                                        'field': 'supervisor_district',
+                                        'operator': '=',
+                                        'value': district_num
+                                    }],  # Pass district info for proper DB storage
                                     object_type='weekly_analysis',
-                                    object_id=metric_info.get('metric_id', metric_info.get('id', 'unknown')),
+                                    object_id=str(metric_info.get('metric_id', metric_info.get('id', 'unknown'))),
                                     object_name=query_name
                                 )
                                 
@@ -811,8 +809,13 @@ def process_weekly_analysis(metric_info, process_districts=False):
                                 agg_function=list(agg_functions.values())[0],
                                 y_axis_label=query_name,
                                 title=f"{query_name} - District {district_num}",
+                                filter_conditions=[{
+                                    'field': 'supervisor_district',
+                                    'operator': '=',
+                                    'value': district_num
+                                }],  # Pass district info for proper DB storage
                                 object_type='weekly_analysis',
-                                object_id=metric_info.get('metric_id', metric_info.get('id', 'unknown')),
+                                object_id=str(metric_info.get('metric_id', metric_info.get('id', 'unknown'))),
                                 object_name=query_name
                             )
                             
@@ -936,6 +939,24 @@ def run_weekly_analysis(metrics_list=None, process_districts=False):
     logger.info(f"========== STARTING WEEKLY ANALYSIS: {start_time.strftime('%Y-%m-%d %H:%M:%S')} ==========")
     logger.info(f"Process districts: {process_districts}")
     
+    # If no metrics_list provided, get all active metrics from database
+    if not metrics_list:
+        logger.info("No metrics specified, fetching all active metrics from database")
+        try:
+            from tools.metrics_manager import get_all_metrics
+            metrics_result = get_all_metrics(active_only=True)
+            
+            if metrics_result["status"] == "success" and metrics_result["metrics"]:
+                metrics_list = [str(metric["id"]) for metric in metrics_result["metrics"]]
+                logger.info(f"Found {len(metrics_list)} active metrics to analyze: {', '.join(metrics_list)}")
+            else:
+                logger.error("Failed to fetch metrics from database or no active metrics found")
+                return []
+        except Exception as e:
+            logger.error(f"Error fetching metrics from database: {str(e)}")
+            logger.error(traceback.format_exc())
+            return []
+    
     if metrics_list:
         logger.info(f"Analyzing {len(metrics_list)} specified metrics: {', '.join(str(m) for m in metrics_list)}")
     else:
@@ -998,11 +1019,11 @@ def run_weekly_analysis(metrics_list=None, process_districts=False):
                 
                 # Save the analysis results to files
                 from .report_generator import save_weekly_analysis
+                # For citywide analysis, use district=0. District-specific analyses are saved separately in the district loop
                 saved_paths = save_weekly_analysis(result, numeric_metric_id, district=0)
                 # Add file paths to the result object
                 if saved_paths:
                     result['md_path'] = saved_paths.get('md_path')
-                    result['json_path'] = saved_paths.get('json_path')
                 
                 all_results.append(result)
                 successful_metrics.append(metric_id)

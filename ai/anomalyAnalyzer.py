@@ -1137,7 +1137,8 @@ async def get_top_metric_changes(
         
         # For weekly data, calculate the report date based on available data
         if period_type == 'week' and report_date is None:
-            # Get the latest available week from the database
+            # Get the latest available week from the database, but use a more conservative approach
+            # to account for the fact that not all charts may have the most recent data
             cursor.execute("""
                 SELECT MAX(tsd.time_period) as latest_week
                 FROM time_series_data tsd
@@ -1147,9 +1148,11 @@ async def get_top_metric_changes(
             """)
             latest_week_result = cursor.fetchone()
             if latest_week_result and latest_week_result['latest_week']:
-                # Use the latest available week as the report date
-                report_date = latest_week_result['latest_week']
-                logger.info(f"Using latest available week as report date: {report_date}")
+                # Use a date that's one week earlier than the absolute latest to account for 
+                # charts that may not have the most recent data
+                latest_available = latest_week_result['latest_week']
+                report_date = latest_available - timedelta(days=7)
+                logger.info(f"Latest available week: {latest_available}, using conservative report date: {report_date}")
             else:
                 # Fallback to calculating previous week
                 days_since_monday = today.weekday()
@@ -1160,9 +1163,6 @@ async def get_top_metric_changes(
                 logger.info(f"Fallback report date calculated as: {report_date}")
         else:
             logger.info(f"Report date calculated as: {report_date}")
-        
-        # Create cursor with dictionary-like results
-        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         
         # Build query conditions based on provided parameters
         where_conditions = []

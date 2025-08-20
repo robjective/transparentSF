@@ -607,9 +607,9 @@
                 </div>
                 
                 <div class="control-group">
-                    <label for="anomaly-select">Anomaly Type</label>
+                    <label for="anomaly-select">Filter Type</label>
                     <select id="anomaly-select" disabled>
-                        <option value="">Select anomaly type...</option>
+                        <option value="">Select filter type...</option>
                     </select>
 
                 </div>
@@ -887,10 +887,10 @@
             metricSelect.addEventListener('change', function() {
                 const selectedMetric = this.value;
                 if (selectedMetric) {
-                    loadAnomalies(selectedMetric);
+                    loadAnomalies(selectedMetric, false); // Don't preserve selection when metric changes
                     anomalySelect.disabled = false;
                 } else {
-                    anomalySelect.innerHTML = '<option value="">Select anomaly type...</option>';
+                    anomalySelect.innerHTML = '<option value="">Select filter type...</option>';
                     anomalySelect.disabled = true;
                 }
                 updateGenerateButton();
@@ -900,10 +900,22 @@
             anomalySelect.addEventListener('change', updateGenerateButton);
 
             // District selection
-            districtSelect.addEventListener('change', updateGenerateButton);
+            districtSelect.addEventListener('change', function() {
+                // Reload anomalies if a metric is selected, preserving current selection
+                if (metricSelect.value) {
+                    loadAnomalies(metricSelect.value, true);
+                }
+                updateGenerateButton();
+                updatePreviewDateRangeSubtitle();
+                updateLivePreview();
+            });
 
             // Period selection
             periodSelect.addEventListener('change', function() {
+                // Reload anomalies if a metric is selected, preserving current selection
+                if (metricSelect.value) {
+                    loadAnomalies(metricSelect.value, true);
+                }
                 updateGenerateButton();
                 updatePreviewDateRangeSubtitle();
                 updateLivePreview();
@@ -911,6 +923,10 @@
             
             // Time periods selection
             timePeriodsSelect.addEventListener('change', function() {
+                // Reload anomalies if a metric is selected, preserving current selection
+                if (metricSelect.value) {
+                    loadAnomalies(metricSelect.value, true);
+                }
                 updateGenerateButton();
                 updatePreviewDateRangeSubtitle();
                 updateLivePreview();
@@ -937,24 +953,24 @@
             metricSelect.addEventListener('change', function() {
                 const selectedMetric = this.value;
                 if (selectedMetric) {
-                    loadAnomalies(selectedMetric);
+                    loadAnomalies(selectedMetric, false); // Don't preserve selection when metric changes
                     anomalySelect.disabled = false;
                     
                     // Set default color field from metric configuration
                     const metric = metrics.find(m => m.id == selectedMetric);
                     if (metric) {
-                        // Try to get the date field from map_config first
+                        // Try to get the color field from map_config first
                         if (metric.map_config) {
                             try {
                                 const mapConfig = typeof metric.map_config === 'string' ? 
                                     JSON.parse(metric.map_config) : metric.map_config;
                                 
-                                if (mapConfig.date_field) {
-                                    currentColorField = mapConfig.date_field;
-                                    console.log('Setting default color field from map_config.date_field:', currentColorField);
-                                } else if (mapConfig.color_field) {
+                                if (mapConfig.color_field) {
                                     currentColorField = mapConfig.color_field;
                                     console.log('Setting default color field from map_config.color_field:', currentColorField);
+                                } else if (mapConfig.date_field) {
+                                    currentColorField = mapConfig.date_field;
+                                    console.log('Setting default color field from map_config.date_field:', currentColorField);
                                 }
                             } catch (e) {
                                 console.warn('Error parsing map_config for metric:', e);
@@ -977,7 +993,7 @@
                         }
                     }
                 } else {
-                    anomalySelect.innerHTML = '<option value="">Select anomaly type...</option>';
+                    anomalySelect.innerHTML = '<option value="">Select filter type...</option>';
                     anomalySelect.disabled = true;
                 }
                 updateGenerateButton();
@@ -992,12 +1008,20 @@
             });
             
             districtSelect.addEventListener('change', function() {
+                // Reload anomalies if a metric is selected, preserving current selection
+                if (metricSelect.value) {
+                    loadAnomalies(metricSelect.value, true);
+                }
                 updateGenerateButton();
                 updatePreviewDateRangeSubtitle();
                 updateLivePreview();
             });
             
             periodSelect.addEventListener('change', function() {
+                // Reload anomalies if a metric is selected, preserving current selection
+                if (metricSelect.value) {
+                    loadAnomalies(metricSelect.value, true);
+                }
                 updateTimePeriodsOptions();
                 updateGenerateButton();
                 updatePreviewDateRangeSubtitle();
@@ -1091,12 +1115,37 @@
             });
         }
 
-        function loadAnomalies(metricId) {
-            fetch(`/api/anomalies/${metricId}`)
+        function loadAnomalies(metricId, preserveSelection = false) {
+            // Store current selection if we're preserving it
+            let currentSelection = null;
+            if (preserveSelection && anomalySelect.value) {
+                currentSelection = anomalySelect.value;
+            }
+            
+            // Get current filter values
+            const district = districtSelect.value;
+            const periodType = periodSelect.value;
+            const timePeriods = timePeriodsSelect.value;
+            
+            // Build query parameters
+            const params = new URLSearchParams();
+            if (district && district !== '0') {
+                params.append('district', district);
+            }
+            if (periodType) {
+                params.append('period_type', periodType);
+            }
+            if (timePeriods) {
+                params.append('time_periods', timePeriods);
+            }
+            
+            const url = `/api/anomalies/${metricId}${params.toString() ? '?' + params.toString() : ''}`;
+            
+            fetch(url)
                 .then(response => response.json())
                 .then(data => {
                     if (data.status === 'success') {
-                        populateAnomalySelect(data.anomalies);
+                        populateAnomalySelect(data.anomalies, currentSelection);
                     } else {
                         showAlert('Failed to load anomalies: ' + data.message, 'error');
                     }
@@ -1107,7 +1156,7 @@
                 });
         }
 
-        function populateAnomalySelect(anomalies) {
+        function populateAnomalySelect(anomalies, preserveSelection = null) {
             anomalySelect.innerHTML = '<option value="">All Anomalies</option>';
             
             if (anomalies && anomalies.length > 0) {
@@ -1132,9 +1181,26 @@
                     anomalySelect.appendChild(option);
                 });
                 
+                // Restore previous selection if provided and still available
+                if (preserveSelection) {
+                    const optionExists = Array.from(anomalySelect.options).some(option => option.value === preserveSelection);
+                    if (optionExists) {
+                        anomalySelect.value = preserveSelection;
+                    }
+                }
+                
                 // Update the label to show count
                 const totalCount = anomalies.length;
-                document.querySelector('label[for="anomaly-select"]').textContent = `Anomaly Type (${totalCount} total)`;
+                document.querySelector('label[for="anomaly-select"]').textContent = `Filter Type (${totalCount} total)`;
+            } else {
+                // Show message when no anomalies found for current filters
+                const option = document.createElement('option');
+                option.value = "";
+                option.textContent = "No anomalies found for current filters";
+                option.disabled = true;
+                anomalySelect.appendChild(option);
+                
+                document.querySelector('label[for="anomaly-select"]').textContent = `Filter Type (0 total)`;
             }
         }
 
@@ -1212,6 +1278,11 @@
                 timePeriodsSelect.value = currentValue;
             } else {
                 timePeriodsSelect.value = '2';
+            }
+            
+            // Reload anomalies if a metric is selected (since time periods changed), preserving current selection
+            if (metricSelect.value) {
+                loadAnomalies(metricSelect.value, true);
             }
         }
         

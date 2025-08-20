@@ -157,13 +157,13 @@ def get_available_models() -> Dict[str, ModelConfig]:
 
 def get_default_model() -> str:
     """Get the default model from environment or fallback."""
-    return os.getenv("AGENT_MODEL", "gpt-5")
+    return os.getenv("AGENT_MODEL", "claude-3-7-sonnet")
 
 def create_langchain_llm(model_key: Optional[str] = None, max_tokens: Optional[int] = None):
     """Create a LangChain LLM instance for the specified model.
     
     Args:
-        model_key: Model identifier (defaults to AGENT_MODEL env var or gpt-5)
+        model_key: Model identifier (defaults to AGENT_MODEL env var or claude-3-7-sonnet)
         max_tokens: Override the default max_tokens for this model instance
     """
     if model_key is None:
@@ -216,7 +216,7 @@ def create_langchain_llm_with_fallback(model_key: Optional[str] = None, max_toke
     """Create a LangChain LLM with automatic fallback on errors.
     
     Args:
-        model_key: Model identifier (defaults to AGENT_MODEL env var or gpt-5)
+        model_key: Model identifier (defaults to AGENT_MODEL env var or claude-3-7-sonnet)
         max_tokens: Override the default max_tokens for this model instance
         
     Returns:

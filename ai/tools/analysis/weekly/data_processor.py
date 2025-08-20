@@ -303,10 +303,11 @@ def transform_query_for_weekly(original_query, date_field, category_fields, rece
     
     # Apply replacements - ensure we're not creating malformed field names
     for placeholder, value in replacements.items():
-        # Make sure we're only replacing standalone instances of the placeholder
-        modified_query = re.sub(r'([=<>:\s]|^)' + re.escape(placeholder) + r'([=<>:\s]|$)', 
-                                r'\1' + value + r'\2', 
-                                modified_query)
+        # Use a more flexible replacement pattern that handles various contexts
+        # Replace the placeholder when it's surrounded by spaces, operators, or at the start/end
+        pattern = r'(?<![a-zA-Z0-9_])' + re.escape(placeholder) + r'(?![a-zA-Z0-9_])'
+        modified_query = re.sub(pattern, value, modified_query)
+        logger.info(f"Replaced {placeholder} with {value}")
     
     # Determine if it's a YTD query by checking format
     is_ytd_query = ('as date, COUNT(*)' in modified_query or 
