@@ -328,6 +328,7 @@ async def generate_map_endpoint(request: Request):
                     "period_type": period_type,
                     "time_periods": time_periods,
                     "anomaly_type": anomaly_type,
+                    "anomaly_field_name": anomaly_field_name,
                     "color_field": color_field,
                     "scale_dots": scale_dots
                 },
@@ -411,7 +412,8 @@ async def generate_map_endpoint(request: Request):
                     "metric_id": metric_id,
                     "district": district,
                     "period_type": period_type,
-                    "anomaly_type": anomaly_type
+                    "anomaly_type": anomaly_type,
+                    "anomaly_field_name": anomaly_field_name
                 },
                 metric_id=metric_id,
                 map_provider="mapbox"

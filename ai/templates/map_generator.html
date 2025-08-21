@@ -780,6 +780,7 @@
 
             const periodType = periodSelect.value;
             const timePeriods = timePeriodsSelect.value;
+            const selectedAnomaly = anomalySelect.value;
             
             if (!periodType || !timePeriods) {
                 subtitleElement.style.display = 'none';
@@ -824,7 +825,39 @@
 
             const dateRange = `${formatDate(startDate)} - ${formatDate(endDate)}`;
             const periodDescription = timePeriods === 'since_2024' ? 'Since 2024' : `Last ${timePeriods} ${periodType}${parseInt(timePeriods) > 1 ? 's' : ''}`;
-            const subtitleText = `${periodDescription} (${dateRange})`;
+            
+            // Build subtitle text
+            let subtitleText = `${periodDescription} (${dateRange})`;
+            
+            // Add filter information if an anomaly is selected
+            if (selectedAnomaly && selectedAnomaly !== '') {
+                const selectedOption = anomalySelect.querySelector(`option[value="${selectedAnomaly}"]`);
+                if (selectedOption) {
+                    const fieldName = selectedOption.getAttribute('data-field-name');
+                    const isOutOfBounds = selectedOption.getAttribute('data-out-of-bounds') === 'true';
+                    const difference = parseFloat(selectedOption.getAttribute('data-difference') || 0);
+                    
+                    // Create filter description
+                    let filterDescription = `Filtered by ${fieldName}: ${selectedAnomaly}`;
+                    
+                    // Add anomaly status indicator
+                    if (isOutOfBounds) {
+                        filterDescription += ' 🚨 OUT OF BOUNDS';
+                    } else {
+                        filterDescription += ' ✅ In Bounds';
+                    }
+                    
+                    // Add difference if available
+                    if (difference !== 0) {
+                        const sign = difference > 0 ? '+' : '';
+                        filterDescription += ` (${sign}${difference.toFixed(1)})`;
+                    }
+                    
+                    // Combine date range and filter info
+                    subtitleText = `${periodDescription} (${dateRange}) • ${filterDescription}`;
+                }
+            }
+            
             subtitleElement.textContent = subtitleText;
             subtitleElement.style.display = 'block';
             console.log('Updated preview subtitle:', subtitleText);
@@ -897,7 +930,10 @@
             });
 
             // Anomaly selection
-            anomalySelect.addEventListener('change', updateGenerateButton);
+            anomalySelect.addEventListener('change', function() {
+                updateGenerateButton();
+                updatePreviewDateRangeSubtitle();
+            });
 
             // District selection
             districtSelect.addEventListener('change', function() {
@@ -1192,6 +1228,11 @@
                 // Update the label to show count
                 const totalCount = anomalies.length;
                 document.querySelector('label[for="anomaly-select"]').textContent = `Filter Type (${totalCount} total)`;
+                
+                // Update subtitle if a selection was restored
+                if (preserveSelection) {
+                    updatePreviewDateRangeSubtitle();
+                }
             } else {
                 // Show message when no anomalies found for current filters
                 const option = document.createElement('option');
@@ -1201,6 +1242,9 @@
                 anomalySelect.appendChild(option);
                 
                 document.querySelector('label[for="anomaly-select"]').textContent = `Filter Type (0 total)`;
+                
+                // Update subtitle to clear filter info
+                updatePreviewDateRangeSubtitle();
             }
         }
 

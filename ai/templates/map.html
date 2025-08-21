@@ -356,6 +356,30 @@
             padding-bottom: 5px;
         }
 
+        .overlay-title.clickable {
+            cursor: pointer;
+            user-select: none;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .overlay-title.clickable:hover {
+            background-color: var(--bg-secondary);
+            border-radius: 4px;
+            padding: 5px;
+            margin: -5px;
+        }
+
+        .toggle-icon {
+            font-size: 0.8em;
+            transition: transform 0.3s ease;
+        }
+
+        .toggle-icon.rotated {
+            transform: rotate(180deg);
+        }
+
         .map-info {
             margin-bottom: 15px;
         }
@@ -476,9 +500,6 @@
     <div class="header">
         <div class="header-content">
             <div class="header-left">
-                <a href="/map-generator" class="back-btn">
-                    <i class="fas fa-arrow-left"></i> Back to Generator
-                </a>
                 <div class="header-title-section">
                     <h1 class="map-title">{{ map_data.title or "Untitled Map" }}</h1>
                     {% if metadata.period_type and metadata.time_periods %}
@@ -487,9 +508,6 @@
                 </div>
             </div>
             <div class="header-right">
-                <a href="/map-generator" class="header-btn">
-                    <i class="fas fa-plus"></i> New Map
-                </a>
                 <button class="header-btn" onclick="shareMap()">
                     <i class="fas fa-share"></i> Share
                 </button>
@@ -510,11 +528,12 @@
         
         <!-- Map Overlay -->
         <div class="map-overlay">
-            <div class="overlay-title">
+            <div class="overlay-title clickable" onclick="toggleMapInfo()">
                 <i class="fas fa-info-circle"></i> Map Information
+                <i class="fas fa-chevron-down toggle-icon" id="map-info-toggle-icon"></i>
             </div>
             
-            <div class="map-info">
+            <div class="map-info" id="map-info-content" style="display: none;">
                 <div class="info-item">
                     <span class="info-label">Metric:</span>
                     <span class="info-value">{{ metadata.metric_id or "Unknown" }}</span>
@@ -534,6 +553,10 @@
                 </div>
                 {% endif %}
                 <div class="info-item">
+                    <span class="info-label">Points:</span>
+                    <span class="info-value" id="point-count-display">Loading...</span>
+                </div>
+                <div class="info-item">
                     <span class="info-label">Created:</span>
                     <span class="info-value">{{ map_data.created_at.strftime('%Y-%m-%d') if map_data.created_at else "Unknown" }}</span>
                 </div>
@@ -541,7 +564,7 @@
             
             <div class="legend">
                 <div class="overlay-title">
-                    <i class="fas fa-palette"></i> Legend
+                    <i class="fas fa-palette"></i> <span id="legend-title">Legend</span>
                 </div>
                 <div id="legend-items"></div>
             </div>
@@ -664,7 +687,27 @@
 
             const dateRange = `${formatDate(startDate)} - ${formatDate(endDate)}`;
             const periodDescription = timePeriods === 'since_2024' ? 'Since 2024' : `Last ${timePeriods} ${periodType}${parseInt(timePeriods) > 1 ? 's' : ''}`;
-            subtitleElement.textContent = `${periodDescription} (${dateRange})`;
+            
+            // Get point count
+            const pointCount = mapData.locationData ? mapData.locationData.length : 0;
+            const pointCountText = pointCount === 1 ? '1 point' : `${pointCount} points`;
+            
+            // Build subtitle text
+            let subtitleText = `${periodDescription} (${dateRange}) • ${pointCountText}`;
+            
+            // Add filter information if an anomaly is selected
+            const anomalyType = mapData.metadata.anomaly_type;
+            const anomalyFieldName = mapData.metadata.anomaly_field_name;
+            
+            if (anomalyType && anomalyType !== '') {
+                // Create filter description
+                let filterDescription = `Filtered by ${anomalyFieldName || 'category'}: ${anomalyType}`;
+                
+                // Combine date range, point count, and filter info
+                subtitleText = `${periodDescription} (${dateRange}) • ${pointCountText} • ${filterDescription}`;
+            }
+            
+            subtitleElement.textContent = subtitleText;
         }
 
         // Function to update embedded subtitle with calculated date range
@@ -726,7 +769,27 @@
 
             const dateRange = `${formatDate(startDate)} - ${formatDate(endDate)}`;
             const periodDescription = timePeriods === 'since_2024' ? 'Since 2024' : `Last ${timePeriods} ${periodType}${parseInt(timePeriods) > 1 ? 's' : ''}`;
-            embeddedSubtitleElement.textContent = `${periodDescription} (${dateRange})`;
+            
+            // Get point count
+            const pointCount = mapData.locationData ? mapData.locationData.length : 0;
+            const pointCountText = pointCount === 1 ? '1 point' : `${pointCount} points`;
+            
+            // Build subtitle text
+            let subtitleText = `${periodDescription} (${dateRange}) • ${pointCountText}`;
+            
+            // Add filter information if an anomaly is selected
+            const anomalyType = mapData.metadata.anomaly_type;
+            const anomalyFieldName = mapData.metadata.anomaly_field_name;
+            
+            if (anomalyType && anomalyType !== '') {
+                // Create filter description
+                let filterDescription = `Filtered by ${anomalyFieldName || 'category'}: ${anomalyType}`;
+                
+                // Combine date range, point count, and filter info
+                subtitleText = `${periodDescription} (${dateRange}) • ${pointCountText} • ${filterDescription}`;
+            }
+            
+            embeddedSubtitleElement.textContent = subtitleText;
         }
 
         // Mapbox access token (you'll need to set this in your environment)
@@ -1183,6 +1246,9 @@
                 return;
             }
 
+            // Update legend title based on color field
+            updateLegendTitle();
+
             const dateMode = isDateField(colorField);
             const keyToColor = new Map();
 
@@ -1294,6 +1360,20 @@
             initMap();
             loadRecentMaps();
             initEmbeddedMode();
+            
+            // Initialize map info as collapsed
+            const mapInfoContent = document.getElementById('map-info-content');
+            const toggleIcon = document.getElementById('map-info-toggle-icon');
+            if (mapInfoContent && toggleIcon) {
+                mapInfoContent.style.display = 'none';
+                toggleIcon.classList.remove('rotated');
+            }
+            
+            // Update legend title
+            updateLegendTitle();
+            
+            // Update point count display
+            updatePointCountDisplay();
             
             // Listen for theme changes to update map style
             window.addEventListener('themeChanged', function(e) {
@@ -1448,6 +1528,48 @@
                 }
             }
         }
+
+        // Toggle map info panel
+        function toggleMapInfo() {
+            const mapInfoContent = document.getElementById('map-info-content');
+            const toggleIcon = document.getElementById('map-info-toggle-icon');
+            
+            if (mapInfoContent.style.display === 'none') {
+                mapInfoContent.style.display = 'block';
+                toggleIcon.classList.add('rotated');
+            } else {
+                mapInfoContent.style.display = 'none';
+                toggleIcon.classList.remove('rotated');
+            }
+        }
+
+        // Update legend title based on color field
+        function updateLegendTitle() {
+            const legendTitle = document.getElementById('legend-title');
+            const colorField = mapData.metadata && mapData.metadata.color_field;
+            
+            if (legendTitle && colorField) {
+                // Convert field name to a more readable format
+                const readableFieldName = colorField
+                    .replace(/_/g, ' ')
+                    .replace(/\b\w/g, l => l.toUpperCase())
+                    .trim();
+                
+                legendTitle.textContent = readableFieldName;
+            }
+        }
+
+        // Update point count display
+        function updatePointCountDisplay() {
+            const pointCountDisplay = document.getElementById('point-count-display');
+            if (pointCountDisplay) {
+                const pointCount = mapData.locationData ? mapData.locationData.length : 0;
+                const pointCountText = pointCount === 1 ? '1 point' : `${pointCount} points`;
+                pointCountDisplay.textContent = pointCountText;
+            }
+        }
+
+
 
 
     </script>

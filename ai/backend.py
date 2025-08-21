@@ -5961,7 +5961,9 @@ async def get_map_chart(request: Request, id: str):
                 "metric_id": map_record.get('metadata', {}).get('metric_id', 'Unknown'),
                 "district": map_record.get('metadata', {}).get('district', 'All'),
                 "period_type": map_record.get('metadata', {}).get('period_type', 'Unknown'),
+                "time_periods": map_record.get('metadata', {}).get('time_periods'),
                 "anomaly_type": map_record.get('metadata', {}).get('anomaly_type'),
+                "anomaly_field_name": map_record.get('metadata', {}).get('anomaly_field_name'),
             }
             
             return templates.TemplateResponse("map.html", {
@@ -5998,7 +6000,9 @@ async def get_map_chart(request: Request, id: str):
                 "metric_id": map_record.get('metadata', {}).get('metric_id', 'Unknown'),
                 "district": map_record.get('metadata', {}).get('district', 'All'),
                 "period_type": map_record.get('metadata', {}).get('period_type', 'Unknown'),
+                "time_periods": map_record.get('metadata', {}).get('time_periods'),
                 "anomaly_type": map_record.get('metadata', {}).get('anomaly_type'),
+                "anomaly_field_name": map_record.get('metadata', {}).get('anomaly_field_name'),
             }
             
             return templates.TemplateResponse("map.html", {

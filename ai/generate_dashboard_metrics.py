@@ -1465,8 +1465,13 @@ def process_ytd_trend_query(query, endpoint, date_ranges=None, target_date=None,
     
     return None
 
-def process_ytd_trend_query_optimized(query, endpoint, date_ranges=None, target_date=None, query_name=None):
-    """Process a YTD trend query to get historical daily counts for all districts in one query."""
+def process_ytd_trend_query_optimized(query, endpoint, date_ranges=None, target_date=None, query_name=None, category_fields=None):
+    """Process a YTD trend query to get historical daily counts for all districts in one query.
+    
+    Args:
+        category_fields: List of category fields - if supervisor_district is present, 
+                        adds supervisor_district to SELECT and GROUP BY clauses.
+    """
     try:
         logger.info(f"Processing optimized YTD trend query for {query_name}")
         
@@ -1519,6 +1524,48 @@ def process_ytd_trend_query_optimized(query, endpoint, date_ranges=None, target_
                 logger.info(f"Replaced hardcoded last year date {latest_last_year_date} with {date_ranges['last_year_end']}")
             else:
                 logger.info(f"No non-January 1st last year dates to replace. Keeping {jan_first} as the start date.")
+        
+        # Check if supervisor_district should be added to the query based on category_fields
+        should_include_district = False
+        if category_fields:
+            for field in category_fields:
+                if isinstance(field, dict) and field.get('fieldName') == 'supervisor_district':
+                    should_include_district = True
+                    break
+                elif field == 'supervisor_district':
+                    should_include_district = True
+                    break
+        
+        # If supervisor_district should be included, modify the query
+        if should_include_district:
+            # Add supervisor_district to SELECT and GROUP BY if not already present
+            if 'supervisor_district' not in modified_query:
+                # Add supervisor_district to SELECT clause (after date)
+                if 'SELECT' in modified_query.upper():
+                    # Find the position after the date field
+                    select_pattern = r'(SELECT[^,]+date[^,]*)(.*?)(?=WHERE|ORDER|GROUP|$)'
+                    match = re.search(select_pattern, modified_query, re.IGNORECASE | re.DOTALL)
+                    if match:
+                        select_part = match.group(1)
+                        rest_part = match.group(2)
+                        # Add supervisor_district to SELECT
+                        modified_query = modified_query.replace(match.group(0), 
+                                                               f"{select_part}, supervisor_district{rest_part}")
+                        logger.info(f"Added supervisor_district to SELECT clause")
+                
+                # Add supervisor_district to GROUP BY clause
+                if 'GROUP BY' in modified_query.upper():
+                    # Add supervisor_district to existing GROUP BY
+                    modified_query = re.sub(r'(GROUP BY\s+[^\s]+)', r'\1, supervisor_district', modified_query, flags=re.IGNORECASE)
+                    logger.info(f"Added supervisor_district to existing GROUP BY clause")
+                elif 'ORDER BY' in modified_query.upper():
+                    # Insert GROUP BY before ORDER BY
+                    modified_query = re.sub(r'(\s+ORDER BY)', r' GROUP BY date, supervisor_district\1', modified_query, flags=re.IGNORECASE)
+                    logger.info(f"Added GROUP BY date, supervisor_district clause before ORDER BY")
+                else:
+                    # Add GROUP BY at the end
+                    modified_query += ' GROUP BY date, supervisor_district'
+                    logger.info(f"Added GROUP BY date, supervisor_district at end")
         
         logger.info(f"Modified optimized trend query: {modified_query}")
         
@@ -1751,7 +1798,9 @@ def generate_ytd_metrics(queries_data, output_dir, target_date=None):
                     
                     # First, process YTD trend query to get the actual last data date
                     if ytd_query:
-                        trend_data = process_ytd_trend_query_optimized(ytd_query, query_endpoint, date_ranges=date_ranges, query_name=query_name)
+                        # Extract category_fields to determine if supervisor_district should be included
+                        category_fields = query_data.get("category_fields", []) if isinstance(query_data, dict) else []
+                        trend_data = process_ytd_trend_query_optimized(ytd_query, query_endpoint, date_ranges=date_ranges, query_name=query_name, category_fields=category_fields)
                         if trend_data and 'last_updated' in trend_data:
                             max_date = trend_data['last_updated']
                             logger.info(f"Found max date from YTD trend query: {max_date}")
