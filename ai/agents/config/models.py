@@ -134,7 +134,7 @@ MODEL_CONFIGS = {
         "max_output_tokens": 8192
     }),
     # Grok Models (X-AI) - with Live Search capabilities
-    "grok-beta": ModelConfig(ModelProvider.GROK, "grok-beta", {
+    "grok-4": ModelConfig(ModelProvider.GROK, "grok-4", {
         "max_tokens": 8192,
         "temperature": 0.1
     }, api_key_env_var="XAI_API_KEY"),
@@ -199,7 +199,7 @@ def get_fallback_models(preferred_model: str) -> List[str]:
     fallback_order = [
         "gpt-4o",           # OpenAI GPT-4o (reliable)
         "gpt-5",            # OpenAI GPT-5 (reliable)
-        "grok-beta",        # Grok beta (reliable, with tool calling)
+        "grok-4",           # Grok 4 (reliable, with tool calling)
         "claude-3-5-sonnet", # Anthropic (if not rate limited)
         "grok-3-latest",    # Grok latest (with Live Search)
     ]

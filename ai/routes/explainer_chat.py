@@ -17,6 +17,9 @@ from agents.explainer_agent import create_explainer_agent
 from agents.langchain_agent.explainer_agent import create_explainer_agent as create_langchain_explainer_agent
 from agents.langchain_agent.config.tool_config import ToolGroup
 
+# Import the necessary function for available models
+from agents.config.models import get_available_models, get_default_model
+
 # Initialize router and logger
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -33,6 +36,36 @@ def set_templates(t):
 # Session store for explainer agents
 # This stores ExplainerAgent instances by session_id to maintain conversation history
 explainer_sessions: Dict[str, Any] = {}
+
+@router.get("/available-models")
+async def get_available_models_endpoint():
+    """Get available models for frontend dropdowns."""
+    try:
+        available_models = get_available_models()
+        model_list = []
+        
+        for model_key, model_config in available_models.items():
+            model_list.append({
+                "key": model_key,
+                "name": model_config.full_name,
+                "provider": model_config.provider.value,
+                "available": model_config.is_available()
+            })
+        
+        # Sort by provider and then by name
+        model_list.sort(key=lambda x: (x["provider"], x["name"]))
+        
+        return JSONResponse({
+            "status": "success",
+            "models": model_list,
+            "default_model": get_default_model()
+        })
+    except Exception as e:
+        logger.error(f"Error getting available models: {e}")
+        return JSONResponse({
+            "status": "error",
+            "message": f"Error getting available models: {str(e)}"
+        }, status_code=500)
 
 @router.post("/api/clear-explainer-sessions")
 async def clear_explainer_sessions():
