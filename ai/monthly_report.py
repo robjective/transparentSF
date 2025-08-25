@@ -140,16 +140,28 @@ except ImportError:
 try:
     # First try to import from the ai package
     from ai.webChat import get_dashboard_metric, swarm_client, context_variables, client, AGENT_MODEL, load_and_combine_notes
-    from ai.agents.explainer_agent import create_explainer_agent
-    logger.warning("Successfully imported from ai.webChat and ai.agents.explainer_agent")
+    logger.warning("Successfully imported from ai.webChat")
 except ImportError:
     try:
         # If that fails, try to import from the local directory
         from webChat import swarm_client, context_variables, client, AGENT_MODEL, load_and_combine_notes
-        from agents.explainer_agent import create_explainer_agent
-        logger.warning("Successfully imported from webChat and agents.explainer_agent")
+        logger.warning("Successfully imported from webChat")
     except ImportError:
-        logger.error("Failed to import from webChat or explainer_agent", exc_info=True)
+        logger.error("Failed to import from webChat", exc_info=True)
+        raise
+
+# Add new LangChain agent imports
+try:
+    from ai.agents.langchain_agent.explainer_agent import LangChainExplainerAgent
+    from ai.agents.config.models import get_available_models, get_default_model
+    logger.warning("Successfully imported LangChain explainer agent")
+except ImportError:
+    try:
+        from agents.langchain_agent.explainer_agent import LangChainExplainerAgent
+        from agents.config.models import get_available_models, get_default_model
+        logger.warning("Successfully imported LangChain explainer agent (local)")
+    except ImportError:
+        logger.error("Failed to import LangChain explainer agent", exc_info=True)
         raise
 
 # Restore original basicConfig if needed
@@ -193,6 +205,182 @@ else:
 
 # Global variable to store prompts
 _PROMPTS = None
+
+def get_available_models_for_newsletter():
+    """
+    Get a list of available models for newsletter generation.
+    
+    Returns:
+        Dictionary with available models and their details
+    """
+    try:
+        available_models = get_available_models()
+        model_list = []
+        
+        for model_key, model_config in available_models.items():
+            model_list.append({
+                "key": model_key,
+                "name": model_config.full_name,
+                "provider": model_config.provider.value,
+                "available": model_config.is_available()
+            })
+        
+        # Sort by provider and then by name
+        model_list.sort(key=lambda x: (x["provider"], x["name"]))
+        
+        return {
+            "status": "success",
+            "models": model_list,
+            "default_model": get_default_model()
+        }
+    except Exception as e:
+        logger.error(f"Error getting available models: {e}")
+        return {
+            "status": "error",
+            "message": f"Error getting available models: {str(e)}"
+        }
+
+def _fix_common_json_issues(json_str):
+    """
+    Fix common JSON formatting issues that might occur in LLM responses.
+    
+    Args:
+        json_str: The JSON string to fix
+        
+    Returns:
+        Fixed JSON string
+    """
+    # Remove any leading/trailing whitespace
+    json_str = json_str.strip()
+    
+    # Fix common issues
+    # 1. Remove any text before the first {
+    if '{' in json_str:
+        json_str = json_str[json_str.find('{'):]
+    
+    # 2. Remove any text after the last }
+    if '}' in json_str:
+        json_str = json_str[:json_str.rfind('}')+1]
+    
+    # 3. Fix trailing commas
+    json_str = re.sub(r',(\s*[}\]])', r'\1', json_str)
+    
+    # 4. Fix missing quotes around keys
+    json_str = re.sub(r'(\w+):', r'"\1":', json_str)
+    
+    # 5. Fix single quotes to double quotes
+    json_str = json_str.replace("'", '"')
+    
+    return json_str
+
+def _create_fallback_prioritization(response_content, combined_changes, max_items=10):
+    """
+    Create a fallback prioritization when JSON parsing fails.
+    
+    Args:
+        response_content: The response content from the agent
+        combined_changes: The list of changes to prioritize
+        max_items: Maximum number of items to prioritize (default 10)
+        
+    Returns:
+        A simple prioritized list based on the response content
+    """
+    logger.info(f"Creating fallback prioritization for max {max_items} items")
+    
+    # Try to extract any metric names mentioned in the response
+    mentioned_metrics = []
+    for change in combined_changes:
+        metric_name = change.get("metric", "")
+        if metric_name and metric_name.lower() in response_content.lower():
+            mentioned_metrics.append(change)
+    
+    # If we found mentioned metrics, prioritize them
+    if mentioned_metrics:
+        logger.info(f"Found {len(mentioned_metrics)} mentioned metrics in response")
+        prioritized_items = []
+        for i, change in enumerate(mentioned_metrics[:max_items]):  # Limit to max_items
+            prioritized_items.append({
+                "metric": change.get("metric"),
+                "group": change.get("group", "All"),
+                "priority": i + 1,
+                "explanation": f"Prioritized based on mention in agent response",
+                "trend_analysis": "",
+                "follow_up": ""
+            })
+        return {"items": prioritized_items}
+    
+    # If no metrics were mentioned, create a simple prioritization based on magnitude of change
+    logger.info("No mentioned metrics found, creating prioritization based on change magnitude")
+    sorted_changes = sorted(combined_changes, 
+                          key=lambda x: abs(x.get("difference_value", 0)), 
+                          reverse=True)
+    
+    prioritized_items = []
+    for i, change in enumerate(sorted_changes[:max_items]):  # Limit to max_items
+        prioritized_items.append({
+            "metric": change.get("metric"),
+            "group": change.get("group", "All"),
+            "priority": i + 1,
+            "explanation": f"Prioritized based on magnitude of change ({change.get('difference_value', 0):.2f})",
+            "trend_analysis": "",
+            "follow_up": ""
+        })
+    
+    return {"items": prioritized_items}
+
+def _extract_any_valid_json(text):
+    """
+    Try to extract any valid JSON from text by finding the largest valid JSON object.
+    
+    Args:
+        text: The text to search for JSON
+        
+    Returns:
+        Valid JSON string or None if no valid JSON found
+    """
+    import re
+    
+    # First, try to find JSON in code blocks (most reliable)
+    json_pattern = r'```json\s*([\s\S]*?)\s*```'
+    json_match = re.search(json_pattern, text)
+    if json_match:
+        json_str = json_match.group(1).strip()
+        if json_str and json_str.strip() != "":
+            try:
+                json.loads(json_str)
+                logger.info(f"Found valid JSON in code block: {json_str[:100]}...")
+                return json_str
+            except json.JSONDecodeError:
+                pass
+    
+    # Find all potential JSON objects (content between { and })
+    brace_pattern = r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}'
+    matches = re.findall(brace_pattern, text, re.DOTALL)
+    
+    # Sort matches by length (longest first) to prioritize complete JSON objects
+    matches.sort(key=len, reverse=True)
+    
+    # Try each match to see if it's valid JSON
+    for match in matches:
+        try:
+            # Try to parse it
+            json.loads(match)
+            logger.info(f"Found valid JSON: {match[:100]}...")
+            return match
+        except json.JSONDecodeError:
+            continue
+    
+    # If no valid JSON found, try to fix common issues and retry
+    for match in matches:
+        try:
+            fixed_json = _fix_common_json_issues(match)
+            json.loads(fixed_json)
+            logger.info(f"Found valid JSON after fixing: {fixed_json[:100]}...")
+            return fixed_json
+        except json.JSONDecodeError:
+            continue
+    
+    return None
 
 def load_prompts():
     """
@@ -604,19 +792,20 @@ def select_deltas_to_discuss(period_type='month', top_n=20, bottom_n=20, distric
         logger.error(error_msg, exc_info=True)
         return {"status": "error", "message": error_msg}
 
-def prioritize_deltas(deltas, max_items=10):
+def prioritize_deltas(deltas, max_items=10, model_key=None):
     """
     Step 2: Prioritize the deltas for discussion based on their importance.
-    This uses the explainer agent to determine which changes are most significant.
+    This uses the LangChain explainer agent to determine which changes are most significant.
     
     Args:
         deltas: Dictionary with top and bottom changes from select_deltas_to_discuss
         max_items: Maximum number of items to prioritize
+        model_key: Model to use for the LangChain agent (defaults to default model)
         
     Returns:
         List of prioritized items with explanations
     """
-    from webChat import client, AGENT_MODEL, load_and_combine_notes
+    from webChat import load_and_combine_notes
     
     logger.info(f"Prioritizing deltas for discussion (max {max_items} items)")
     
@@ -670,8 +859,10 @@ def prioritize_deltas(deltas, max_items=10):
         notes_text_short = notes_text
         
         # Format the prompt with the required variables
+        plural = "s" if max_items > 1 else ""
         prompt = prompt_template.format(
             max_items=max_items,
+            plural=plural,
             changes_text=changes_text,
             notes_text_short=notes_text_short
         )
@@ -692,20 +883,115 @@ def prioritize_deltas(deltas, max_items=10):
         except Exception as log_error:
             logger.error(f"Error saving prioritize deltas prompts to log file: {log_error}")
 
-        # Make API call to get prioritized list
-        response = client.chat.completions.create(
-            model=AGENT_MODEL,
-            messages=[{"role": "system", "content": system_message},
-                     {"role": "user", "content": prompt}],
-            response_format={"type": "json_object"}
-        )
-
-        response_content = response.choices[0].message.content
-        logger.info(f"Received JSON response of length: {len(response_content)}")
-        
+        # Use LangChain agent to get prioritized list
         try:
-            # Parse the JSON response
-            prioritized_json = json.loads(response_content)
+            # Create LangChain explainer agent with specified model
+            model_to_use = model_key or get_default_model()
+            logger.info(f"Using LangChain agent with model: {model_to_use}")
+            
+            # Create the agent with additional tool groups for better analysis
+            from ai.agents.langchain_agent.config.tool_config import ToolGroup
+            agent = LangChainExplainerAgent(
+                model_key=model_to_use,
+                enable_session_logging=True,
+                tool_groups=[ToolGroup.CORE, ToolGroup.ANALYSIS, ToolGroup.METRICS]
+            )
+            
+            # Create metric details for the agent
+            metric_details = {
+                "context": f"Prioritizing {len(combined_changes)} metric changes for monthly report",
+                "notes_text": notes_text_short,
+                "max_items": max_items
+            }
+            
+            # Run the agent
+            response = agent.explain_change_sync(prompt, metric_details)
+            
+            if not response.get('success'):
+                logger.error(f"LangChain agent failed: {response.get('error', 'Unknown error')}")
+                return {"status": "error", "message": f"Agent failed: {response.get('error', 'Unknown error')}"}
+            
+            response_content = response.get('explanation', '')
+            logger.info(f"Received response from LangChain agent (length: {len(response_content)})")
+            
+            # Try to extract JSON from the response with better error handling
+            try:
+                import re
+                
+                # First, try to find JSON in code blocks
+                json_pattern = r'```json\s*([\s\S]*?)\s*```'
+                json_match = re.search(json_pattern, response_content)
+                
+                if json_match:
+                    json_str = json_match.group(1).strip()
+                    logger.info(f"Found JSON in code block: {json_str[:200]}...")
+                    try:
+                        prioritized_json = json.loads(json_str)
+                    except json.JSONDecodeError as e:
+                        logger.warning(f"JSON in code block is malformed: {e}")
+                        # Try to fix common JSON issues
+                        json_str = _fix_common_json_issues(json_str)
+                        prioritized_json = json.loads(json_str)
+                else:
+                    # Try to find JSON without code block markers
+                    # Look for content between { and }
+                    brace_pattern = r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}'
+                    brace_match = re.search(brace_pattern, response_content)
+                    
+                    if brace_match:
+                        json_str = brace_match.group(0)
+                        logger.info(f"Found JSON with braces: {json_str[:200]}...")
+                        try:
+                            prioritized_json = json.loads(json_str)
+                        except json.JSONDecodeError as e:
+                            logger.warning(f"JSON with braces is malformed: {e}")
+                            # Try to fix common JSON issues
+                            json_str = _fix_common_json_issues(json_str)
+                            prioritized_json = json.loads(json_str)
+                    else:
+                        # Try to find any JSON-like structure in the response
+                        # Look for patterns that might be JSON
+                        potential_json_patterns = [
+                            r'\{[^{}]*"items"[^{}]*\[[^\]]*\][^{}]*\}',  # JSON with "items" array
+                            r'\{[^{}]*"priority"[^{}]*\}',  # JSON with "priority" field
+                            r'\{[^{}]*"metric"[^{}]*\}',  # JSON with "metric" field
+                        ]
+                        
+                        for pattern in potential_json_patterns:
+                            match = re.search(pattern, response_content, re.DOTALL)
+                            if match:
+                                json_str = match.group(0)
+                                logger.info(f"Found potential JSON with pattern: {json_str[:200]}...")
+                                try:
+                                    prioritized_json = json.loads(json_str)
+                                    break
+                                except json.JSONDecodeError:
+                                    continue
+                        else:
+                            # Try to parse the entire response as JSON
+                            logger.info("Attempting to parse entire response as JSON")
+                            try:
+                                prioritized_json = json.loads(response_content)
+                            except json.JSONDecodeError:
+                                # If all else fails, try to extract any valid JSON from the response
+                                logger.info("Attempting to extract any valid JSON from response")
+                                json_str = _extract_any_valid_json(response_content)
+                                if json_str:
+                                    prioritized_json = json.loads(json_str)
+                                else:
+                                    raise json.JSONDecodeError("No valid JSON found in response", response_content, 0)
+                        
+            except json.JSONDecodeError as e:
+                logger.error(f"Failed to parse JSON from LangChain agent response: {e}")
+                logger.error(f"Response content: {response_content[:500]}...")
+                
+                # As a fallback, try to create a simple prioritized list from the response
+                logger.info("Attempting fallback prioritization from response text")
+                try:
+                    prioritized_json = _create_fallback_prioritization(response_content, combined_changes, max_items)
+                except Exception as fallback_error:
+                    logger.error(f"Fallback prioritization also failed: {fallback_error}")
+                    return {"status": "error", "message": "Failed to parse JSON response from agent and fallback failed"}
             logger.info(f"Parsed JSON: {json.dumps(prioritized_json)[:200]}...")
             
             # Extract the array if the response is wrapped in an object
@@ -996,13 +1282,14 @@ def store_prioritized_items(prioritized_items, period_type='month', district=Non
     else:
         return {"status": "error", "message": result["message"]}
 
-def generate_explanations(report_ids):
+def generate_explanations(report_ids, model_key=None):
     """
-    Step 3: Generate detailed explanations for each prioritized item using the explainer agent.
+    Step 3: Generate detailed explanations for each prioritized item using the LangChain explainer agent.
     Updates the monthly_reporting table with the explanations.
     
     Args:
         report_ids: List of report IDs to explain
+        model_key: Model to use for the LangChain agent (defaults to default model)
         
     Returns:
         Status dictionary
@@ -1062,18 +1349,30 @@ def generate_explanations(report_ids):
             logger.info(f"  Values: recent={recent_mean}, comparison={comparison_mean}, diff={difference}, percent_change={percent_change}")
             logger.info(f"  Period: {period_type}, District: {district}")
             
-            # Create a simple session for the explainer agent
-            session_id = f"report_{report_id}"
-            session_context = context_variables.copy()
+            # Create LangChain explainer agent instance
+            model_to_use = model_key or get_default_model()
+            logger.info(f"Using LangChain agent with model: {model_to_use} for report_id {report_id}")
             
-            # Create the explainer agent instance
-            explainer_agent = create_explainer_agent(session_context)
+            # Create the agent with additional tool groups for better analysis
+            from ai.agents.langchain_agent.config.tool_config import ToolGroup
+            agent = LangChainExplainerAgent(
+                model_key=model_to_use,
+                enable_session_logging=True,
+                tool_groups=[ToolGroup.CORE, ToolGroup.ANALYSIS, ToolGroup.METRICS]
+            )
+            
+            # Generate a unique session ID for this explanation
+            session_id = f"explain_{report_id}_{int(time.time())}"
+            # Note: This session_id will be passed to the LangChain agent, which may generate its own if session_id is None
             
             # Create a simple, direct prompt for the agent
             direction = "increased" if delta > 0 else "decreased"
             percent_change_str = f"{abs(percent_change):.2f}%" if percent_change is not None else "unknown percentage"
             
-            prompt = f"""Please explain why the metric '{metric_name}' (ID: {metric_id})  {direction} from {comparison_mean} to {recent_mean} ({percent_change_str}) between {previous_month} and {recent_month} for district {district}.
+            # Format district display for the prompt
+            district_display = "citywide" if district == "0" else f"district {district}"
+            
+            prompt = f"""Please explain why the metric '{metric_name}' (ID: {metric_id})  {direction} from {comparison_mean} to {recent_mean} ({percent_change_str}) between {previous_month} and {recent_month} for {district_display}.
 
 Use the available tools to research this change and provide a comprehensive explanation that can be included in a monthly newsletter for city residents.
 Please share anomalies, groups or data-points that explain a large portion of the difference in the metric.  Your goal is a clear explanation of the change.  
@@ -1087,26 +1386,101 @@ DO NOT include any additional content, headers, or formatting outside of this JS
             
             # logger.info(f"Prompt for explainer agent: {prompt[:200]}...")  # Commented out to stop logging explainer prompts
             
-            # Process with the agent
+            # Process with the LangChain agent
             try:
-                logger.info(f"Running explainer agent for metric: {metric_id}")
-                # Use the new explainer agent's synchronous method with JSON return
-                response = explainer_agent.explain_change_sync(prompt, return_json=True)
+                logger.info(f"Running LangChain agent for metric: {metric_id}")
+                
+                # Create metric details for the agent
+                metric_details = {
+                    "metric_name": metric_name,
+                    "metric_id": metric_id,
+                    "group_value": group_value,
+                    "recent_mean": recent_mean,
+                    "comparison_mean": comparison_mean,
+                    "difference": difference,
+                    "percent_change": percent_change,
+                    "district": district,
+                    "period_type": period_type,
+                    "direction": direction,
+                    "previous_month": previous_month,
+                    "recent_month": recent_month
+                }
+                
+                # Use the LangChain agent's synchronous method
+                response = agent.explain_change_sync(prompt, metric_details, session_id=session_id)
                 
                 explanation = ""
                 chart_data = None
                 explainer_metadata = {}
                 
+                # Capture session_id from the response if available
+                session_id = response.get('session_id') if response else None
+                if session_id:
+                    logger.info(f"Captured session_id from LangChain agent: {session_id}")
+                    explainer_metadata["session_id"] = session_id
+                
                 # Check if response contains content
                 if response and response.get('success'):
-                    content = response.get('content', '')
-                    logger.info(f"Explainer agent response content: {content[:200]}...")
+                    content = response.get('explanation', '')
+                    logger.info(f"LangChain agent response content: {content[:200]}...")
                     
                     # Try to extract JSON data from the response
-                    if response.get('parsed_json'):
-                        # Use the pre-parsed JSON if available
-                        explainer_data = response['parsed_json']
-                        logger.info(f"Using pre-parsed JSON data: {json.dumps(explainer_data)[:200]}...")
+                    try:
+                        # First, try to parse the entire response as JSON (most common case)
+                        logger.info("Attempting to parse entire response as JSON")
+                        try:
+                            explainer_data = json.loads(content)
+                            logger.info("Successfully parsed entire response as JSON")
+                        except json.JSONDecodeError:
+                            # If that fails, try to find JSON in code blocks
+                            json_pattern = r'```json\s*([\s\S]*?)\s*```'
+                            json_match = re.search(json_pattern, content)
+                            
+                            if json_match:
+                                json_str = json_match.group(1).strip()
+                                logger.info(f"Found JSON in code block: {json_str[:200]}...")
+                                
+                                # Check if JSON is empty or just whitespace
+                                if not json_str or json_str.strip() == "":
+                                    logger.warning("Empty JSON block found, will use fallback extraction")
+                                    raise json.JSONDecodeError("Empty JSON block", json_str, 0)
+                                
+                                explainer_data = json.loads(json_str)
+                            else:
+                                # Try to find JSON without code block markers
+                                # Look for content between { and } - be more aggressive in finding JSON
+                                # First try to find the largest JSON object
+                                brace_pattern = r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}'
+                                brace_matches = re.findall(brace_pattern, content)
+                                
+                                if brace_matches:
+                                    # Sort by length to get the largest (most complete) JSON object
+                                    brace_matches.sort(key=len, reverse=True)
+                                    for json_str in brace_matches:
+                                        try:
+                                            explainer_data = json.loads(json_str)
+                                            logger.info(f"Found JSON with braces (length {len(json_str)}): {json_str[:200]}...")
+                                            break
+                                        except json.JSONDecodeError:
+                                            continue
+                                    else:
+                                        # If none of the brace matches work, try the helper function
+                                        json_str = _extract_any_valid_json(content)
+                                        if json_str:
+                                            explainer_data = json.loads(json_str)
+                                            logger.info(f"Extracted valid JSON using helper function: {json_str[:200]}...")
+                                        else:
+                                            raise json.JSONDecodeError("No valid JSON found in response", content, 0)
+                                else:
+                                    # If no brace matches, try the helper function
+                                    json_str = _extract_any_valid_json(content)
+                                    if json_str:
+                                        explainer_data = json.loads(json_str)
+                                        logger.info(f"Extracted valid JSON using helper function: {json_str[:200]}...")
+                                    else:
+                                        raise json.JSONDecodeError("No valid JSON found in response", content, 0)
+                        
+                        logger.info(f"Successfully parsed JSON data: {json.dumps(explainer_data)[:200]}...")
                         
                         # Extract the specific fields we're looking for
                         if "explanation" in explainer_data:
@@ -1121,57 +1495,99 @@ DO NOT include any additional content, headers, or formatting outside of this JS
                             chart_data = explainer_data["chart_data"]
                         elif "charts" in explainer_data:
                             chart_data = explainer_data["charts"]
-                    else:
-                        # Fallback to parsing from content
+                            
+                    except json.JSONDecodeError as json_err:
+                        logger.warning(f"Failed to parse JSON from response: {json_err}")
+                        logger.warning(f"Response content: {content[:500]}...")
+                        
+                        # Try to fix common JSON issues and retry
                         try:
-                            # Extract JSON content from the response_content
-                            # First look for JSON content between ```json and ``` markers
-                            json_pattern = r'```json\s*([\s\S]*?)\s*```'
-                            json_match = re.search(json_pattern, content)
+                            # Remove any markdown formatting
+                            cleaned_content = re.sub(r'```json\s*', '', content)
+                            cleaned_content = re.sub(r'```\s*', '', cleaned_content)
                             
-                            if json_match:
-                                json_str = json_match.group(1)
-                                logger.info(f"Found JSON content in code block: {json_str[:200]}...")
+                            # Try to find the largest valid JSON object
+                            json_str = _extract_any_valid_json(cleaned_content)
+                            if json_str:
                                 explainer_data = json.loads(json_str)
+                                logger.info(f"Successfully parsed JSON after fixing: {json.dumps(explainer_data)[:200]}...")
+                                
+                                if "explanation" in explainer_data:
+                                    explanation = explainer_data["explanation"]
+                                    logger.info(f"Extracted explanation from fixed JSON: {explanation[:100]}...")
+                                
+                                explainer_metadata = explainer_data
+                                
+                                if "chart_data" in explainer_data:
+                                    chart_data = explainer_data["chart_data"]
+                                elif "charts" in explainer_data:
+                                    chart_data = explainer_data["charts"]
                             else:
-                                # Try to parse the entire response as JSON
-                                logger.info("Attempting to parse entire response as JSON")
-                                explainer_data = json.loads(content)
-                            
-                            logger.info(f"Successfully parsed JSON data: {json.dumps(explainer_data)[:200]}...")
-                            
-                            # Extract the specific fields we're looking for
-                            if "explanation" in explainer_data:
-                                explanation = explainer_data["explanation"]
-                                logger.info(f"Extracted explanation from JSON: {explanation[:100]}...")
+                                raise json.JSONDecodeError("No valid JSON found after fixing", cleaned_content, 0)
                                 
-                            # Store all fields in metadata
-                            explainer_metadata = explainer_data
-                            
-                            # Keep chart data separate
-                            if "chart_data" in explainer_data:
-                                chart_data = explainer_data["chart_data"]
-                            elif "charts" in explainer_data:
-                                chart_data = explainer_data["charts"]
-                                
-                        except json.JSONDecodeError as json_err:
-                            logger.warning(f"Failed to parse JSON from response: {json_err}")
-                            logger.warning(f"Response content: {content[:500]}...")
-                            # If JSON parsing fails, attempt to extract explanation using existing methods
-                            explanation_pattern = r'EXPLANATION:\s*([\s\S]*?)(?:\Z|(?:TREND_ANALYSIS:|CHARTS:))'
-                            explanation_match = re.search(explanation_pattern, content)
-                            if explanation_match:
-                                explanation = explanation_match.group(1).strip()
-                                logger.info(f"Extracted explanation using regex: {explanation[:100]}...")
-                                
-                            # Also try to extract trend analysis
-                            trend_pattern = r'TREND_ANALYSIS:\s*([\s\S]*?)(?:\Z|CHARTS:)'
-                            trend_match = re.search(trend_pattern, content)
-                            if trend_match:
-                                explainer_metadata["trend_analysis"] = trend_match.group(1).strip()
-                                logger.info(f"Extracted trend analysis using regex: {explainer_metadata['trend_analysis'][:100]}...")
+                        except json.JSONDecodeError as fix_err:
+                             logger.warning(f"Failed to fix JSON: {fix_err}")
+                             # If JSON parsing fails, attempt to extract explanation using regex patterns
+                             
+                             # Try multiple patterns to extract explanation from the text
+                             explanation_patterns = [
+                                 r'EXPLANATION:\s*([\s\S]*?)(?:\Z|(?:TREND_ANALYSIS:|CHARTS:))',
+                                 r'explanation[:\s]*([\s\S]*?)(?:\Z|(?:trend_analysis:|charts:))',
+                                 r'Based on my research[^:]*:\s*([\s\S]*?)(?:\Z|(?:```|$))',
+                                 r'comprehensive explanation[^:]*:\s*([\s\S]*?)(?:\Z|(?:```|$))'
+                             ]
+                             
+                             for pattern in explanation_patterns:
+                                 explanation_match = re.search(pattern, content, re.IGNORECASE)
+                                 if explanation_match:
+                                     extracted = explanation_match.group(1).strip()
+                                     if len(extracted) > 50:  # Only use if it's substantial
+                                         explanation = extracted
+                                         logger.info(f"Extracted explanation using pattern '{pattern}': {explanation[:100]}...")
+                                         break
+                             
+                             # Also try to extract trend analysis
+                             trend_patterns = [
+                                 r'TREND_ANALYSIS:\s*([\s\S]*?)(?:\Z|CHARTS:)',
+                                 r'trend_analysis[:\s]*([\s\S]*?)(?:\Z|charts:)',
+                                 r'longer-term trends[^:]*:\s*([\s\S]*?)(?:\Z|(?:```|$))'
+                             ]
+                             
+                             for pattern in trend_patterns:
+                                 trend_match = re.search(pattern, content, re.IGNORECASE)
+                                 if trend_match:
+                                     extracted = trend_match.group(1).strip()
+                                     if len(extracted) > 20:  # Only use if it's substantial
+                                         explainer_metadata["trend_analysis"] = extracted
+                                         logger.info(f"Extracted trend analysis using pattern '{pattern}': {explainer_metadata['trend_analysis'][:100]}...")
+                                         break
+                             
+                             # If we still don't have an explanation, try to extract from the entire content
+                             if not explanation and content:
+                                 # Remove any markdown formatting and try to extract meaningful text
+                                 cleaned_text = re.sub(r'```json\s*.*?```', '', content, flags=re.DOTALL)
+                                 cleaned_text = re.sub(r'```\s*.*?```', '', cleaned_text, flags=re.DOTALL)
+                                 cleaned_text = cleaned_text.strip()
+                                 
+                                 if len(cleaned_text) > 100:  # Only use if there's substantial content
+                                     explanation = cleaned_text
+                                     logger.info(f"Using entire cleaned content as explanation: {explanation[:100]}...")
+                                 
+                                 # Also try to extract trend analysis from the cleaned text
+                                 if not explainer_metadata.get("trend_analysis"):
+                                     trend_patterns = [
+                                         r'trend[^:]*:\s*([^.]*\.)',
+                                         r'pattern[^:]*:\s*([^.]*\.)',
+                                         r'overall[^:]*:\s*([^.]*\.)'
+                                     ]
+                                     for pattern in trend_patterns:
+                                         trend_match = re.search(pattern, cleaned_text, re.IGNORECASE)
+                                         if trend_match:
+                                             explainer_metadata["trend_analysis"] = trend_match.group(1).strip()
+                                             logger.info(f"Extracted trend analysis from cleaned text: {explainer_metadata['trend_analysis'][:100]}...")
+                                             break
                 else:
-                    logger.error(f"Explainer agent failed: {response.get('error', 'Unknown error')}")
+                    logger.error(f"LangChain agent failed: {response.get('error', 'Unknown error')}")
                     explanation = f"Error generating explanation: {response.get('error', 'Unknown error')}"
             
             except Exception as e:
@@ -1234,7 +1650,12 @@ DO NOT include any additional content, headers, or formatting outside of this JS
                     existing_metadata[key] = value
                 logger.info(f"Updated metadata with explainer data: {json.dumps(list(explainer_metadata.keys()))}")
             
-            # Update the database with the detailed explanation, chart data, and updated metadata
+            # Add session_id to metadata for additional tracking (database column will be added later)
+            existing_metadata["session_id"] = session_id
+            existing_metadata["explanation_generated_at"] = datetime.now().isoformat()
+            logger.info(f"Added session_id to metadata: {session_id}")
+            
+            # Update the database with the detailed explanation, chart data, session_id, and updated metadata
             if explanation:  # Only update if we have a valid explanation
                 try:
                     if chart_html:
@@ -1253,7 +1674,7 @@ DO NOT include any additional content, headers, or formatting outside of this JS
                                 metadata = %s
                             WHERE id = %s
                         """, (explanation, json.dumps(existing_metadata), report_id))
-                        logger.info(f"Updated explanation, and metadata for report ID {report_id}")
+                        logger.info(f"Updated explanation and metadata for report ID {report_id}")
                     successful_explanations += 1
                 except Exception as db_error:
                     logger.error(f"Database error while updating explanation: {str(db_error)}")
@@ -2249,7 +2670,7 @@ Detailed Analysis: {report_text}
         logger.error(error_msg, exc_info=True)
         return {"status": "error", "message": error_msg}
 
-def run_monthly_report_process(district="0", period_type="month", max_report_items=10):
+def run_monthly_report_process(district="0", period_type="month", max_report_items=1, model_key=None):
     """
     Run the complete monthly newsletter generation process
     
@@ -2257,6 +2678,7 @@ def run_monthly_report_process(district="0", period_type="month", max_report_ite
         district: District number (0 for citywide)
         period_type: Time period type (month, quarter, year)
         max_report_items: Maximum number of items to include in the newsletter
+        model_key: Model to use for the LangChain agent (defaults to default model)
         
     Returns:
         Status dictionary with newsletter path
@@ -2278,7 +2700,7 @@ def run_monthly_report_process(district="0", period_type="month", max_report_ite
             
         # Step 2: Prioritize deltas and get explanations
         logger.info("Step 2: Prioritizing deltas")
-        prioritized = prioritize_deltas(deltas, max_items=max_report_items)
+        prioritized = prioritize_deltas(deltas, max_items=max_report_items, model_key=model_key)
         if prioritized.get("status") != "success":
             return prioritized
         
@@ -2294,7 +2716,7 @@ def run_monthly_report_process(district="0", period_type="month", max_report_ite
             
         # Step 3: Generate detailed explanations
         logger.info("Step 3: Generating explanations")
-        explanation_result = generate_explanations(store_result.get("inserted_ids", []))
+        explanation_result = generate_explanations(store_result.get("inserted_ids", []), model_key=model_key)
         if explanation_result.get("status") != "success":
             return explanation_result
             
@@ -4476,7 +4898,7 @@ def expand_chart_references(report_path):
         logger.error(error_msg, exc_info=True)
         return report_path
 
-def reprioritize_deltas_for_report(filename, district="0", period_type="month", max_report_items=10):
+def reprioritize_deltas_for_report(filename, district="0", period_type="month", max_report_items=1):
     """
     Re-prioritize deltas for an existing newsletter by clearing the monthly_reporting data
     and regenerating it from scratch. This function stops after storing the prioritized items
@@ -4556,7 +4978,7 @@ def reprioritize_deltas_for_report(filename, district="0", period_type="month", 
         # Use original report parameters if not overridden
         actual_district = district if district != "0" else report_info["original_district"]
         actual_period_type = period_type if period_type != "month" else report_info["original_period_type"]
-        actual_max_items = max_report_items if max_report_items != 10 else report_info["original_max_items"]
+        actual_max_items = max_report_items if max_report_items != 1 else report_info["original_max_items"]
         
         logger.info(f"Using parameters: district={actual_district}, period_type={actual_period_type}, max_items={actual_max_items}")
         
@@ -4931,5 +5353,5 @@ def regenerate_explanations_for_report(filename):
 if __name__ == "__main__":
     # Run the monthly report process
     # You can adjust the max_report_items to control how many items appear in the report
-    result = run_monthly_report_process(max_report_items=3, district="0")
+    result = run_monthly_report_process(max_report_items=1, district="0")
     print(json.dumps(result, indent=2, cls=PathEncoder)) 

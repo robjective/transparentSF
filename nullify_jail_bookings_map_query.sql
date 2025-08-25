@@ -9,3 +9,6 @@ WHERE id IN (5, 26, 27, 28);
 SELECT id, metric_name, map_query 
 FROM metrics 
 WHERE id IN (5, 26, 27, 28);
+
+
+

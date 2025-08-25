@@ -16,16 +16,23 @@ from .explainer_metrics_tools import (
     get_metrics_overview, find_metrics_by_endpoint
 )
 
+logger = logging.getLogger(__name__)
+
 # Import the real LangChain agent
 try:
+    import sys
+    import os
+    # Add the ai directory to the path for imports
+    ai_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if ai_dir not in sys.path:
+        sys.path.insert(0, ai_dir)
+    
     from agents.langchain_agent.explainer_agent import create_explainer_agent
     from agents.langchain_agent.config.tool_config import ToolGroup
     AGENT_AVAILABLE = True
 except ImportError as e:
     logger.warning(f"Could not import LangChain explainer agent: {e}")
     AGENT_AVAILABLE = False
-
-logger = logging.getLogger(__name__)
 
 class EvalRunner:
     """Runner for executing evals and evaluating results."""
@@ -92,6 +99,11 @@ class EvalRunner:
             if save_result["status"] != "success":
                 logger.error(f"Failed to save eval result: {save_result['message']}")
             
+            # Enhance the session log with detailed information from the database
+            if execution_result.get("success_details", {}).get("session_id"):
+                session_id = execution_result["success_details"]["session_id"]
+                self._enhance_session_log_with_details(session_id, execution_result)
+            
             return {
                 "status": "success",
                 "eval_id": eval_id,
@@ -154,7 +166,8 @@ class EvalRunner:
             # Create a fresh LangChain agent instance for this eval with core, analysis, and metrics tools
             agent = create_explainer_agent(
                 model_key=model_name,
-                tool_groups=[ToolGroup.CORE, ToolGroup.METRICS]
+                tool_groups=[ToolGroup.CORE, ToolGroup.ANALYSIS, ToolGroup.METRICS],
+                enable_session_logging=True
             )
             
             # Execute the prompt with the real LangChain agent
@@ -225,12 +238,18 @@ class EvalRunner:
             all_tool_calls = self._extract_tool_calls_from_execution_trace(execution_trace)
             logger.info(f"Extracted {len(all_tool_calls)} tool calls from execution trace")
             
-            # If no tool calls found in execution trace, fall back to conversation history
+            # If no tool calls found in execution trace, try to extract from session log
             if not all_tool_calls:
-                logger.warning("No tool calls found in execution trace, falling back to conversation history")
-                tool_calls_from_conversation = self._extract_tool_calls_from_conversation(conversation_history)
-                all_tool_calls = tool_calls_from_conversation
-                logger.info(f"Extracted {len(all_tool_calls)} tool calls from conversation history")
+                logger.warning("No tool calls found in execution trace, trying session log")
+                session_tool_calls = self._extract_tool_calls_from_session_log(result)
+                if session_tool_calls:
+                    all_tool_calls = session_tool_calls
+                    logger.info(f"Extracted {len(all_tool_calls)} tool calls from session log")
+                else:
+                    logger.warning("No tool calls found in session log, falling back to conversation history")
+                    tool_calls_from_conversation = self._extract_tool_calls_from_conversation(conversation_history)
+                    all_tool_calls = tool_calls_from_conversation
+                    logger.info(f"Extracted {len(all_tool_calls)} tool calls from conversation history")
             
             # Convert LangChain messages to UI-friendly format
             ui_conversation_history = []
@@ -395,6 +414,143 @@ class EvalRunner:
                             })
         
         return tool_calls
+    
+    def _extract_tool_calls_from_session_log(self, result: Dict) -> List[Dict]:
+        """
+        Extract tool calls from the session log data.
+        
+        Args:
+            result: The agent execution result containing session data
+            
+        Returns:
+            List of tool call dictionaries
+        """
+        tool_calls = []
+        
+        # Check if the result contains session log data
+        if hasattr(result, 'session_log') and result.session_log:
+            session_data = result.session_log
+        elif isinstance(result, dict) and 'session_log' in result:
+            session_data = result['session_log']
+        else:
+            # Try to find session data in the result
+            session_data = None
+            for key, value in result.items():
+                if isinstance(value, dict) and 'tool_calls' in value:
+                    session_data = value
+                    break
+        
+        # If no session data found in result, try to read from the latest session log file
+        if not session_data:
+            logger.warning("No session data found in result, trying to read from session log file")
+            session_data = self._read_latest_session_log()
+        
+        if not session_data:
+            logger.warning("No session data found in result or log file")
+            return tool_calls
+        
+        # Extract tool calls from session data
+        session_tool_calls = session_data.get('tool_calls', [])
+        logger.info(f"Found {len(session_tool_calls)} tool calls in session data")
+        
+        for tc in session_tool_calls:
+            tool_calls.append({
+                "function": tc.get('tool_name', ''),
+                "arguments": tc.get('arguments', {}),
+                "output": tc.get('result', ''),
+                "successful": tc.get('success', False),
+                "execution_time_ms": tc.get('execution_time_ms', 0),
+                "error_message": tc.get('error_message'),
+                "source": "session_log"
+            })
+        
+        return tool_calls
+    
+    def _read_latest_session_log(self) -> Dict:
+        """
+        Read the most recent session log file.
+        
+        Returns:
+            Session data dictionary or empty dict if not found
+        """
+        import os
+        import json
+        import glob
+        
+        try:
+            # Find the sessions directory
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            sessions_dir = os.path.join(current_dir, '..', 'logs', 'sessions')
+            
+            if not os.path.exists(sessions_dir):
+                logger.warning(f"Sessions directory not found: {sessions_dir}")
+                return {}
+            
+            # Find the most recent session log file
+            session_files = glob.glob(os.path.join(sessions_dir, '*.json'))
+            if not session_files:
+                logger.warning("No session log files found")
+                return {}
+            
+            # Sort by modification time and get the most recent
+            latest_file = max(session_files, key=os.path.getmtime)
+            logger.info(f"Reading session log from: {latest_file}")
+            
+            with open(latest_file, 'r') as f:
+                session_data = json.load(f)
+            
+            return session_data
+            
+        except Exception as e:
+            logger.error(f"Error reading session log: {str(e)}")
+            return {}
+    
+    def _enhance_session_log_with_details(self, session_id: str, execution_result: Dict):
+        """
+        Enhance the session log with detailed information from the execution result.
+        
+        Args:
+            session_id: The session ID to enhance
+            execution_result: The detailed execution result from the eval
+        """
+        import os
+        import json
+        
+        try:
+            # Find the session log file
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            sessions_dir = os.path.join(current_dir, '..', 'logs', 'sessions')
+            session_file = os.path.join(sessions_dir, f'{session_id}.json')
+            
+            if not os.path.exists(session_file):
+                logger.warning(f"Session log file not found: {session_file}")
+                return
+            
+            # Read the existing session log
+            with open(session_file, 'r') as f:
+                session_data = json.load(f)
+            
+            # Enhance with detailed information
+            session_data.update({
+                "enhanced": True,
+                "enhanced_at": datetime.now().isoformat(),
+                "detailed_tool_calls": execution_result.get("tool_calls", []),
+                "conversation_history": execution_result.get("conversation_history", []),
+                "execution_trace": execution_result.get("execution_trace", []),
+                "success_score": execution_result.get("success_score", 0.0),
+                "success_details": execution_result.get("success_details", {}),
+                "response": execution_result.get("response", ""),
+                "source": "enhanced_with_database_details"
+            })
+            
+            # Write the enhanced session log back
+            with open(session_file, 'w') as f:
+                json.dump(session_data, f, indent=2, ensure_ascii=False, default=str)
+            
+            logger.info(f"Enhanced session log {session_id} with detailed information")
+            
+        except Exception as e:
+            logger.error(f"Error enhancing session log {session_id}: {str(e)}")
     
     def _extract_tool_calls_from_execution_trace(self, execution_trace: List[Dict]) -> List[Dict]:
         """
@@ -579,6 +735,14 @@ class EvalRunner:
         has_failed_tools = len(failed_tool_calls) > 0
         has_successful_tools = len(successful_tool_calls) > 0
         
+        # Get session ID from the latest session log
+        session_id = None
+        try:
+            session_data = self._read_latest_session_log()
+            session_id = session_data.get('session_id')
+        except Exception as e:
+            logger.warning(f"Could not read session ID: {e}")
+        
         if success_type == "binary":
             # Simple pass/fail evaluation - now considers tool call success
             success = has_successful_tools and response.strip() != "" and not has_failed_tools
@@ -590,7 +754,8 @@ class EvalRunner:
                     "successful_tool_calls": len(successful_tool_calls),
                     "failed_tool_calls": len(failed_tool_calls),
                     "has_response": bool(response.strip()),
-                    "failed_tool_details": [{"function": tc.get("function"), "error": str(tc.get("output", ""))} for tc in failed_tool_calls]
+                    "failed_tool_details": [{"function": tc.get("function"), "error": str(tc.get("output", ""))} for tc in failed_tool_calls],
+                    "session_id": session_id
                 }
             }
         
@@ -625,7 +790,8 @@ class EvalRunner:
                     "tool_calls_made": len(tool_calls),
                     "successful_tool_calls": len(successful_tool_calls),
                     "failed_tool_calls": len(failed_tool_calls),
-                    "failed_tool_details": [{"function": tc.get("function"), "error": str(tc.get("output", ""))} for tc in failed_tool_calls]
+                    "failed_tool_details": [{"function": tc.get("function"), "error": str(tc.get("output", ""))} for tc in failed_tool_calls],
+                    "session_id": session_id
                 }
             }
         
@@ -673,7 +839,8 @@ class EvalRunner:
                     "tool_calls_made": len(tool_calls),
                     "successful_tool_calls": len(successful_tool_calls),
                     "failed_tool_calls": len(failed_tool_calls),
-                    "failed_tool_details": [{"function": tc.get("function"), "error": str(tc.get("output", ""))} for tc in failed_tool_calls]
+                    "failed_tool_details": [{"function": tc.get("function"), "error": str(tc.get("output", ""))} for tc in failed_tool_calls],
+                    "session_id": session_id
                 }
             }
         
@@ -690,6 +857,7 @@ class EvalRunner:
                     "tool_calls_made": len(tool_calls),
                     "successful_tool_calls": len(successful_tool_calls),
                     "failed_tool_calls": len(failed_tool_calls),
-                    "failed_tool_details": [{"function": tc.get("function"), "error": str(tc.get("output", ""))} for tc in failed_tool_calls]
+                    "failed_tool_details": [{"function": tc.get("function"), "error": str(tc.get("output", ""))} for tc in failed_tool_calls],
+                    "session_id": session_id
                 }
             } 

@@ -282,15 +282,30 @@ def get_dataset_columns_tool(endpoint: str) -> Dict[str, Any]:
         logger.exception("Error in get_dataset_columns_tool")
         return {'error': f'Error retrieving dataset columns: {str(e)}'}
 
-def get_charts_for_review_tool(limit: int = 20, days_back: int = 30, district_filter: str = None, metric_id: str = None) -> Dict[str, Any]:
+def get_charts_for_review_tool(
+    limit: int = 8,  # Reduced from 20 to 8
+    days_back: int = 7,  # Reduced from 30 to 7
+    district_filter: str = None, 
+    metric_id: str = None,
+    only_recent: bool = True,  # New parameter
+    max_total_charts: int = 20,  # New parameter
+    include_metadata: bool = False,  # New parameter
+    include_urls: bool = False,  # New parameter
+    sort_by: str = "created_at"  # New parameter
+) -> Dict[str, Any]:
     """
     Get available charts for newsletter inclusion review.
     
     Args:
-        limit: Maximum number of charts to return
-        days_back: Number of days to look back
+        limit: Maximum number of charts to return per type (default: 8, reduced from 20)
+        days_back: Number of days to look back (default: 7, reduced from 30)
         district_filter: District filter
         metric_id: Filter by specific metric ID/object_id (optional)
+        only_recent: Only return charts from last 7 days (default: True)
+        max_total_charts: Maximum total charts across all types (default: 20)
+        include_metadata: Whether to include full metadata (default: False)
+        include_urls: Whether to include query URLs (default: False)
+        sort_by: Sort order - created_at, out_of_bounds (default: created_at)
         
     Returns:
         Dictionary with chart information
@@ -300,13 +315,29 @@ def get_charts_for_review_tool(limit: int = 20, days_back: int = 30, district_fi
     logger.info(f"Days back: {days_back}")
     logger.info(f"District filter: {district_filter}")
     logger.info(f"Metric ID: {metric_id}")
+    logger.info(f"Only recent: {only_recent}")
+    logger.info(f"Max total charts: {max_total_charts}")
+    logger.info(f"Include metadata: {include_metadata}")
+    logger.info(f"Include URLs: {include_urls}")
+    logger.info(f"Sort by: {sort_by}")
     
     try:
         # Import the original function and call it
         from ai.tools.get_charts_for_review import get_charts_for_review
         
-        # Call the original function with empty context
-        result = get_charts_for_review({}, limit=limit, days_back=days_back, district_filter=district_filter, metric_id=metric_id)
+        # Call the original function with new parameters
+        result = get_charts_for_review(
+            context_variables={}, 
+            limit=limit, 
+            days_back=days_back, 
+            district_filter=district_filter, 
+            metric_id=metric_id,
+            only_recent=only_recent,
+            max_total_charts=max_total_charts,
+            include_metadata=include_metadata,
+            include_urls=include_urls,
+            sort_by=sort_by
+        )
         
         logger.info("Charts for review retrieved successfully")
         return {'status': 'success', 'charts': result}

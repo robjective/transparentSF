@@ -8,7 +8,10 @@ import json
 import logging
 import asyncio
 from datetime import datetime, timedelta
-from generate_dashboard_metrics import main as generate_metrics
+try:
+    from generate_dashboard_metrics import main as generate_metrics
+except ImportError:
+    from .generate_dashboard_metrics import main as generate_metrics
 from dotenv import load_dotenv
 import re
 import glob
@@ -178,7 +181,10 @@ logger = logging.getLogger(__name__)
 
 # Import routers
 from webChat import router as webchat_router
-from backend import router as backend_router, set_templates, get_chart_by_metric, get_chart_data
+try:
+    from backend import router as backend_router, set_templates
+except ImportError:
+    from .backend import router as backend_router, set_templates
 from metrics_manager import router as metrics_router
 from anomalyAnalyzer import router as anomaly_analyzer_router, set_templates as set_anomaly_templates
 from routes.dw_charts import router as dw_charts_router
@@ -186,6 +192,10 @@ from routes.database_admin import router as database_admin_router, set_templates
 from routes.evals import router as evals_router, set_templates as set_evals_templates
 from routes.weekly_analysis import router as weekly_analysis_router
 from routes.map_generator import router as map_generator_router, set_templates as set_map_generator_templates
+from routes.conversation import router as conversation_router, set_templates as set_conversation_templates
+from routes.explainer_chat import router as explainer_chat_router, set_templates as set_explainer_chat_templates
+from routes.monthly_reports import router as monthly_reports_router
+from routes.charts import router as charts_router, set_templates as set_charts_templates
 
 app = FastAPI()
 
@@ -721,6 +731,16 @@ set_database_admin_templates(templates)
 app.include_router(database_admin_router, prefix="/backend", tags=["database-admin"])
 logger.debug("Included database admin router at /backend")
 
+# Mount conversation router
+set_conversation_templates(templates)
+app.include_router(conversation_router, prefix="/backend", tags=["conversation"])
+logger.debug("Included conversation router at /backend")
+
+# Mount explainer chat router (with backend prefix for compatibility)
+set_explainer_chat_templates(templates)
+app.include_router(explainer_chat_router, prefix="/backend", tags=["explainer-chat"])
+logger.debug("Included explainer chat router at /backend")
+
 # Mount weekly analysis router
 app.include_router(weekly_analysis_router, tags=["weekly-analysis"])
 logger.debug("Included weekly analysis router")
@@ -729,6 +749,15 @@ logger.debug("Included weekly analysis router")
 set_map_generator_templates(templates)
 app.include_router(map_generator_router, tags=["map-generator"])
 logger.debug("Included map generator router")
+
+# Mount monthly reports router
+app.include_router(monthly_reports_router, tags=["monthly-reports"])
+logger.debug("Included monthly reports router")
+
+# Mount charts router
+set_charts_templates(templates)
+app.include_router(charts_router, tags=["charts"])
+logger.debug("Included charts router")
 
 # Add redirect for anomaly analyzer without trailing slash
 @app.get("/anomaly-analyzer")
@@ -742,30 +771,15 @@ async def api_add_subscriber(request: Request):
     logger.debug("Forwarding /api/add_subscriber request to backend handler")
     
     # Import the backend handler directly
-    from backend import add_subscriber as backend_add_subscriber
+    try:
+        from backend import add_subscriber as backend_add_subscriber
+    except ImportError:
+        from .backend import add_subscriber as backend_add_subscriber
     
     # Forward the request to the backend handler
     return await backend_add_subscriber(request)
 
-@app.get("/api/chart-by-metric")
-async def forward_chart_by_metric(
-    metric_id: str,
-    district: int = 0,
-    period_type: str = 'year',
-    group_field: str = None,
-    groups: str = None
-):
-    """
-    Forward requests from /api/chart-by-metric to /backend/api/chart-by-metric
-    """
-    return await get_chart_by_metric(metric_id, district, period_type, group_field, groups)
 
-@app.get("/api/chart/{chart_id}")
-async def forward_chart_data(chart_id: int):
-    """
-    Forward requests from /api/chart/{chart_id} to /backend/api/chart/{chart_id}
-    """
-    return await get_chart_data(chart_id)
 
 @app.get("/api/district-shapes/{district_type}")
 async def get_district_shapes(district_type: str, district_ids: Optional[List[str]] = None):

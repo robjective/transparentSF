@@ -2886,7 +2886,7 @@ Can you help me understand:
         async function loadExistingReport() {
             try {
                 // Fetch available reports
-                const response = await fetch('/backend/get_monthly_reports');
+                const response = await fetch('/api/monthly-reports/list');
                 const data = await response.json();
                 
                 if (data.status === 'success' && data.reports.length > 0) {
@@ -3035,7 +3035,7 @@ Can you help me understand:
                 
                 // Fetch the report details
                 try {
-                    const response = await fetch('/backend/get_monthly_reports');
+                    const response = await fetch('/api/monthly-reports/list');
                     const data = await response.json();
                     
                     if (data.status === 'success' && data.reports) {
@@ -3053,7 +3053,7 @@ Can you help me understand:
         // Function to populate report dropdown on page load
         async function populateReportDropdown() {
             try {
-                const response = await fetch('/backend/get_monthly_reports');
+                const response = await fetch('/api/monthly-reports/list');
                 const data = await response.json();
                 
                 if (data.status === 'success' && data.reports.length > 0) {

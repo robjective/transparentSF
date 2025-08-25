@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Transparent SF - Conversation Viewer</title>
+    
+    <!-- Favicon -->
+    <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+    <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon.png">
+    <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
+    
+    <!-- Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+    
+    <!-- Conversation Renderer Styles -->
+    <link rel="stylesheet" href="/static/conversation-renderer.css">
+    
+    <!-- Dark mode support -->
+    <link rel="stylesheet" href="/static/darkmode.css">
+    
+    <style>
+        :root {
+            --bg-primary: #ffffff;
+            --bg-secondary: #f8fafc;
+            --bg-tertiary: #f1f5f9;
+            --text-primary: #1e293b;
+            --text-secondary: #64748b;
+            --border-primary: #e2e8f0;
+            --bright-purple: #ad35fa;
+            --success-green: #22c55e;
+            --error-red: #ef4444;
+        }
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'IBM Plex Sans', sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            line-height: 1.6;
+        }
+        
+        .header {
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border-primary);
+            padding: 16px 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 16px;
+        }
+        
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+        
+        .logo {
+            height: 32px;
+            width: auto;
+        }
+        
+        .header-title {
+            font-family: 'Inter', sans-serif;
+            font-weight: 600;
+            font-size: 18px;
+            color: var(--text-primary);
+        }
+        
+        .header-subtitle {
+            font-size: 14px;
+            color: var(--text-secondary);
+            margin-top: 2px;
+        }
+        
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        
+        .btn {
+            padding: 8px 16px;
+            border: 1px solid var(--border-primary);
+            border-radius: 6px;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            text-decoration: none;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.2s ease;
+            cursor: pointer;
+        }
+        
+        .btn:hover {
+            background: var(--bg-tertiary);
+            border-color: var(--text-secondary);
+        }
+        
+        .btn-primary {
+            background: var(--bright-purple);
+            color: white;
+            border-color: var(--bright-purple);
+        }
+        
+        .btn-primary:hover {
+            background: #9333ea;
+            border-color: #9333ea;
+        }
+        
+        .main-container {
+            height: calc(100vh - 73px);
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .conversation-container {
+            flex: 1;
+            background: var(--bg-primary);
+            overflow: hidden;
+        }
+        
+        .loading-state {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            flex-direction: column;
+            gap: 16px;
+            color: var(--text-secondary);
+        }
+        
+        .loading-spinner {
+            width: 32px;
+            height: 32px;
+            border: 3px solid var(--border-primary);
+            border-top: 3px solid var(--bright-purple);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .error-state {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            flex-direction: column;
+            gap: 16px;
+            color: var(--error-red);
+        }
+        
+        .session-info {
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border-primary);
+            padding: 12px 24px;
+            font-size: 14px;
+            color: var(--text-secondary);
+            display: none;
+        }
+        
+        .session-info.show {
+            display: block;
+        }
+        
+        .session-info-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+        }
+        
+        .session-info-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .session-info-label {
+            font-weight: 500;
+            color: var(--text-primary);
+        }
+        
+        .session-stats {
+            background: var(--bg-tertiary);
+            border-bottom: 1px solid var(--border-primary);
+            padding: 8px 24px;
+            font-size: 12px;
+            color: var(--text-secondary);
+            display: none;
+        }
+        
+        .session-stats.show {
+            display: block;
+        }
+        
+        .stats-grid {
+            display: flex;
+            gap: 24px;
+            flex-wrap: wrap;
+        }
+        
+        .stat-item {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+        
+        .stat-value {
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+        
+        @media (max-width: 768px) {
+            .header {
+                padding: 12px 16px;
+                flex-direction: column;
+                align-items: flex-start;
+            }
+            
+            .header-right {
+                align-self: stretch;
+                justify-content: space-between;
+            }
+            
+            .session-info,
+            .session-stats {
+                padding: 12px 16px;
+            }
+            
+            .session-info-grid {
+                grid-template-columns: 1fr;
+                gap: 8px;
+            }
+            
+            .stats-grid {
+                gap: 16px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="header-left">
+            <img src="/static/logo.png" alt="Transparent SF" class="logo">
+            <div>
+                <div class="header-title">Conversation Viewer</div>
+                <div class="header-subtitle" id="conversation-subtitle">AI Agent Conversation</div>
+            </div>
+        </div>
+        <div class="header-right">
+            <button class="btn" id="toggle-info-btn" onclick="toggleSessionInfo()">Session Info</button>
+            <button class="btn" id="share-btn" onclick="shareConversation()">Share</button>
+        </div>
+    </div>
+    
+    <div class="session-info" id="session-info">
+        <div class="session-info-grid" id="session-info-content">
+            <!-- Session info will be populated here -->
+        </div>
+    </div>
+    
+    <div class="session-stats" id="session-stats">
+        <div class="stats-grid" id="session-stats-content">
+            <!-- Session stats will be populated here -->
+        </div>
+    </div>
+    
+    <div class="main-container">
+        <div class="conversation-container">
+            <div class="loading-state" id="loading-state">
+                <div class="loading-spinner"></div>
+                <div>Loading conversation...</div>
+            </div>
+            
+            <div class="error-state" id="error-state" style="display: none;">
+                <div>⚠️</div>
+                <div id="error-message">Failed to load conversation</div>
+                <button class="btn" onclick="window.location.reload()">Retry</button>
+            </div>
+            
+            <div id="conversation-renderer" style="display: none;"></div>
+        </div>
+    </div>
+
+    <!-- Dependencies -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="/static/js/conversation-renderer.js"></script>
+    
+    <script>
+        // Ensure ConversationRenderer is available
+        if (typeof ConversationRenderer === 'undefined' && typeof window.ConversationRenderer !== 'undefined') {
+            ConversationRenderer = window.ConversationRenderer;
+        }
+        
+
+        let conversationRenderer;
+        let sessionData;
+        
+        // Get session ID from URL parameter
+        const urlParams = new URLSearchParams(window.location.search);
+        const sessionId = urlParams.get('session') || urlParams.get('id');
+        
+        if (!sessionId) {
+            showError('No session ID provided. Please check the URL.');
+        } else {
+            loadConversation(sessionId);
+        }
+        
+        async function loadConversation(sessionId) {
+            try {
+                showLoading();
+                
+                // Try to load session data from the API
+                const response = await fetch(`/backend/api/sessions/${sessionId}`);
+                
+                if (!response.ok) {
+                    throw new Error(`Session not found: ${response.status}`);
+                }
+                
+                sessionData = await response.json();
+                
+                // Update page title and subtitle
+                document.title = `Conversation ${sessionId} - Transparent SF`;
+                document.getElementById('conversation-subtitle').textContent = 
+                    `Session ${sessionId} | ${new Date(sessionData.start_time || Date.now()).toLocaleDateString()}`;
+                
+                // Initialize conversation renderer
+                conversationRenderer = new ConversationRenderer('conversation-renderer', {
+                    showTimestamps: true,
+                    enableMarkdown: true,
+                    enableToolCallDetails: true,
+                    enableChartProcessing: true,
+                    autoScroll: false
+                });
+                
+                // Render the conversation
+                conversationRenderer.renderConversation(sessionData);
+                
+                // Populate session info
+                populateSessionInfo(sessionData);
+                
+                // Show the conversation
+                showConversation();
+                
+            } catch (error) {
+                console.error('Error loading conversation:', error);
+                showError(error.message);
+            }
+        }
+        
+        function populateSessionInfo(data) {
+            const infoContent = document.getElementById('session-info-content');
+            const statsContent = document.getElementById('session-stats-content');
+            
+            // Session info
+            const infoItems = [
+                ['Session ID', data.session_id || 'Unknown'],
+                ['Start Time', data.start_time ? new Date(data.start_time).toLocaleString() : 'Unknown'],
+                ['End Time', data.end_time ? new Date(data.end_time).toLocaleString() : 'Unknown'],
+                ['Model', data.model || 'Unknown'],
+                ['Tool Groups', data.tool_groups ? data.tool_groups.join(', ') : 'Unknown'],
+                ['Duration', data.total_execution_time_ms ? `${data.total_execution_time_ms}ms` : 'Unknown']
+            ];
+            
+            infoContent.innerHTML = infoItems.map(([label, value]) => 
+                `<div class="session-info-item">
+                    <span class="session-info-label">${label}:</span>
+                    <span>${value}</span>
+                </div>`
+            ).join('');
+            
+            // Session stats
+            const summary = conversationRenderer ? conversationRenderer.getSummary() : {
+                messageCount: 0, toolCallCount: 0, successfulToolCalls: 0, failedToolCalls: 0
+            };
+            
+            const statsItems = [
+                ['Messages', summary.messageCount],
+                ['Tool Calls', summary.toolCallCount],
+                ['✅ Successful', summary.successfulToolCalls],
+                ['❌ Failed', summary.failedToolCalls],
+                ['Success Rate', summary.toolCallCount > 0 ? 
+                    `${Math.round((summary.successfulToolCalls / summary.toolCallCount) * 100)}%` : 'N/A']
+            ];
+            
+            statsContent.innerHTML = statsItems.map(([label, value]) => 
+                `<div class="stat-item">
+                    <span>${label}:</span>
+                    <span class="stat-value">${value}</span>
+                </div>`
+            ).join('');
+        }
+        
+        function toggleSessionInfo() {
+            const info = document.getElementById('session-info');
+            const stats = document.getElementById('session-stats');
+            const btn = document.getElementById('toggle-info-btn');
+            
+            if (info.classList.contains('show')) {
+                info.classList.remove('show');
+                stats.classList.remove('show');
+                btn.textContent = 'Session Info';
+            } else {
+                info.classList.add('show');
+                stats.classList.add('show');
+                btn.textContent = 'Hide Info';
+                
+                // Refresh stats
+                if (sessionData) {
+                    populateSessionInfo(sessionData);
+                }
+            }
+        }
+        
+        function shareConversation() {
+            const url = window.location.href;
+            
+            // Copy directly to clipboard
+            navigator.clipboard.writeText(url).then(() => {
+                const btn = document.getElementById('share-btn');
+                const originalText = btn.textContent;
+                btn.textContent = 'Copied!';
+                setTimeout(() => {
+                    btn.textContent = originalText;
+                }, 2000);
+            }).catch(() => {
+                // Fallback to prompt for older browsers
+                prompt('Copy this URL to share:', url);
+            });
+        }
+        
+        function showLoading() {
+            document.getElementById('loading-state').style.display = 'flex';
+            document.getElementById('error-state').style.display = 'none';
+            document.getElementById('conversation-renderer').style.display = 'none';
+        }
+        
+        function showError(message) {
+            document.getElementById('error-message').textContent = message;
+            document.getElementById('loading-state').style.display = 'none';
+            document.getElementById('error-state').style.display = 'flex';
+            document.getElementById('conversation-renderer').style.display = 'none';
+        }
+        
+        function showConversation() {
+            document.getElementById('loading-state').style.display = 'none';
+            document.getElementById('error-state').style.display = 'none';
+            document.getElementById('conversation-renderer').style.display = 'block';
+        }
+    </script>
+    
+    <!-- Dark mode support -->
+    <script src="/static/js/check-darkmode.js"></script>
+</body>
+</html>

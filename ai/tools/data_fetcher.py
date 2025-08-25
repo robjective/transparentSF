@@ -93,7 +93,9 @@ def fetch_data_from_api(query_object):
                     response.status_code,
                     response.text[:200]
                 )
-                return {'error': 'Failed to decode JSON response from the API.', 'queryURL': url}
+                # Construct the full URL with query parameters for the queryURL
+                full_url = f"{url}?$query={requests.utils.quote(cleaned_query)}"
+                return {'error': 'Failed to decode JSON response from the API.', 'queryURL': full_url}
             all_data.extend(data)
             logger.info("Fetched %d records in current batch.", len(data))
 
@@ -118,15 +120,23 @@ def fetch_data_from_api(query_object):
                 http_err,
                 error_content
             )
-            return {'error': error_content, 'queryURL': url}
+            # Construct the full URL with query parameters for the queryURL
+            full_url = f"{url}?$query={requests.utils.quote(cleaned_query)}"
+            return {'error': error_content, 'queryURL': full_url}
         except Exception as err:
             logger.exception("An error occurred: %s", err)
             return {'error': str(err), 'queryURL': None}
 
     logger.debug("Finished fetching data. Total records retrieved: %d", len(all_data))
+    
+    # Construct the full URL with query parameters for the queryURL
+    full_url = f"{url}?$query={requests.utils.quote(cleaned_query)}"
+    if not has_limit:
+        full_url = f"{url}?$query={requests.utils.quote(cleaned_query)} LIMIT {limit} OFFSET 0"
+    
     return {
         'data': all_data,
-        'queryURL': url
+        'queryURL': full_url
     }
 
 def set_dataset(context_variables, *args, **kwargs):

@@ -136,7 +136,7 @@ def run_and_get_tool_calls(agent, initial_query, max_turns=5):
 
 def run_single_eval_langchain(query: str, model_key: str = None) -> dict:
     """
-    Run a single evaluation with the LangChain agent.
+    Run a single evaluation with the LangChain agent using proper session logging.
     
     Args:
         query: The user query to test.
@@ -145,76 +145,73 @@ def run_single_eval_langchain(query: str, model_key: str = None) -> dict:
     Returns:
         A dictionary with the results, including tool call count and log filename.
     """
-    # Create a new LangChain agent for this run
-    agent = create_langchain_agent(model_key=model_key)
+    global log_filename
     
-    # Run the agent and get the result
-    result = run_and_get_tool_calls_langchain(agent, query)
+    # Import the LangChain agent
+    from agents.langchain_agent.explainer_agent import create_explainer_agent
+    from agents.langchain_agent.config.tool_config import ToolGroup
+    
+    # Create a new LangChain agent with session logging enabled
+    agent = create_explainer_agent(
+        model_key=model_key, 
+        tool_groups=[ToolGroup.CORE, ToolGroup.ANALYSIS], 
+        enable_session_logging=True
+    )
+    
+    # Run the agent using the working explain_change_sync method
+    result = agent.explain_change_sync(query, metric_details={})
+    
+    # Generate log filename for eval compatibility
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S_%f')[:-3]
+    log_filename = f"{log_folder}/eval_langchain_{timestamp}.log"
+    
+    # Create eval-compatible log from session data
+    with open(log_filename, 'w') as log_file:
+        log_data = {
+            "timestamp": datetime.now().isoformat(),
+            "type": "eval_run",
+            "query": query,
+            "model": model_key or agent.model_key,
+            "success": result.get("success", False),
+            "explanation": result.get("explanation", ""),
+            "session_id": result.get("session_id"),
+            "tool_calls": [],
+            "execution_trace": result.get("execution_trace", [])
+        }
+        
+        # Extract tool calls from execution trace
+        if hasattr(agent, 'session_logger') and agent.session_logger:
+            # Try to get the last session logged
+            sessions_dir = agent.session_logger.logs_dir
+            if sessions_dir.exists():
+                session_files = sorted(sessions_dir.glob("session_*.json"), key=lambda f: f.stat().st_mtime, reverse=True)
+                if session_files:
+                    try:
+                        with open(session_files[0], 'r') as session_file:
+                            session_data = json.load(session_file)
+                            log_data["tool_calls"] = session_data.get("tool_calls", [])
+                            log_data["total_execution_time_ms"] = session_data.get("total_execution_time_ms", 0)
+                    except Exception as e:
+                        print(f"Warning: Could not read session file: {e}")
+        
+        json.dump(log_data, log_file, indent=2)
     
     return {
         "status": "success",
-        "tool_calls_count": len(result.get("tool_calls", [])),
-        "log_filename": log_filename,  # log_filename is a global updated by the run function
-        "tool_calls": result.get("tool_calls", []),
-        "explanation": result.get("explanation", "")
+        "tool_calls_count": len(log_data["tool_calls"]),
+        "log_filename": log_filename,
+        "tool_calls": log_data["tool_calls"],
+        "explanation": result.get("explanation", ""),
+        "session_id": result.get("session_id")
     }
 
-def run_and_get_tool_calls_langchain(agent, initial_query, max_turns=5):
-    """
-    Interact with the LangChain agent and collect tool usage information.
-    Since the LangChain agent executor handles the tool calls internally,
-    we will inspect the verbose output to determine which tools were called.
-    
-    This is a temporary solution for compatibility with the existing eval structure.
-    A better long-term solution would be to use LangChain's built-in tracing.
-    """
-    global log_filename
-    
-    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S_%f')[:-3]
-    log_filename = f"{log_folder}/session_langchain_{timestamp}.log"
-    
-    collected_tool_calls = []
-
-    # For LangChain, we can capture the stdout to see the verbose output
-    import io
-    from contextlib import redirect_stdout
-
-    f = io.StringIO()
-    with redirect_stdout(f):
-        # The LangChain agent handles the full conversation in one call
-        result = agent.explain_change_sync(initial_query, metric_details={})
-
-    # Get the output and log it
-    output = f.getvalue()
-    with open(log_filename, 'a') as log_file:
-        log_file.write(output)
-
-    # A simple way to parse tool calls from the verbose output
-    # This is brittle and should be improved in a real-world scenario
-    for line in output.split('\n'):
-        if "invoking" in line.lower():
-            try:
-                # Attempt to parse the tool call from the log line
-                tool_name_part = line.split("`")[1]
-                tool_input_part = line.split("`")[3]
-                collected_tool_calls.append({
-                    "function": {
-                        "name": tool_name_part,
-                        "arguments": tool_input_part
-                    }
-                })
-            except IndexError:
-                # Line format may not be as expected, skip it
-                pass
-                
-    # We need to return the full result from the agent, not just the tool calls
-    result_from_agent = agent.explain_change_sync(initial_query, metric_details={})
-    
-    # For now, we will just simulate the tool calls from the log
-    # A better solution would be to get structured output from the agent
-    result_from_agent["tool_calls"] = collected_tool_calls
-                
-    return result_from_agent
+# DEPRECATED: Old broken function - replaced with proper session logging
+# def run_and_get_tool_calls_langchain(agent, initial_query, max_turns=5):
+#     """
+#     DEPRECATED: This function used brittle stdout parsing.
+#     Now using proper session logging in run_single_eval_langchain() instead.
+#     """
+#     pass
 
 def run_all_evals(model_key: str = None):
     """Run all eval test cases and return success/failure counts with details."""
@@ -366,22 +363,26 @@ def run_model_comparison(models: list, test_cases: dict = None):
 
 def test_sets_data_when_asked_impl(test_agent, query):
     """Test implementation for checking if set_dataset is called."""
-    tool_calls = run_and_get_tool_calls_langchain(test_agent, query)
+    # Use the proper eval function to get tool calls
+    result = run_single_eval_langchain(query, model_key=None)
+    tool_calls = result.get("tool_calls", [])
     
     # Check if 'set_dataset' was called
     for call in tool_calls:
-        if call.get('function', {}).get('name') == 'set_dataset':
+        if call.get('tool_name') == 'set_dataset':
             return True, None
             
     return False, "The 'set_dataset' tool was not called."
 
 def test_does_not_call_set_dataset_when_not_asked_impl(test_agent, query):
     """Test implementation for checking if set_dataset is NOT called."""
-    tool_calls = run_and_get_tool_calls_langchain(test_agent, query)
+    # Use the proper eval function to get tool calls
+    result = run_single_eval_langchain(query, model_key=None)
+    tool_calls = result.get("tool_calls", [])
     
     # Check if 'set_dataset' was called
     for call in tool_calls:
-        if call.get('function', {}).get('name') == 'set_dataset':
+        if call.get('tool_name') == 'set_dataset':
             return False, "The 'set_dataset' tool was called when it should not have been."
             
     return True, None
@@ -414,7 +415,7 @@ def test_does_not_call_set_dataset_when_not_asked(query):
 @pytest.mark.parametrize(
     "query, model_key",
     [
-        ("who made this model", "gpt-4.1"),
+        ("who made this model", "gpt-4o"),
         ("who made this model", "gemini-pro"),
     ]
 )

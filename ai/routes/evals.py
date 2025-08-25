@@ -3,7 +3,7 @@ import json
 import math
 from datetime import datetime, timedelta, date
 from fastapi import APIRouter, Request, HTTPException
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 import logging
 
@@ -115,6 +115,140 @@ async def run_evals_endpoint(query: str, model_key: str = None):
         })
     except Exception as e:
         logger.exception(f"Error running single eval: {str(e)}")
+        return JSONResponse({
+            "status": "error",
+            "message": str(e)
+        }, status_code=500)
+
+@router.post("/run-eval-streaming")
+async def run_eval_streaming_endpoint(request: Request):
+    """
+    Run a specific eval with streaming output to show agent thinking in real-time.
+    
+    Expected JSON payload:
+    {
+        "eval_id": 5,
+        "model_key": "claude-3-7-sonnet"
+    }
+    """
+    try:
+        data = await request.json()
+        eval_id = data.get("eval_id")
+        model_key = data.get("model_key", "claude-3-7-sonnet")
+        
+        if not eval_id:
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "status": "error",
+                    "message": "No eval_id provided"
+                }
+            )
+        
+        # Get the eval details
+        eval_result = get_eval_by_id(eval_id)
+        if eval_result["status"] != "success":
+            return JSONResponse({
+                "status": "error",
+                "message": f"Failed to get eval: {eval_result['message']}"
+            }, status_code=400)
+        
+        eval_data = eval_result["eval"]
+        prompt = eval_data["prompt"]
+        
+        logger.info(f"Starting streaming eval {eval_id}: {eval_data['name']}")
+        logger.info(f"Model: {model_key}")
+        logger.info(f"Prompt: {prompt}")
+        
+        # Create new LangChain agent with session logging enabled
+        from agents.langchain_agent.explainer_agent import create_explainer_agent
+        from agents.langchain_agent.config.tool_config import ToolGroup
+        
+        agent = create_explainer_agent(
+            model_key=model_key, 
+            tool_groups=[ToolGroup.CORE, ToolGroup.ANALYSIS], 
+            enable_session_logging=True
+        )
+        
+        async def generate_eval_stream():
+            """Generate streaming response for eval with visible agent thinking"""
+            try:
+                # Send eval start signal
+                yield f"data: {json.dumps({'eval_start': True, 'eval_id': eval_id, 'eval_name': eval_data['name'], 'model': model_key})}\n\n"
+                
+                # Use the agent's streaming method to show thinking with the eval prompt
+                async for chunk in agent.explain_change_streaming(prompt, metric_details={}):
+                    if chunk:
+                        yield chunk
+                
+                # Get the most recent session to extract tool calls for eval analysis
+                if hasattr(agent, 'session_logger') and agent.session_logger:
+                    sessions_dir = agent.session_logger.logs_dir
+                    if sessions_dir.exists():
+                        session_files = sorted(sessions_dir.glob("session_*.json"), key=lambda f: f.stat().st_mtime, reverse=True)
+                        if session_files:
+                            try:
+                                with open(session_files[0], 'r') as session_file:
+                                    session_data = json.load(session_file)
+                                    
+                                    # Run the eval through the eval_runner to get proper evaluation
+                                    eval_result = eval_runner.run_eval(eval_id, model_key)
+                                    execution_result = eval_result.get("execution_result", {})
+                                    
+                                    # Send comprehensive eval results for database saving
+                                    tool_calls = session_data.get("tool_calls", [])
+                                    successful_tool_calls = [tc for tc in tool_calls if tc.get('success')]
+                                    failed_tool_calls = [tc for tc in tool_calls if not tc.get('success')]
+                                    
+                                    eval_results = {
+                                        'eval_complete': True,
+                                        'eval_id': eval_id,
+                                        'eval_name': eval_data['name'],
+                                        'tool_calls_count': len(tool_calls),
+                                        'successful_tool_calls': len(successful_tool_calls),
+                                        'failed_tool_calls': len(failed_tool_calls),
+                                        'success_score': execution_result.get('success_score', 0.0),
+                                        'success': session_data.get("success", False),
+                                        'total_execution_time_ms': session_data.get("total_execution_time_ms", 0),
+                                        'session_id': session_data.get("session_id"),
+                                        'final_response': session_data.get("final_response", ""),
+                                        'conversation': session_data.get("conversation", []),
+                                        'tool_calls_details': [
+                                            {
+                                                'tool_name': tc.get('tool_name'),
+                                                'arguments': tc.get('arguments', {}),
+                                                'success': tc.get('success'),
+                                                'execution_time_ms': tc.get('execution_time_ms'),
+                                                'result': tc.get('result'),
+                                                'error_message': tc.get('error_message')
+                                            }
+                                            for tc in tool_calls
+                                        ],
+                                        'success_details': execution_result.get('success_details', {})
+                                    }
+                                    yield f"data: {json.dumps(eval_results)}\n\n"
+                            except Exception as e:
+                                logger.error(f"Error reading session file for eval: {e}")
+                
+                # Send completion signal
+                yield f"data: {json.dumps({'completed': True})}\n\n"
+                
+            except Exception as e:
+                logger.error(f"Error in streaming eval generation: {str(e)}")
+                yield f"data: {json.dumps({'error': str(e)})}\n\n"
+        
+        return StreamingResponse(
+            generate_eval_stream(),
+            media_type="text/plain",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no"
+            }
+        )
+        
+    except Exception as e:
+        logger.exception(f"Error setting up streaming eval: {str(e)}")
         return JSONResponse({
             "status": "error",
             "message": str(e)
@@ -240,6 +374,101 @@ async def run_eval_endpoint(eval_id: int, request: Request):
         return JSONResponse(serializable_result)
     except Exception as e:
         logger.exception(f"Error running eval: {str(e)}")
+        return JSONResponse({
+            "status": "error",
+            "message": str(e)
+        }, status_code=500)
+
+@router.post("/api/save-streaming-eval-result/{eval_id}")
+async def save_streaming_eval_result_endpoint(eval_id: int, request: Request):
+    """Save results from a streaming eval session without re-running the agent."""
+    try:
+        body = await request.json()
+        model_name = body.get("model_name", "test-model")
+        streaming_results = body.get("streaming_results", {})
+        
+        # Get eval details for prompt
+        eval_result = get_eval_by_id(eval_id)
+        if eval_result["status"] != "success":
+            return JSONResponse({
+                "status": "error",
+                "message": f"Failed to get eval: {eval_result['message']}"
+            }, status_code=400)
+        
+        eval_data = eval_result["eval"]
+        prompt = eval_data["prompt"]
+        
+        # Extract data from streaming results
+        response_text = streaming_results.get("final_response", "")
+        tool_calls_details = streaming_results.get("tool_calls_details", [])
+        success_score = streaming_results.get("success_score", 0.0)
+        execution_time_seconds = streaming_results.get("total_execution_time_ms", 0) / 1000.0
+        
+        # Convert tool calls to the format expected by save_eval_result
+        tool_calls_made = [
+            {
+                "function": tc.get("tool_name"),
+                "arguments": tc.get("arguments", {}),
+                "successful": tc.get("success", False),
+                "execution_time_ms": tc.get("execution_time_ms", 0),
+                "result": tc.get("result"),
+                "error_message": tc.get("error_message")
+            }
+            for tc in tool_calls_details
+        ]
+        
+        # Calculate success score based on streaming results
+        if success_score == 0.0:
+            # Calculate success score from tool calls if not provided
+            total_tools = len(tool_calls_made)
+            successful_tools = len([tc for tc in tool_calls_made if tc.get("successful")])
+            success_score = (successful_tools / max(total_tools, 1)) if total_tools > 0 else 0.0
+        
+        # Save the result
+        save_result = save_eval_result(
+            eval_id=eval_id,
+            model_name=model_name,
+            prompt_used=prompt,
+            response_received=response_text,
+            tool_calls_made=tool_calls_made,
+            success_score=success_score,
+            success_details={
+                "streaming_session": True,
+                "session_id": streaming_results.get("session_id"),
+                "tool_calls_count": len(tool_calls_made),
+                "successful_tool_calls": len([tc for tc in tool_calls_made if tc.get("successful")]),
+                "failed_tool_calls": len([tc for tc in tool_calls_made if not tc.get("successful")]),
+                "total_execution_time_ms": streaming_results.get("total_execution_time_ms", 0)
+            },
+            execution_time_seconds=execution_time_seconds,
+            status="completed",
+            conversation_history=streaming_results.get("conversation", [])
+        )
+        
+        if save_result["status"] != "success":
+            return JSONResponse({
+                "status": "error", 
+                "message": f"Failed to save results: {save_result['message']}"
+            }, status_code=500)
+        
+        return JSONResponse({
+            "status": "success",
+            "eval_id": eval_id,
+            "eval_name": eval_data["name"],
+            "execution_result": {
+                "success_score": success_score,
+                "tool_calls_count": len(tool_calls_made),
+                "successful_tool_calls": len([tc for tc in tool_calls_made if tc.get("successful")]),
+                "failed_tool_calls": len([tc for tc in tool_calls_made if not tc.get("successful")]),
+                "response": response_text,
+                "status": "completed"
+            },
+            "result_id": save_result.get("result_id"),
+            "source": "streaming_session"
+        })
+        
+    except Exception as e:
+        logger.exception(f"Error saving streaming eval result: {str(e)}")
         return JSONResponse({
             "status": "error",
             "message": str(e)
@@ -637,6 +866,170 @@ async def get_eval_history():
         })
     except Exception as e:
         logger.exception(f"Error getting eval history: {str(e)}")
+        return JSONResponse({
+            "status": "error",
+            "message": str(e)
+        }, status_code=500) 
+
+@router.get("/api/sessions-summary")
+async def get_sessions_summary_endpoint():
+    """Get a summary of all sessions from the logs/sessions folder."""
+    try:
+        # Get the sessions directory
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        sessions_dir = os.path.join(script_dir, '..', 'logs', 'sessions')
+        
+        if not os.path.exists(sessions_dir):
+            return JSONResponse({
+                "status": "success",
+                "summary": {
+                    "total_sessions": 0,
+                    "sessions": [],
+                    "model_stats": {},
+                    "agent_type_stats": {},
+                    "initiation_stats": {},
+                    "tool_call_stats": {}
+                }
+            })
+        
+        sessions = []
+        model_stats = {}
+        agent_type_stats = {}
+        initiation_stats = {}
+        tool_call_stats = {}
+        
+        # Get all session files
+        for filename in os.listdir(sessions_dir):
+            if filename.endswith('.json'):
+                file_path = os.path.join(sessions_dir, filename)
+                stat = os.stat(file_path)
+                
+                try:
+                    with open(file_path, 'r') as f:
+                        session_data = json.load(f)
+                    
+                    session_id = session_data.get('session_id', filename.replace('.json', ''))
+                    timestamp = session_data.get('timestamp', '')
+                    agent_type = session_data.get('agent_type', 'unknown')
+                    model = session_data.get('model', 'unknown')
+                    user_input = session_data.get('user_input', '')
+                    tool_calls = session_data.get('tool_calls', [])
+                    success = session_data.get('success', False)
+                    total_execution_time_ms = session_data.get('total_execution_time_ms', 0)
+                    
+                    # Determine initiation type based on user input or session context
+                    initiation_type = "UI"
+                    user_input_lower = user_input.lower()
+                    
+                    # Check for eval-related keywords
+                    if any(keyword in user_input_lower for keyword in ["eval", "test", "evaluation", "assessment"]):
+                        initiation_type = "Eval"
+                    # Check for newsletter/report keywords
+                    elif any(keyword in user_input_lower for keyword in ["newsletter", "report", "monthly", "weekly", "summary"]):
+                        initiation_type = "Newsletter"
+                    # Check for anomaly-related keywords
+                    elif any(keyword in user_input_lower for keyword in ["anomaly", "anomalies", "unusual", "spike", "outlier"]):
+                        initiation_type = "Anomaly"
+                    # Check for metric creation/editing
+                    elif any(keyword in user_input_lower for keyword in ["create metric", "new metric", "edit metric", "update metric"]):
+                        initiation_type = "Metric Management"
+                    # Check for data analysis
+                    elif any(keyword in user_input_lower for keyword in ["analyze", "analysis", "trend", "chart", "map"]):
+                        initiation_type = "Data Analysis"
+                    
+                    # Count tool calls by type
+                    tool_call_count = len(tool_calls)
+                    successful_tool_calls = len([tc for tc in tool_calls if tc.get('success')])
+                    failed_tool_calls = tool_call_count - successful_tool_calls
+                    
+                    # Update statistics
+                    model_stats[model] = model_stats.get(model, 0) + 1
+                    agent_type_stats[agent_type] = agent_type_stats.get(agent_type, 0) + 1
+                    initiation_stats[initiation_type] = initiation_stats.get(initiation_type, 0) + 1
+                    
+                    # Tool call statistics
+                    for tool_call in tool_calls:
+                        tool_name = tool_call.get('tool_name', 'unknown')
+                        tool_call_stats[tool_name] = tool_call_stats.get(tool_name, {
+                            'total_calls': 0,
+                            'successful_calls': 0,
+                            'failed_calls': 0
+                        })
+                        tool_call_stats[tool_name]['total_calls'] += 1
+                        if tool_call.get('success'):
+                            tool_call_stats[tool_name]['successful_calls'] += 1
+                        else:
+                            tool_call_stats[tool_name]['failed_calls'] += 1
+                    
+                    sessions.append({
+                        "session_id": session_id,
+                        "timestamp": timestamp,
+                        "agent_type": agent_type,
+                        "model": model,
+                        "user_input": user_input[:60] + "..." if len(user_input) > 60 else user_input,
+                        "tool_call_count": tool_call_count,
+                        "successful_tool_calls": successful_tool_calls,
+                        "failed_tool_calls": failed_tool_calls,
+                        "success": success,
+                        "total_execution_time_ms": total_execution_time_ms,
+                        "initiation_type": initiation_type,
+                        "filename": filename
+                    })
+                    
+                except Exception as e:
+                    logger.warning(f"Error reading session file {filename}: {str(e)}")
+                    sessions.append({
+                        "session_id": filename.replace('.json', ''),
+                        "timestamp": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                        "agent_type": "error",
+                        "model": "unknown",
+                        "user_input": "Error reading file",
+                        "tool_call_count": 0,
+                        "successful_tool_calls": 0,
+                        "failed_tool_calls": 0,
+                        "success": False,
+                        "total_execution_time_ms": 0,
+                        "initiation_type": "Error",
+                        "filename": filename
+                    })
+        
+        # Sort sessions by timestamp, newest first
+        sessions.sort(key=lambda x: x["timestamp"], reverse=True)
+        
+        # Calculate success rates for models based on tool call success
+        model_success_rates = {}
+        for session in sessions:
+            model = session["model"]
+            if model not in model_success_rates:
+                model_success_rates[model] = {"total_sessions": 0, "total_tool_calls": 0, "successful_tool_calls": 0}
+            
+            model_success_rates[model]["total_sessions"] += 1
+            model_success_rates[model]["total_tool_calls"] += session["tool_call_count"]
+            model_success_rates[model]["successful_tool_calls"] += session["successful_tool_calls"]
+        
+        # Convert to percentages based on tool call success rate
+        for model, stats in model_success_rates.items():
+            if stats["total_tool_calls"] > 0:
+                success_rate = (stats["successful_tool_calls"] / stats["total_tool_calls"] * 100)
+            else:
+                # If no tool calls, use session success as fallback
+                success_rate = 100.0  # Sessions without tool calls are considered successful
+            model_success_rates[model] = round(success_rate, 1)
+        
+        return JSONResponse({
+            "status": "success",
+            "summary": {
+                "total_sessions": len(sessions),
+                "sessions": sessions,
+                "model_stats": model_stats,
+                "model_success_rates": model_success_rates,
+                "agent_type_stats": agent_type_stats,
+                "initiation_stats": initiation_stats,
+                "tool_call_stats": tool_call_stats
+            }
+        })
+    except Exception as e:
+        logger.exception(f"Error getting sessions summary: {str(e)}")
         return JSONResponse({
             "status": "error",
             "message": str(e)

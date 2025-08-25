@@ -17,7 +17,7 @@ import subprocess  # ADDED
 import glob
 import shutil  # Add this import at the top with other imports
 
-
+from ai_dataprep import process_single_file  # Ensure these imports are correct
 from periodic_analysis import export_for_endpoint  # Ensure this import is correct
 import logging
 from generate_dashboard_metrics import main as generate_metrics
@@ -158,6 +158,7 @@ def find_output_files_for_endpoint(endpoint: str, output_dir: str):
     # logger.debug(f"Final output files found: {json.dumps(output_files, indent=2)}")
     return output_files
 
+
 def get_output_file_url(file_path: str, output_dir: str):
     """
     Convert a file path to a URL accessible via the FastAPI app.
@@ -175,14 +176,94 @@ def get_output_file_url(file_path: str, output_dir: str):
         return None
 
 
+def check_fixed_file_exists(filename: str) -> bool:
+    """Check if a file exists in the fixed datasets folder."""
+    current_dir = os.path.dirname(__file__)
+    fixed_path = os.path.join(current_dir, 'data', 'datasets', 'fixed', filename)
+    return os.path.exists(fixed_path)
 
-def get_datasets_from_db():
+
+def load_and_sort_json():
     """
-    Get datasets from the PostgreSQL database instead of files.
-    Returns an empty list since the template doesn't actually use datasets.
+    Loads all .json files from both data/datasets and data/datasets/fixed directories,
+    extracts required information, and sorts them with fixed files at the top.
     """
-    logger.debug("Getting datasets from database (currently returning empty list)")
-    return []
+    datasets = []
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    raw_datasets_dir = os.path.join(current_dir, 'data', 'datasets')
+    fixed_datasets_dir = os.path.join(current_dir, 'data', 'datasets', 'fixed')
+    output_dir = os.path.join(current_dir, 'output')
+    
+    logger.debug(f"Loading datasets from: {raw_datasets_dir} and {fixed_datasets_dir}")
+
+    if not os.path.exists(raw_datasets_dir):
+        logger.error(f"Raw datasets directory not found: {raw_datasets_dir}")
+        return datasets
+
+    # First, get list of all raw dataset files
+    try:
+        raw_files = [f for f in os.listdir(raw_datasets_dir) 
+                    if f.endswith('.json') and f != 'analysis_map.json']
+        logger.debug(f"Found raw files: {raw_files}")
+    except Exception as e:
+        logger.error(f"Error listing raw datasets directory: {e}")
+        return datasets
+
+    # Process each file
+    for filename in raw_files:
+        try:
+            # Check if there's a fixed version
+            has_fixed = os.path.exists(os.path.join(fixed_datasets_dir, filename))
+            file_path = os.path.join(fixed_datasets_dir if has_fixed else raw_datasets_dir, filename)
+            
+            with open(file_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            
+            # Get the last run time by checking output files
+            last_run = None
+            endpoint = filename.replace('.json', '')
+            for root, _, files in os.walk(output_dir):
+                for file in files:
+                    if endpoint in file:
+                        file_path = os.path.join(root, file)
+                        file_time = os.path.getmtime(file_path)
+                        if last_run is None or file_time > last_run:
+                            last_run = file_time
+
+            # Check if any output files exist for this dataset
+            has_output = last_run is not None
+            
+            dataset_info = {
+                'filename': filename,
+                'json_path': os.path.join('data', 'datasets', 'fixed' if has_fixed else '', filename),
+                'category': data.get('category', 'Uncategorized'),
+                'report_category': data.get('report_category', data.get('category', 'Uncategorized')),
+                'item_noun': data.get('item_noun', 'items'),
+                'title': data.get('title', 'Untitled'),
+                'has_fixed': has_fixed,
+                'endpoint': filename,
+                'last_run': last_run,
+                'last_run_str': datetime.fromtimestamp(last_run).strftime('%Y-%m-%d %H:%M:%S') if last_run else 'Never',
+                'has_output': has_output
+            }
+            datasets.append(dataset_info)
+            
+        except Exception as e:
+            logger.error(f"Error processing file {filename}: {e}")
+            continue
+
+    # Sort datasets:
+    # 1. Has output files (True before False)
+    # 2. Category
+    # 3. Last run time (most recent first)
+    datasets.sort(key=lambda x: (
+        not x['has_output'],  # False sorts after True
+        x['report_category'] if x['has_fixed'] else x['category'],
+        -(x['last_run'] or 0)  # Use 0 for None values, negative for descending order
+    ))
+
+    return datasets
+
 
 def get_md_file_date(output_files):
     """Get the most recent date from MD or HTML files in output_files."""
@@ -198,6 +279,7 @@ def get_md_file_date(output_files):
                     continue
     return latest_date
 
+
 @router.get("/")
 async def backend_root(request: Request, username: str = Depends(get_current_username)): # Added username dependency
     """Serve the backend interface."""
@@ -208,7 +290,7 @@ async def backend_root(request: Request, username: str = Depends(get_current_use
     
     # Load datasets here
     try:
-        datasets = get_datasets_from_db()
+        datasets = load_and_sort_json()
         logger.debug(f"Loaded {len(datasets)} datasets")
     except Exception as e:
         logger.error(f"Error loading datasets: {e}")
@@ -220,6 +302,41 @@ async def backend_root(request: Request, username: str = Depends(get_current_use
         "datasets": datasets
     })
 
+
+@router.get("/prep-data/{filename}")
+async def prep_data(filename: str):
+    logger.debug(f"Prep data called for filename: {filename}")
+    current_dir = os.path.dirname(__file__)
+    datasets_folder = os.path.join(current_dir, 'data', 'datasets')
+    output_folder = os.path.join(current_dir, 'data', 'datasets/fixed')
+    error_log = []
+
+    # Check if file exists
+    file_path = os.path.join(datasets_folder, filename)
+    if not os.path.exists(file_path):
+        logger.error(f"File '{filename}' not found in datasets directory.")
+        raise HTTPException(status_code=404, detail=f"File '{filename}' not found in datasets directory.")
+
+    try:
+        # Process data
+        process_single_file(filename, datasets_folder, output_folder, datetime.now(pytz.UTC), error_log)
+
+        if error_log:
+            logger.warning(f"Data prepared with warnings for file '{filename}': {error_log}")
+            return JSONResponse({
+                'status': 'warning',
+                'message': 'Data prepared with warnings.',
+                'errors': error_log
+            })
+
+        logger.info(f"File '{filename}' prepared successfully.")
+        return JSONResponse({
+            'status': 'success',
+            'message': f'File {filename} prepared successfully.'
+        })
+    except Exception as e:
+        logger.exception(f"Error preparing data for file '{filename}': {str(e)}")
+        return JSONResponse({'status': 'error', 'message': str(e)})
 
 
 @router.get("/run_analysis/{endpoint}")
@@ -277,6 +394,7 @@ async def run_analysis(endpoint: str, period_type: str = 'year'):
             'message': str(e)
         }, status_code=500)
 
+
 @router.get("/get-updated-links/{endpoint}")
 async def get_updated_links(endpoint: str):
     """Returns the updated output links for a single endpoint."""
@@ -320,6 +438,7 @@ async def get_updated_links(endpoint: str):
     
     logger.debug(f"Returning links: {json.dumps(links, indent=2)}")
     return JSONResponse({'links': links})
+
 
 # --- ADDED: Route to reload vector DB
 @router.get("/reload_vector_db")
@@ -369,6 +488,7 @@ async def reload_vector_db():
             "message": str(e),
             "log_content": "Error occurred before log file could be read"
         })
+
 
 @router.get("/reload_sfpublic")
 async def reload_sfpublic():
@@ -427,6 +547,7 @@ async def reload_sfpublic():
             "log_content": "Error occurred before log file could be read"
         })
 
+
 @router.get("/dataset-json/{filename:path}")
 async def get_dataset_json(filename: str):
     """Serve the JSON file for a dataset."""
@@ -448,6 +569,7 @@ async def get_dataset_json(filename: str):
         media_type="application/json",
         filename=os.path.basename(clean_filename)
     )
+
 
 @router.get("/endpoint-json/{endpoint}")
 async def get_endpoint_json(endpoint: str):
@@ -484,6 +606,7 @@ async def get_endpoint_json(endpoint: str):
         logger.exception(f"Error serving endpoint JSON for '{endpoint}': {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
+
 def count_tokens(text: str) -> int:
     """Rough estimate of token count based on words and punctuation."""
     # Split on whitespace and count punctuation as separate tokens
@@ -492,6 +615,7 @@ def count_tokens(text: str) -> int:
     punctuation_count = text.count('.') + text.count(',') + text.count('!') + \
                        text.count('?') + text.count(';') + text.count(':')
     return len(words) + punctuation_count
+
 
 @router.get("/get-aggregated-summary")
 async def get_aggregated_summary():
@@ -588,6 +712,7 @@ async def get_aggregated_summary():
         logger.exception(f"Error creating aggregated summary: {str(e)}")
         return JSONResponse({"status": "error", "message": str(e)})
 
+
 @router.get("/get-log-files")
 async def get_log_files():
     """Get a list of all log files in the logs directory."""
@@ -618,6 +743,7 @@ async def get_log_files():
         logger.exception(f"Error getting log files: {str(e)}")
         return JSONResponse({"error": str(e)})
 
+
 @router.get("/disk-space")
 async def get_disk_space():
     """Get disk space information for the current drive."""
@@ -636,6 +762,7 @@ async def get_disk_space():
             {"error": str(e)},
             status_code=500
         )
+
 
 @router.post("/clear-html-files")
 async def clear_html_files():
@@ -672,6 +799,7 @@ async def clear_html_files():
             "status": "error",
             "message": str(e)
         })
+
 
 @router.post("/clear-period-files/{period_type}")
 async def clear_period_files(period_type: str):
@@ -744,6 +872,7 @@ async def clear_period_files(period_type: str):
             "message": str(e)
         })
 
+
 @router.get("/generate_ytd_metrics")
 async def generate_ytd_metrics():
     """Generate YTD metrics on demand."""
@@ -771,6 +900,7 @@ async def generate_ytd_metrics():
             "message": str(e)
         }, status_code=500)
 
+
 @router.post("/generate_ytd_metrics_async")
 async def generate_ytd_metrics_async():
     """Generate YTD metrics asynchronously with job tracking."""
@@ -796,6 +926,7 @@ async def generate_ytd_metrics_async():
             "message": str(e)
         }, status_code=500)
 
+
 @router.get("/jobs/{job_id}")
 async def get_job_status(job_id: str):
     """Get the status of a background job."""
@@ -811,6 +942,7 @@ async def get_job_status(job_id: str):
         "job": job.to_dict()
     })
 
+
 @router.get("/jobs")
 async def list_jobs():
     """List all background jobs."""
@@ -819,6 +951,10 @@ async def list_jobs():
         "status": "success",
         "jobs": [job.to_dict() for job in jobs.values()]
     })
+
+
+
+
 
 @router.get("/generate_weekly_report")
 async def generate_weekly_report():
@@ -879,6 +1015,116 @@ async def generate_weekly_report():
             "status": "error",
             "message": error_message
         }, status_code=500)
+
+
+@router.get("/generate_monthly_report")
+async def generate_monthly_report_get():
+    """Generate monthly report on demand (GET method for backward compatibility)."""
+    logger.debug("Generate monthly report (GET) called")
+    try:
+        # Import the necessary function
+        from monthly_report import run_monthly_report_process
+        
+        # Run the monthly report process
+        logger.info("Running monthly report process")
+        result = run_monthly_report_process()
+        
+        if result.get("status") == "success":
+            # After generating the report, redirect to the report path
+            report_path = result.get("revised_report_path") or result.get("report_path")
+            
+            if report_path:
+                # Extract the filename from the path
+                filename = os.path.basename(report_path)
+                logger.info(f"Monthly report generated successfully: {filename}")
+                
+                # Redirect to the report file
+                return RedirectResponse(url=f"/logs/{filename}", status_code=302)
+            else:
+                logger.info("Monthly report generated but no file path returned")
+                return JSONResponse({
+                    "status": "success",
+                    "message": "Monthly report generated successfully"
+                })
+        else:
+            error_message = result.get("message", "Monthly report generation failed. Check logs for details.")
+            logger.error(error_message)
+            return JSONResponse({
+                "status": "error",
+                "message": error_message
+            }, status_code=500)
+    except ImportError as e:
+        error_message = f"Could not import monthly report function: {str(e)}"
+        logger.error(error_message)
+        return JSONResponse({
+            "status": "error",
+            "message": error_message
+        }, status_code=500)
+
+
+@router.post("/generate_monthly_report")
+async def generate_monthly_report_post(request: Request):
+    """Generate monthly report with custom parameters."""
+    logger.debug("Generate monthly report (POST) called")
+    try:
+        # Get parameters from request body
+        body = await request.json()
+        district = body.get("district", "0")
+        period_type = body.get("period_type", "month")
+        max_report_items = body.get("max_report_items", 10)
+        
+        logger.info(f"Generating monthly report with district={district}, period_type={period_type}, max_items={max_report_items}")
+        
+        # Import the necessary function
+        from monthly_report import run_monthly_report_process
+        import asyncio
+        
+        # Run the monthly report process in a separate thread to prevent blocking
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(
+            None,
+            lambda: run_monthly_report_process(
+                district=district,
+                period_type=period_type,
+                max_report_items=max_report_items
+            )
+        )
+        
+        if result.get("status") == "success":
+            # Return the report path
+            report_path = result.get("revised_report_path") or result.get("newsletter_path")
+            
+            if report_path:
+                # Extract the filename from the path
+                filename = os.path.basename(report_path)
+                logger.info(f"Monthly report generated successfully: {filename}")
+                
+                return JSONResponse({
+                    "status": "success",
+                    "message": "Monthly report generated successfully",
+                    "filename": filename
+                })
+            else:
+                logger.info("Monthly report generated but no file path returned")
+                return JSONResponse({
+                    "status": "success",
+                    "message": "Monthly report generated successfully"
+                })
+        else:
+            error_message = result.get("message", "Monthly report generation failed. Check logs for details.")
+            logger.error(error_message)
+            return JSONResponse({
+                "status": "error",
+                "message": error_message
+            }, status_code=500)
+    except Exception as e:
+        error_message = f"Error generating monthly report: {str(e)}"
+        logger.error(error_message)
+        return JSONResponse({
+            "status": "error",
+            "message": error_message
+        }, status_code=500)
+
 
 @router.get("/run_all_metrics")
 async def run_all_metrics(period_type: str = 'year'):
@@ -1015,6 +1261,7 @@ async def run_all_metrics(period_type: str = 'year'):
             "message": str(e)
         }, status_code=500)
 
+
 @router.get("/query")
 async def query_page(request: Request):
     """Serve the query interface page."""
@@ -1026,6 +1273,7 @@ async def query_page(request: Request):
     return templates.TemplateResponse("query.html", {
         "request": request
     })
+
 
 @router.post("/execute-query")
 async def execute_query(request: Request):
@@ -1074,6 +1322,7 @@ async def execute_query(request: Request):
             'status': 'error',
             'message': str(e)
         })
+
 
 @router.get("/logs/{filename}")
 async def get_log_file(filename: str):
@@ -1141,6 +1390,7 @@ async def get_log_file(filename: str):
     except Exception as e:
         logger.error(f"Error serving file {filename}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error serving file: {str(e)}")
+
 
 @router.post("/execute-qdrant-query")
 async def execute_qdrant_query(request: Request):
@@ -1320,6 +1570,7 @@ async def execute_qdrant_query(request: Request):
             'message': str(e)
         })
 
+
 @router.delete("/delete-collection/{collection_name}")
 async def delete_collection(collection_name: str):
     """Delete a Qdrant collection."""
@@ -1360,6 +1611,7 @@ async def delete_collection(collection_name: str):
             'message': str(e)
         })
 
+
 @router.get("/metric-control")
 async def metric_control(request: Request):
     """Serve the metric control interface."""
@@ -1372,7 +1624,9 @@ async def metric_control(request: Request):
         "request": request
     })
 
+
 # Removed - migrated to metrics_manager.py
+
 
 # Removed - migrated to metrics_manager.py
 
@@ -1486,6 +1740,7 @@ async def get_output_files(metric_id: str, district_id: str = '0', period_type: 
             content={"error": f"Failed to fetch output files: {str(e)}"}
         )
 
+
 @router.post("/enhance_queries")
 async def enhance_queries():
     """Enhance dashboard queries with IDs and category fields."""
@@ -1508,9 +1763,19 @@ async def enhance_queries():
             else:
                 raise FileNotFoundError(f"Dashboard queries file not found at {queries_file} or {alt_queries_path}")
         
-        # Use database for dataset info instead of files
-        datasets_dir = None
-        logger.info("Using database for dataset information")
+        # Set up paths for datasets directory
+        datasets_dir = os.path.join(script_dir, "data", "datasets", "fixed")
+        logger.info(f"Datasets directory path: {datasets_dir}")
+        
+        # Check if the datasets directory exists, if not try alternative paths
+        if not os.path.exists(datasets_dir):
+            logger.warning(f"Datasets directory not found at: {datasets_dir}")
+            alt_datasets_dir = os.path.join(script_dir, "..", "ai", "data", "datasets", "fixed")
+            if os.path.exists(alt_datasets_dir):
+                logger.info(f"Found datasets directory at alternate path: {alt_datasets_dir}")
+                datasets_dir = alt_datasets_dir
+            else:
+                raise FileNotFoundError(f"Datasets directory not found at {datasets_dir} or {alt_datasets_dir}")
         
         # Set up path for output file
         output_file = os.path.join(script_dir, "data", "dashboard", "dashboard_queries_enhanced.json")
@@ -1553,6 +1818,7 @@ async def enhance_queries():
             "status": "error",
             "message": f"Error enhancing dashboard queries: {str(e)}"
         }, status_code=500)
+
 
 @router.post("/execute-postgres-query")
 async def execute_postgres_query(request: Request):
@@ -1759,6 +2025,7 @@ async def clear_all_output():
             "message": str(e)
         })
 
+
 @router.post("/clear-vector-db")
 async def clear_vector_db():
     """Clear all collections from the vector database except SFPublicData."""
@@ -1796,6 +2063,7 @@ async def clear_vector_db():
             "status": "error",
             "message": str(e)
         })
+
 
 @router.get("/get-notes")
 async def get_notes_file():
@@ -1838,6 +2106,8 @@ async def get_notes_file():
             "success": False, 
             "error": f"Error getting notes: {str(e)}"
         }, status_code=500)
+
+
 
 @router.get("/run-evals")
 async def run_evals_endpoint(query: str, model_key: str = None):
@@ -1920,6 +2190,8 @@ async def evals_interface(request: Request):
         "request": request
     })
 
+
+
 @router.get("/dashboard")
 async def dashboard_page(request: Request):
     """Serve the dashboard page."""
@@ -1968,11 +2240,32 @@ async def get_datasets_count():
                     connection.close()
                 # Fall through to file-based approach
         
-        # Database approach failed, return default values
-        logger.error("Database approach failed, no fallback available")
+        # Fallback to file-based approach
+        logger.warning("Database approach failed, falling back to file-based approach")
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        datasets_dir = os.path.join(current_dir, 'data', 'datasets')
+        fixed_datasets_dir = os.path.join(datasets_dir, 'fixed')
+        
+        # Count JSON files in the main datasets directory (excluding analysis_map.json)
+        regular_json_files = [f for f in glob.glob(os.path.join(datasets_dir, '*.json')) 
+                             if os.path.basename(f) != 'analysis_map.json']
+        
+        # Count JSON files in the fixed datasets directory
+        fixed_json_files = glob.glob(os.path.join(fixed_datasets_dir, '*.json')) if os.path.exists(fixed_datasets_dir) else []
+        
+        # Total count
+        total_count = len(regular_json_files) + len(fixed_json_files)
+        
+        # Log the counts for debugging
+        logger.info(f"Dataset counts - Regular: {len(regular_json_files)}, Fixed: {len(fixed_json_files)}, Total: {total_count}")
+        
+        # Determine change from previous week (mock data for now)
+        # In a real implementation, this would compare with historical data
+        change = 0.0
+        
         return JSONResponse(content={
-            "count": 0,
-            "change": 0.0
+            "count": total_count,
+            "change": float(change)
         })
     except Exception as e:
         logger.error(f"Error getting datasets count: {str(e)}")
@@ -2024,9 +2317,50 @@ async def list_datasets_for_typeahead():
                     connection.close()
                 # Fall through to file-based approach
         
-        # Database approach failed, return empty list
-        logger.error("Database approach failed, no fallback available")
-        return JSONResponse(content=[])
+        # Fallback to file-based approach
+        logger.warning("Database approach failed, falling back to file-based approach")
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        datasets_dir = os.path.join(current_dir, 'data', 'datasets')
+        fixed_datasets_dir = os.path.join(datasets_dir, 'fixed')
+        
+        # Get all JSON files from both directories
+        regular_json_files = [f for f in glob.glob(os.path.join(datasets_dir, '*.json')) 
+                            if os.path.basename(f) != 'analysis_map.json']
+        fixed_json_files = glob.glob(os.path.join(fixed_datasets_dir, '*.json')) if os.path.exists(fixed_datasets_dir) else []
+        
+        # Combine and deduplicate files (prefer fixed versions)
+        all_files = set()
+        for file in fixed_json_files:
+            all_files.add(os.path.basename(file))
+        for file in regular_json_files:
+            if os.path.basename(file) not in all_files:
+                all_files.add(os.path.basename(file))
+        
+        # Process each file to get dataset info
+        datasets = []
+        for filename in all_files:
+            try:
+                # Try fixed version first, then regular version
+                file_path = os.path.join(fixed_datasets_dir, filename)
+                if not os.path.exists(file_path):
+                    file_path = os.path.join(datasets_dir, filename)
+                
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                
+                # Extract required information
+                dataset_info = {
+                    'endpoint': data.get('endpoint', filename.replace('.json', '')),
+                    'title': data.get('title', 'Untitled'),
+                    'description': data.get('description', ''),
+                    'category': data.get('category', 'Uncategorized')
+                }
+                datasets.append(dataset_info)
+            except Exception as e:
+                logger.error(f"Error processing file {filename}: {e}")
+                continue
+        
+        return JSONResponse(content=datasets)
     except Exception as e:
         logger.error(f"Error listing datasets for typeahead: {str(e)}")
         return JSONResponse(content=[], status_code=500)
@@ -2479,11 +2813,522 @@ async def get_time_series_data_count():
         logger.exception(f"Error getting time series data count: {str(e)}")
         return {"count": "Error", "change": 0}
 
+@router.get("/api/chart/{chart_id}")
+@router.get("/backend/api/chart/{chart_id}")  # Add an extra route
+async def get_chart_data(chart_id: int):
+    """
+    Get chart data for a specific chart_id.
+    Accessible via both /api/chart/{chart_id} and /backend/api/chart/{chart_id}
+    
+    Returns:
+        ChartResponse with metadata and data points
+    """
+    try:
+        # Connect to PostgreSQL
+        conn = psycopg2.connect(
+            host=os.environ.get("POSTGRES_HOST", "localhost"),
+            database=os.environ.get("POSTGRES_DB", "transparentsf"),
+            user=os.environ.get("POSTGRES_USER", "postgres"),
+            password=os.environ.get("POSTGRES_PASSWORD", "postgres")
+        )
+        
+        cursor = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+        
+        # Query to get chart metadata
+        cursor.execute("""
+            SELECT 
+                chart_id, 
+                chart_title, 
+                y_axis_label, 
+                period_type, 
+                object_type, 
+                object_id, 
+                object_name, 
+                field_name, 
+                district, 
+                group_field,
+                executed_query_url
+            FROM time_series_metadata 
+            WHERE chart_id = %s
+        """, (chart_id,))
+        
+        metadata_result = cursor.fetchone()
+        
+        if not metadata_result:
+            cursor.close()
+            conn.close()
+            raise HTTPException(status_code=404, detail=f"Chart with ID {chart_id} not found")
+        
+        # Query to get chart data points
+        cursor.execute("""
+            SELECT 
+                time_period, 
+                group_value, 
+                numeric_value
+            FROM time_series_data 
+            WHERE chart_id = %s
+            ORDER BY time_period
+        """, (chart_id,))
+        
+        data_results = cursor.fetchall()
+        
+        cursor.close()
+        conn.close()
+        
+        # Map database period type to frontend period type for the response
+        frontend_period_type_map = {
+            'year': 'annual',
+            'month': 'monthly',
+            'week': 'weekly',
+            'day': 'daily'
+        }
+        
+        # Format the response according to the requested structure
+        response = {
+            "metadata": {
+                "chart_id": metadata_result["chart_id"],
+                "chart_title": metadata_result["chart_title"],
+                "y_axis_label": metadata_result["y_axis_label"],
+                "period_type": frontend_period_type_map.get(metadata_result["period_type"], metadata_result["period_type"]),
+                "object_type": metadata_result["object_type"],
+                "object_id": metadata_result["object_id"],
+                "object_name": metadata_result["object_name"],
+                "field_name": metadata_result["field_name"],
+                "district": metadata_result["district"],
+                "executed_query_url": metadata_result.get("executed_query_url", ""),
+                "source-name": "DataSF",
+                "byline": "Chart: TransparentSF"
+            }
+        }
+        
+        # Add group_field if it exists
+        if metadata_result["group_field"]:
+            response["metadata"]["group_field"] = metadata_result["group_field"]
+            logger.info(f"Added group_field to response metadata: {metadata_result['group_field']}")
+        
+        # Format the data points
+        response["data"] = []
+        for row in data_results:
+            # Clean the numeric value to handle NaN and infinite values
+            numeric_value = clean_json_value(row["numeric_value"])
+            
+            # Skip data points with None values (which were NaN/infinite)
+            if numeric_value is None:
+                continue
+                
+            data_point = {
+                "time_period": row["time_period"].isoformat(),
+                "numeric_value": numeric_value
+            }
+            
+            # Add group_value if it exists
+            if row["group_value"]:
+                data_point["group_value"] = row["group_value"]
+                
+            response["data"].append(data_point)
+        
+        logger.info(f"Retrieved chart data for chart_id: {chart_id}")
+        return JSONResponse(content=response)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting chart data: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error retrieving chart data: {str(e)}")
 
+@router.get("/api/active-charts")
+@router.get("/backend/api/active-charts")
+async def get_active_charts(metric_id: str, district: str = "0", period_type: str = "month"):
+    """
+    Get all active chart IDs for a given metric ID, district, and period type.
+    
+    Args:
+        metric_id: The ID of the metric to get charts for
+        district: The district ID (default: "0" for citywide)
+        period_type: The period type (month, year, etc.)
+        
+    Returns:
+        JSON with a list of active charts including their IDs and metadata
+    """
+    try:
+        import psycopg2
+        import psycopg2.extras
+        
+        logger.info(f"Getting active charts for metric_id={metric_id}, district={district}, period_type={period_type}")
+        
+        # Connect to PostgreSQL
+        conn = psycopg2.connect(
+            host=os.getenv("POSTGRES_HOST", "localhost"),
+            port=int(os.getenv("POSTGRES_PORT", "5432")),
+            dbname=os.getenv("POSTGRES_DB", "transparentsf"),
+            user=os.getenv("POSTGRES_USER", "postgres"),
+            password=os.getenv("POSTGRES_PASSWORD", "postgres")
+        )
+        
+        # Create cursor with dictionary-like results
+        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        
+        # Query to get all active charts for the specified metric, district, and period type
+        query = """
+        SELECT 
+            chart_id, 
+            object_name, 
+            group_field, 
+            object_id,
+            district,
+            period_type,
+            is_active
+        FROM time_series_metadata
+        WHERE object_id = %s 
+        AND district = %s 
+        AND period_type = %s
+        AND is_active = TRUE
+        ORDER BY 
+            CASE WHEN group_field IS NULL THEN 0 ELSE 1 END,
+            group_field ASC
+        """
+        
+        cursor.execute(query, [metric_id, district, period_type])
+        charts = cursor.fetchall()
+        
+        # Convert any date objects to ISO format strings for JSON serialization
+        for chart in charts:
+            for key, value in chart.items():
+                if hasattr(value, 'isoformat'):
+                    chart[key] = value.isoformat()
+        
+        logger.info(f"Found {len(charts)} active charts for metric_id={metric_id}")
+        
+        cursor.close()
+        conn.close()
+        
+        return JSONResponse(
+            content={
+                "status": "success",
+                "metric_id": metric_id,
+                "district": district,
+                "period_type": period_type,
+                "chart_count": len(charts),
+                "charts": charts
+            }
+        )
+        
+    except Exception as e:
+        logger.error(f"Error getting active charts: {str(e)}", exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={
+                "status": "error", 
+                "message": f"Failed to get active charts: {str(e)}"
+            }
+        )
 
-
-
-
+@router.get("/api/chart-by-metric")
+@router.get("/backend/api/chart-by-metric")  # Add an extra route
+async def get_chart_by_metric(
+    metric_id: str,
+    district: int = 0,
+    period_type: str = 'year',
+    group_field: str = None,
+    groups: str = None
+):
+    """
+    Get chart data for a specific metric, district, and period type.
+    Accessible via both /api/chart-by-metric and /backend/api/chart-by-metric
+    
+    Parameters:
+        metric_id: The ID of the metric (matches object_id in the database)
+        district: The district ID (default: 0)
+        period_type: The period type (default: 'year')
+        group_field: Optional group field (default: null)
+        groups: Comma-separated list of group values to include (default: null)
+    
+    Returns:
+        ChartResponse with metadata and data points
+    """
+    try:
+        # Map frontend period types to database period types if needed
+        period_type_map = {
+            'annual': 'year',
+            'monthly': 'month',
+            'weekly': 'week',
+            'daily': 'day'
+        }
+        
+        # Convert period type if it's one of the frontend values
+        db_period_type = period_type_map.get(period_type, period_type)
+        
+        # Parse groups parameter if provided
+        group_values = None
+        if groups:
+            if groups.strip() == '':
+                # Empty string means no groups should be shown
+                group_values = []
+                logger.info("Empty groups parameter - will return no data")
+            else:
+                group_values = [g.strip() for g in groups.split(',')]
+                logger.info(f"Using specified group values: {group_values}")
+        
+        logger.info(f"Looking for chart with object_id={metric_id}, district={district}, period_type={db_period_type}, group_field={group_field}, groups={groups}")
+        
+        # Connect to PostgreSQL
+        conn = psycopg2.connect(
+            host=os.environ.get("POSTGRES_HOST", "localhost"),
+            database=os.environ.get("POSTGRES_DB", "transparentsf"),
+            user=os.environ.get("POSTGRES_USER", "postgres"),
+            password=os.environ.get("POSTGRES_PASSWORD", "postgres")
+        )
+        
+        cursor = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+        
+        # DEBUGGING: Check for available metrics
+        cursor.execute("SELECT DISTINCT object_id FROM time_series_metadata")
+        available_metrics = [row[0] for row in cursor.fetchall()]
+        logger.info(f"Available metrics in database: {available_metrics}")
+        
+        # DEBUGGING: Check for available period types
+        cursor.execute("SELECT DISTINCT period_type FROM time_series_metadata")
+        available_period_types = [row[0] for row in cursor.fetchall()]
+        logger.info(f"Available period types in database: {available_period_types}")
+        
+        # DEBUGGING: Check if specific metric exists
+        cursor.execute("SELECT COUNT(*) FROM time_series_metadata WHERE object_id = %s", (metric_id,))
+        metric_count = cursor.fetchone()[0]
+        logger.info(f"Found {metric_count} entries with object_id={metric_id}")
+        
+        # Build the query with proper handling of group_field NULL vs value
+        if group_field is None:
+            group_field_condition = "AND group_field IS NULL"
+            params = (metric_id, district, db_period_type)
+        else:
+            group_field_condition = "AND group_field = %s"
+            params = (metric_id, district, db_period_type, group_field)
+        
+        # Special handling for 'month' period type - try both 'month' directly and with LOWER comparison
+        if db_period_type == 'month':
+            query = f"""
+                SELECT 
+                    chart_id, 
+                    period_type, 
+                    object_type, 
+                    object_id, 
+                    object_name, 
+                    field_name, 
+                    district, 
+                    group_field,
+                    executed_query_url,
+                    caption,
+                    metadata
+                FROM time_series_metadata 
+                WHERE object_id = %s AND district = %s 
+                AND (period_type = %s OR LOWER(period_type) = LOWER(%s))
+                {group_field_condition}
+                ORDER BY created_at DESC
+                LIMIT 1
+            """
+            
+            if group_field is None:
+                cursor.execute(query, (metric_id, district, db_period_type, db_period_type))
+            else:
+                cursor.execute(query, (metric_id, district, db_period_type, db_period_type, group_field))
+        else:
+            # Original query for other period types (excluding y_axis_label, chart_title, filter_conditions)
+            query = f"""
+                SELECT 
+                    chart_id, 
+                    period_type, 
+                    object_type, 
+                    object_id, 
+                    object_name, 
+                    field_name, 
+                    district, 
+                    group_field,
+                    executed_query_url,
+                    caption,
+                    metadata
+                FROM time_series_metadata 
+                WHERE object_id = %s AND district = %s AND period_type = %s
+                {group_field_condition}
+                ORDER BY created_at DESC
+                LIMIT 1
+            """
+            
+            if group_field is None:
+                cursor.execute(query, (metric_id, district, db_period_type))
+            else:
+                cursor.execute(query, (metric_id, district, db_period_type, group_field))
+        
+        metadata_result = cursor.fetchone()
+        
+        if not metadata_result:
+            # Fallback 1: Try without group_field constraint
+            logger.info(f"No chart found with group_field constraint, trying without group_field constraint")
+            cursor.execute("""
+                SELECT 
+                    chart_id, 
+                    period_type, 
+                    object_type, 
+                    object_id, 
+                    object_name, 
+                    field_name, 
+                    district, 
+                    group_field,
+                    executed_query_url,
+                    caption,
+                    metadata
+                FROM time_series_metadata 
+                WHERE object_id = %s AND district = %s AND period_type = %s
+                ORDER BY created_at DESC
+                LIMIT 1
+            """, (metric_id, district, db_period_type))
+            
+            metadata_result = cursor.fetchone()
+            
+            if not metadata_result:
+                # Return 404 with detailed error message
+                cursor.close()
+                conn.close()
+                return JSONResponse(
+                    status_code=404,
+                    content={
+                        "detail": f"Chart not found for object_id: {metric_id}, district: {district}, period_type: {period_type}",
+                        "available_metrics": available_metrics,
+                        "available_period_types": available_period_types
+                    }
+                )
+        
+        chart_id = metadata_result["chart_id"]
+        
+        # Query to get chart data points
+        if group_field:
+            if group_values and len(group_values) > 0:
+                # Create placeholders for the IN clause
+                placeholders = ', '.join(['%s'] * len(group_values))
+                
+                # Query for specific group values
+                query = f"""
+                    SELECT 
+                        time_period, 
+                        group_value, 
+                        numeric_value
+                    FROM time_series_data 
+                    WHERE chart_id = %s
+                    AND group_value IN ({placeholders})
+                    ORDER BY time_period, group_value
+                """
+                
+                # Combine parameters: chart_id + group_values
+                params = [chart_id] + group_values
+                cursor.execute(query, params)
+            else:
+                # When group_field is provided but no specific groups,
+                # get all data with non-null group_value
+                cursor.execute("""
+                    SELECT 
+                        time_period, 
+                        group_value, 
+                        numeric_value
+                    FROM time_series_data 
+                    WHERE chart_id = %s
+                    AND group_value IS NOT NULL
+                    ORDER BY time_period, group_value
+                """, (chart_id,))
+        else:
+            # Original query without group filtering
+            cursor.execute("""
+                SELECT 
+                    time_period, 
+                    group_value, 
+                    numeric_value
+                FROM time_series_data 
+                WHERE chart_id = %s
+                ORDER BY time_period
+            """, (chart_id,))
+        
+        data_results = cursor.fetchall()
+        
+        # DEBUGGING: Check data count
+        logger.info(f"Found {len(data_results)} data points for chart_id {chart_id}")
+        
+        # If no data found, try debugging
+        if not data_results:
+            cursor.execute("SELECT COUNT(*) FROM time_series_data")
+            total_data = cursor.fetchone()[0]
+            logger.info(f"Total data points in time_series_data: {total_data}")
+        
+        cursor.close()
+        conn.close()
+        
+        # Map database period type back to frontend period type for the response
+        frontend_period_type_map = {
+            'year': 'annual',
+            'month': 'monthly',
+            'week': 'weekly',
+            'day': 'daily'
+        }
+        
+        # Get the JSON metadata field or initialize as empty dict if missing
+        json_metadata = metadata_result.get("metadata", {}) or {}
+        if isinstance(json_metadata, str):
+            try:
+                json_metadata = json.loads(json_metadata)
+            except:
+                json_metadata = {}
+        
+        # Format the response according to the requested structure
+        # Prioritize fields from the metadata JSON for the three specified fields
+        response = {
+            "metadata": {
+                "chart_id": metadata_result["chart_id"],
+                "chart_title": json_metadata.get("chart_title", metadata_result.get("chart_title", "")),
+                "y_axis_label": json_metadata.get("y_axis_label", metadata_result.get("y_axis_label", "")),
+                "period_type": frontend_period_type_map.get(metadata_result["period_type"], metadata_result["period_type"]),
+                "object_type": metadata_result["object_type"],
+                "object_id": metadata_result["object_id"],
+                "object_name": metadata_result["object_name"],
+                "field_name": metadata_result["field_name"],
+                "district": metadata_result["district"],
+                "executed_query_url": metadata_result["executed_query_url"],
+                "caption": metadata_result["caption"],
+                "filter_conditions": json_metadata.get("filter_conditions", metadata_result.get("filter_conditions", ""))
+            }
+        }
+        
+        # Add group_field if it exists
+        if metadata_result["group_field"]:
+            response["metadata"]["group_field"] = metadata_result["group_field"]
+            logger.info(f"Added group_field to response metadata: {metadata_result['group_field']}")
+        
+        # Format the data points
+        response["data"] = []
+        for row in data_results:
+            # Clean the numeric value to handle NaN and infinite values
+            numeric_value = clean_json_value(row["numeric_value"])
+            
+            # Skip data points with None values (which were NaN/infinite)
+            if numeric_value is None:
+                continue
+                
+            data_point = {
+                "time_period": row["time_period"].isoformat(),
+                "numeric_value": numeric_value
+            }
+            
+            # Add group_value if it exists
+            if row["group_value"]:
+                data_point["group_value"] = row["group_value"]
+                
+            response["data"].append(data_point)
+        
+        logger.info(f"Retrieved chart data for object_id: {metric_id}, district: {district}, period_type: {period_type}, group_field: {group_field}")
+        # Add debug info about group values
+        group_values_in_data = set([row.get("group_value") for row in data_results if row.get("group_value")])
+        logger.info(f"Found group values in data: {group_values_in_data}")
+        return JSONResponse(content=response)
+        
+    except Exception as e:
+        logger.error(f"Error retrieving chart data: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error retrieving chart data: {str(e)}")
 
 @router.get("/monthly-reports")
 async def monthly_reports_page():
@@ -2492,7 +3337,80 @@ async def monthly_reports_page():
     template_path = os.path.join(current_dir, "templates", "monthly_reports.html")
     return FileResponse(template_path)
 
+@router.get("/get_monthly_reports")
+async def get_monthly_reports():
+    """Get a list of all monthly reports."""
+    logger.debug("Get monthly reports called")
+    try:
+        # Import the necessary function
+        from monthly_report import get_monthly_reports_list
+        
+        # Get the list of reports
+        reports = get_monthly_reports_list()
+        
+        return JSONResponse({
+            "status": "success",
+            "reports": reports
+        })
+    except Exception as e:
+        error_message = f"Error getting monthly reports: {str(e)}"
+        logger.error(error_message)
+        return JSONResponse({
+            "status": "error",
+            "message": error_message
+        }, status_code=500)
 
+@router.delete("/delete_monthly_report/{report_id}")
+async def delete_monthly_report(report_id: int):
+    """Delete a monthly report and associated files."""
+    try:
+        conn = get_db_connection()
+        if not conn:
+            raise HTTPException(status_code=500, detail="Database connection failed")
+        
+        cursor = conn.cursor()
+        
+        # Get the report details first (to get filenames for deletion)
+        cursor.execute("SELECT original_filename, revised_filename, audio_file FROM reports WHERE id = %s", (report_id,))
+        report = cursor.fetchone()
+        
+        if not report:
+            cursor.close()
+            conn.close()
+            raise HTTPException(status_code=404, detail="Report not found")
+        
+        # Delete the report from database
+        cursor.execute("DELETE FROM reports WHERE id = %s", (report_id,))
+        conn.commit()
+        
+        cursor.close()
+        conn.close()
+        
+        # Delete associated files if they exist
+        reports_dir = Path(__file__).parent / 'output' / 'reports'
+        for filename in [report[0], report[1]]:  # original_filename, revised_filename
+            if filename:
+                file_path = reports_dir / filename
+                if file_path.exists():
+                    file_path.unlink()
+        
+        # Delete audio file if it exists
+        if report[2]:  # audio_file
+            audio_dir = Path(__file__).parent / 'output' / 'narration'
+            audio_path = audio_dir / report[2]
+            if audio_path.exists():
+                audio_path.unlink()
+        
+        return JSONResponse({
+            "status": "success",
+            "message": "Report deleted successfully"
+        })
+    except Exception as e:
+        logger.error(f"Error deleting report {report_id}: {str(e)}")
+        return JSONResponse({
+            "status": "error",
+            "message": f"Error deleting report: {str(e)}"
+        }, status_code=500)
 
 @router.post("/update_published_url/{report_id}")
 async def update_published_url(report_id: int, request: Request):
@@ -2548,6 +3466,112 @@ async def update_published_url(report_id: int, request: Request):
             "message": f"Error updating published URL: {str(e)}"
         }, status_code=500)
 
+@router.get("/generate_monthly_report")
+async def generate_monthly_report_get():
+    """Generate monthly report on demand (GET method for backward compatibility)."""
+    logger.debug("Generate monthly report (GET) called")
+    try:
+        # Import the necessary function
+        from monthly_report import run_monthly_report_process
+        
+        # Run the monthly report process
+        logger.info("Running monthly report process")
+        result = run_monthly_report_process()
+        
+        if result.get("status") == "success":
+            # After generating the report, redirect to the report path
+            report_path = result.get("revised_report_path") or result.get("report_path")
+            
+            if report_path:
+                # Extract the filename from the path
+                filename = os.path.basename(report_path)
+                logger.info(f"Monthly report generated successfully: {filename}")
+                
+                # Redirect to the report file
+                return RedirectResponse(url=f"/logs/{filename}", status_code=302)
+            else:
+                logger.info("Monthly report generated but no file path returned")
+                return JSONResponse({
+                    "status": "success",
+                    "message": "Monthly report generated successfully"
+                })
+        else:
+            error_message = result.get("message", "Monthly report generation failed. Check logs for details.")
+            logger.error(error_message)
+            return JSONResponse({
+                "status": "error",
+                "message": error_message
+            }, status_code=500)
+    except ImportError as e:
+        error_message = f"Could not import monthly report function: {str(e)}"
+        logger.error(error_message)
+        return JSONResponse({
+            "status": "error",
+            "message": error_message
+        }, status_code=500)
+
+@router.post("/generate_monthly_report")
+async def generate_monthly_report_post(request: Request):
+    """Generate monthly report with custom parameters."""
+    logger.debug("Generate monthly report (POST) called")
+    try:
+        # Get parameters from request body
+        body = await request.json()
+        district = body.get("district", "0")
+        period_type = body.get("period_type", "month")
+        max_report_items = body.get("max_report_items", 10)
+        
+        logger.info(f"Generating monthly report with district={district}, period_type={period_type}, max_items={max_report_items}")
+        
+        # Import the necessary function
+        from monthly_report import run_monthly_report_process
+        import asyncio
+        
+        # Run the monthly report process in a separate thread to prevent blocking
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(
+            None,
+            lambda: run_monthly_report_process(
+                district=district,
+                period_type=period_type,
+                max_report_items=max_report_items
+            )
+        )
+        
+        if result.get("status") == "success":
+            # Return the report path
+            report_path = result.get("revised_report_path") or result.get("newsletter_path")
+            
+            if report_path:
+                # Extract the filename from the path
+                filename = os.path.basename(report_path)
+                logger.info(f"Monthly report generated successfully: {filename}")
+                
+                return JSONResponse({
+                    "status": "success",
+                    "message": "Monthly report generated successfully",
+                    "filename": filename
+                })
+            else:
+                logger.info("Monthly report generated but no file path returned")
+                return JSONResponse({
+                    "status": "success",
+                    "message": "Monthly report generated successfully"
+                })
+        else:
+            error_message = result.get("message", "Monthly report generation failed. Check logs for details.")
+            logger.error(error_message)
+            return JSONResponse({
+                "status": "error",
+                "message": error_message
+            }, status_code=500)
+    except Exception as e:
+        error_message = f"Error generating monthly report: {str(e)}"
+        logger.error(error_message)
+        return JSONResponse({
+            "status": "error",
+            "message": error_message
+        }, status_code=500)
 
 
 @router.get("/api/total-metrics-count")
@@ -2800,8 +3824,7 @@ async def time_series_chart_page(request: Request):
                 )
             
             # Get chart data
-            from routes.charts import get_chart_by_metric_legacy
-            chart_data_response = await get_chart_by_metric_legacy(
+            chart_data_response = await get_chart_by_metric(
                 metric_id=metric_id,
                 district=int(district),
                 period_type=period_type
@@ -3578,6 +4601,7 @@ async def clear_chart_files():
             "message": str(e)
         })
 
+
 @router.post("/clear-logs")
 async def clear_logs():
     """Truncate all log files in the logs directory except for webchat.log."""
@@ -3725,6 +4749,8 @@ async def update_prompt(request: Request):
             "message": error_message
         }, status_code=500)
 
+
+
 @router.get("/get-monthly-report-by-district/{district}")
 async def get_monthly_report_by_district(district: str):
     """
@@ -3809,6 +4835,8 @@ async def get_monthly_report_by_district(district: str):
             cursor.close()
         if conn:
             conn.close()
+
+
 
 @router.post("/rerun_email_version")
 async def rerun_email_version(request: Request):
@@ -4459,6 +5487,201 @@ async def get_all_maps(metric_id: str = None):
             }
         )
 
+
+
+
+
+
+
+
+
+@router.post("/api/explainer-cancel")
+async def cancel_explainer_session(request: Request):
+    """Cancel the current explainer session."""
+    try:
+        data = await request.json()
+        session_id = data.get("session_id")
+        
+        if session_id:
+            session_key = f"langchain_{session_id}"
+            if session_key in explainer_sessions:
+                # Remove the session to cancel any ongoing operations
+                del explainer_sessions[session_key]
+                logger.info(f"Cancelled explainer session: {session_key}")
+                return JSONResponse(
+                    status_code=200,
+                    content={
+                        "status": "success",
+                        "message": "Session cancelled successfully"
+                    }
+                )
+            else:
+                return JSONResponse(
+                    status_code=404,
+                    content={
+                        "status": "error",
+                        "message": "Session not found"
+                    }
+                )
+        else:
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "status": "error",
+                    "message": "No session ID provided"
+                }
+            )
+    except Exception as e:
+        logger.error(f"Error cancelling explainer session: {str(e)}")
+        return JSONResponse(
+            status_code=500,
+            content={
+                "status": "error",
+                "message": f"Error cancelling session: {str(e)}"
+            }
+        )
+
+@router.post("/backend/api/explainer-clear-session")
+async def clear_explainer_session_backend(request: Request):
+    """Backend prefix version of the clear session endpoint."""
+    return await clear_explainer_session(request)
+
+@router.post("/api/explainer-clear-session")
+async def clear_explainer_session(request: Request):
+    """
+    Clear a specific explainer session.
+    
+    Expected JSON payload:
+    {
+        "session_id": "session_id_to_clear"
+    }
+    """
+    try:
+        data = await request.json()
+        session_id = data.get("session_id")
+        
+        if not session_id:
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "status": "error",
+                    "message": "session_id is required"
+                }
+            )
+        
+        if session_id in explainer_sessions:
+            del explainer_sessions[session_id]
+            logger.info(f"Cleared explainer session: {session_id}")
+            return JSONResponse(content={"status": "success", "message": f"Session {session_id} cleared"})
+        else:
+            return JSONResponse(
+                status_code=404,
+                content={
+                    "status": "error",
+                    "message": f"Session {session_id} not found"
+                }
+            )
+        
+    except Exception as e:
+        logger.error(f"Error clearing explainer session: {str(e)}", exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={
+                "status": "error",
+                "message": f"Error clearing session: {str(e)}"
+            }
+        )
+
+@router.post("/api/explainer-clear-all-sessions")
+async def clear_all_explainer_sessions():
+    """Clear all explainer sessions."""
+    try:
+        session_count = len(explainer_sessions)
+        explainer_sessions.clear()
+        logger.info(f"Cleared all {session_count} explainer sessions")
+        return JSONResponse(content={
+            "status": "success", 
+            "message": f"Cleared {session_count} sessions"
+        })
+        
+    except Exception as e:
+        logger.error(f"Error clearing all explainer sessions: {str(e)}", exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={
+                "status": "error",
+                "message": f"Error clearing sessions: {str(e)}"
+            }
+        )
+
+@router.get("/api/explainer-sessions")
+async def get_explainer_sessions():
+    """Get information about active explainer sessions."""
+    try:
+        sessions_info = {}
+        for session_id, agent in explainer_sessions.items():
+            sessions_info[session_id] = {
+                "message_count": len(agent.get_conversation_history()),
+                "agent_name": agent.agent.name,
+                "has_context": bool(agent.context_variables)
+            }
+        
+        return JSONResponse(content={
+            "status": "success",
+            "active_sessions": len(explainer_sessions),
+            "sessions": sessions_info
+        })
+        
+    except Exception as e:
+        logger.error(f"Error getting explainer sessions: {str(e)}", exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={
+                "status": "error",
+                "message": f"Error getting sessions: {str(e)}"
+            }
+        )
+
+@router.get("/api/test-explainer-session")
+async def test_explainer_session():
+    """Test endpoint to verify explainer session management is working."""
+    try:
+        from agents.explainer_agent import create_explainer_agent
+        import uuid
+        
+        # Create a test session
+        test_session_id = str(uuid.uuid4())
+        agent = create_explainer_agent()
+        explainer_sessions[test_session_id] = agent
+        
+        # Add some test messages
+        agent.add_message("user", "Hello, this is a test message")
+        agent.add_message("assistant", "Hello! I received your test message.", "TestExplainer")
+        
+        # Get session info
+        session_info = {
+            "test_session_id": test_session_id,
+            "message_count": len(agent.get_conversation_history()),
+            "total_sessions": len(explainer_sessions),
+            "conversation_history": agent.get_conversation_history()
+        }
+        
+        return JSONResponse(content={
+            "status": "success",
+            "message": "Session management test completed",
+            "session_info": session_info
+        })
+        
+    except Exception as e:
+        logger.error(f"Error in test explainer session: {str(e)}", exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={
+                "status": "error",
+                "message": f"Test failed: {str(e)}"
+            }
+        )
+
 @router.get("/backend/map-chart")
 @router.get("/map-chart")
 async def get_map_chart(request: Request, id: str):
@@ -4803,6 +6026,7 @@ async def get_enhanced_queries_db():
         logger.error(f"Error building enhanced queries from database: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error building enhanced queries: {str(e)}")
 
+
 @router.get("/get-endpoint-columns/{endpoint}")
 async def get_endpoint_columns_db(endpoint: str):
     """Get available columns for an endpoint from database only."""
@@ -4842,6 +6066,7 @@ async def get_endpoint_columns_db(endpoint: str):
     except Exception as e:
         logger.error(f"Error getting columns for endpoint '{endpoint}': {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error getting columns: {str(e)}")
+
 
 @router.get("/get-selected-columns/{endpoint}")
 async def get_selected_columns_db(endpoint: str, metric_id: str = None):
@@ -4914,6 +6139,7 @@ async def get_selected_columns_db(endpoint: str, metric_id: str = None):
                     (f" and metric_id '{metric_id}'" if metric_id else "") + 
                     f": {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error getting selected columns: {str(e)}")
+
 
 @router.post("/update-selected-columns")
 async def update_selected_columns_db(request: Request):
@@ -4988,6 +6214,127 @@ async def dashboard_page(request: Request):
     
     return templates.TemplateResponse("dashboard.html", {"request": request})
 
+@router.get("/api/explainer-prompt-sections")
+async def get_explainer_prompt_sections():
+    """Get all prompt sections for the explainer agent settings interface."""
+    try:
+        from agents.explainer_prompts import PROMPT_SECTIONS
+        
+        return JSONResponse(content={
+            "status": "success",
+            "sections": PROMPT_SECTIONS
+        })
+        
+    except Exception as e:
+        logger.error(f"Error getting explainer prompt sections: {str(e)}", exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={
+                "status": "error",
+                "message": f"Error getting prompt sections: {str(e)}"
+            }
+        )
+
+@router.post("/api/explainer-update-prompt-section")
+async def update_explainer_prompt_section(request: Request):
+    """Update a specific prompt section for the explainer agent."""
+    try:
+        data = await request.json()
+        section_key = data.get("section_key")
+        content = data.get("content")
+        
+        if not section_key or not content:
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "status": "error",
+                    "message": "Both section_key and content are required"
+                }
+            )
+        
+        # Import the prompts module
+        from agents import explainer_prompts
+        
+        # Update the section content
+        if section_key in explainer_prompts.PROMPT_SECTIONS:
+            explainer_prompts.PROMPT_SECTIONS[section_key]["content"] = content
+            
+            # Update the corresponding constant
+            constant_name = section_key.upper() + "_INSTRUCTIONS"
+            if hasattr(explainer_prompts, constant_name):
+                setattr(explainer_prompts, constant_name, content)
+            
+            # Write changes back to file
+            if not explainer_prompts.write_prompts_to_file():
+                return JSONResponse(
+                    status_code=500,
+                    content={
+                        "status": "error",
+                        "message": "Failed to write changes to file"
+                    }
+                )
+            
+            return JSONResponse(content={
+                "status": "success",
+                "message": f"Section {section_key} updated successfully"
+            })
+        else:
+            return JSONResponse(
+                status_code=404,
+                content={
+                    "status": "error",
+                    "message": f"Section {section_key} not found"
+                }
+            )
+            
+    except Exception as e:
+        logger.error(f"Error updating explainer prompt section: {str(e)}", exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={
+                "status": "error",
+                "message": f"Error updating prompt section: {str(e)}"
+            }
+        )
+
+@router.post("/api/explainer-reload-prompts")
+async def reload_explainer_prompts():
+    """Reload the explainer agent prompts after updates."""
+    try:
+        from agents.explainer_agent import create_explainer_agent
+        
+        # Create a new agent instance to test the reload
+        agent = create_explainer_agent()
+        success = agent.reload_prompts()
+        
+        if success:
+            return JSONResponse(content={
+                "status": "success",
+                "message": "Explainer agent prompts reloaded successfully"
+            })
+        else:
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "status": "error",
+                    "message": "Failed to reload explainer agent prompts"
+                }
+            )
+            
+    except Exception as e:
+        logger.error(f"Error reloading explainer prompts: {str(e)}", exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={
+                "status": "error",
+                "message": f"Error reloading prompts: {str(e)}"
+            }
+        )
+
+# ------------------------------------------------------
+# NEW: Fetch SF Metadata and load into the database
+# ------------------------------------------------------
+
 @router.get("/fetch_metadata")
 async def fetch_metadata_route():
     """Fetch SF dataset metadata using fetch_metadata.py and store it in Postgres."""
@@ -5046,7 +6393,285 @@ async def fetch_metadata_route():
             "log_content": "Error occurred before log file could be read"
         })
 
+@router.get("/api/charts-for-review")
+async def get_charts_for_review_api(
+    limit: int = 20,
+    days_back: int = 30,
+    district_filter: Optional[str] = None,
+    include_time_series: bool = True,
+    include_anomalies: bool = True,
+    include_maps: bool = True,
+    only_active: bool = True,
+    metric_filter: Optional[str] = None,
+    object_type_filter: Optional[str] = None,
+    metric_id: Optional[str] = None
+):
+    """Get charts from various sources for AI review and potential newsletter inclusion."""
+    try:
+        from tools.get_charts_for_review import get_charts_for_review
+        
+        context_variables = {}  # Add any context variables needed
+        result = get_charts_for_review(
+            context_variables=context_variables,
+            limit=limit,
+            days_back=days_back,
+            district_filter=district_filter,
+            include_time_series=include_time_series,
+            include_anomalies=include_anomalies,
+            include_maps=include_maps,
+            only_active=only_active,
+            metric_filter=metric_filter,
+            object_type_filter=object_type_filter,
+            metric_id=metric_id
+        )
+        return JSONResponse(content=result)
+    except Exception as e:
+        logger.error(f"Error getting charts for review: {str(e)}")
+        return JSONResponse(
+            status_code=500,
+            content={
+                "success": False,
+                "error": str(e),
+                "data": {
+                    "time_series_charts": [],
+                    "anomaly_charts": [],
+                    "map_charts": [],
+                    "summary": {"total_charts": 0, "error": str(e)}
+                }
+            }
+        )
 
+@router.post("/api/langchain-explainer-streaming")
+async def langchain_explainer_streaming_api(request: Request):
+    """
+    LangChain-based streaming API endpoint for explainer agent chat functionality.
+    
+    Expected JSON payload:
+    {
+        "prompt": "Explain the change in metric X for district Y",
+        "model_key": "claude-3-7-sonnet",
+        "tool_groups": ["core", "analysis", "metrics"],
+        "session_data": {
+            "session_id": "unique_session_id"  // Optional, will create new if not provided
+        }
+    }
+    """
+    try:
+        from agents.langchain_agent.explainer_agent import create_explainer_agent
+        from agents.langchain_agent.config.tool_config import ToolGroup
+        
+        data = await request.json()
+        prompt = data.get("prompt")
+        model_key = data.get("model_key", "claude-3-7-sonnet")
+        tool_groups = data.get("tool_groups", ["core", "analysis"])
+        session_data = data.get("session_data", {})
+        session_id = session_data.get("session_id")
+        
+        if not prompt:
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "status": "error",
+                    "message": "No prompt provided"
+                }
+            )
+        
+        logger.info(f"Starting LangChain streaming explanation with prompt: {prompt}")
+        logger.info(f"Model: {model_key}, Tool groups: {tool_groups}")
+        
+        # Convert tool group strings to ToolGroup enums
+        tool_group_enums = []
+        for group_name in tool_groups:
+            try:
+                tool_group_enums.append(ToolGroup(group_name))
+            except ValueError:
+                logger.warning(f"Unknown tool group: {group_name}")
+        
+        if not tool_group_enums:
+            tool_group_enums = [ToolGroup.CORE, ToolGroup.ANALYSIS]
+        
+        # Get or create LangChain explainer agent for this session
+        if not session_id:
+            import uuid
+            session_id = str(uuid.uuid4())
+        session_key = f"langchain_{session_id}"
+        
+        if session_key in explainer_sessions:
+            agent = explainer_sessions[session_key]
+            # Update agent configuration if needed
+            if hasattr(agent, 'model_key') and agent.model_key != model_key:
+                agent = create_explainer_agent(model_key=model_key, tool_groups=tool_group_enums, enable_session_logging=True)
+                explainer_sessions[session_key] = agent
+            elif hasattr(agent, 'tool_groups') and agent.tool_groups != tool_group_enums:
+                agent.update_tool_groups(tool_groups)
+            logger.info(f"Using existing LangChain explainer agent for session: {session_key}")
+        else:
+            # Create new LangChain agent and session with session logging enabled
+            agent = create_explainer_agent(model_key=model_key, tool_groups=tool_group_enums, enable_session_logging=True)
+            explainer_sessions[session_key] = agent
+            logger.info(f"Created new LangChain explainer agent for session: {session_key}")
+        
+        async def generate_stream():
+            """Generate streaming response using LangChain agent with session logging"""
+            try:
+                # Send session ID first so frontend can track it
+                yield f"data: {json.dumps({'session_id': session_id})}\n\n"
+                
+                # Use the agent's explain_change_streaming method which includes real-time tool call logging
+                async for chunk in agent.explain_change_streaming(prompt, metric_details={}):
+                    if chunk:
+                        # The agent already yields properly formatted SSE data, so pass it through directly
+                        yield chunk
+                
+                # Send completion signal
+                yield f"data: {json.dumps({'completed': True})}\n\n"
+                
+            except Exception as e:
+                logger.error(f"Error in LangChain streaming generation: {str(e)}")
+                yield f"data: {json.dumps({'error': str(e)})}\n\n"
+        
+        return StreamingResponse(
+            generate_stream(),
+            media_type="text/plain",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no"
+            }
+        )
+        
+    except Exception as e:
+        logger.error(f"Error in langchain_explainer_streaming_api: {str(e)}", exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={
+                "status": "error",
+                "message": f"Error in LangChain streaming explanation: {str(e)}"
+            }
+        )
+
+@router.post("/backend/api/explainer-cancel")
+async def cancel_explainer_session_backend(request: Request):
+    """Backend prefix version of the cancel endpoint."""
+    return await cancel_explainer_session(request)
+
+@router.post("/backend/api/langchain-explainer-streaming")
+async def langchain_explainer_streaming_api_backend(request: Request):
+    """Backend prefix version of the LangChain streaming endpoint."""
+    return await langchain_explainer_streaming_api(request)
+
+@router.post("/backend/api/langchain-explainer-continue")
+async def langchain_explainer_continue_api(request: Request):
+    """
+    Continue LangChain-based streaming API endpoint when agent hits stop condition.
+    
+    Expected JSON payload:
+    {
+        "session_id": "unique_session_id",  // Required - existing session to continue
+        "continuation_prompt": "Additional context or question",  // Optional
+        "model_key": "gpt-5",  // Optional - will use existing session's model if not provided
+        "tool_groups": ["core", "analysis", "metrics"]  // Optional - will use existing session's tools if not provided
+    }
+    """
+    try:
+        from agents.langchain_agent.explainer_agent import create_explainer_agent
+        from agents.langchain_agent.config.tool_config import ToolGroup
+        
+        data = await request.json()
+        session_id = data.get("session_id")
+        continuation_prompt = data.get("continuation_prompt", "")
+        model_key = data.get("model_key")
+        tool_groups = data.get("tool_groups")
+        
+        if not session_id:
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "status": "error",
+                    "message": "No session_id provided. Cannot continue without existing session."
+                }
+            )
+        
+        logger.info(f"Continuing LangChain streaming analysis for session: {session_id}")
+        logger.info(f"Continuation prompt: {continuation_prompt}")
+        
+        # Get existing LangChain explainer agent for this session
+        session_key = f"langchain_{session_id}"
+        
+        if session_key not in explainer_sessions:
+            return JSONResponse(
+                status_code=404,
+                content={
+                    "status": "error",
+                    "message": f"Session {session_id} not found. Please start a new conversation."
+                }
+            )
+        
+        agent = explainer_sessions[session_key]
+        logger.info(f"Found existing LangChain explainer agent for session: {session_key}")
+        
+        # Update agent configuration if new parameters are provided
+        if model_key and hasattr(agent, 'model_key') and agent.model_key != model_key:
+            # Convert tool group strings to ToolGroup enums if provided
+            tool_group_enums = []
+            if tool_groups:
+                for group_name in tool_groups:
+                    try:
+                        tool_group_enums.append(ToolGroup(group_name))
+                    except ValueError:
+                        logger.warning(f"Unknown tool group: {group_name}")
+            else:
+                tool_group_enums = agent.tool_groups if hasattr(agent, 'tool_groups') else [ToolGroup.CORE]
+            
+            agent = create_explainer_agent(model_key=model_key, tool_groups=tool_group_enums)
+            explainer_sessions[session_key] = agent
+            logger.info(f"Updated agent with new model: {model_key}")
+        elif tool_groups and hasattr(agent, 'tool_groups'):
+            # Convert tool group strings to ToolGroup enums
+            tool_group_enums = []
+            for group_name in tool_groups:
+                try:
+                    tool_group_enums.append(ToolGroup(group_name))
+                except ValueError:
+                    logger.warning(f"Unknown tool group: {group_name}")
+            
+            if tool_group_enums and agent.tool_groups != tool_group_enums:
+                agent.update_tool_groups(tool_group_enums)
+                logger.info(f"Updated agent with new tool groups: {tool_groups}")
+        
+        async def generate_continue_stream():
+            """Generate streaming response for continuation using LangChain agent"""
+            try:
+                # Send session ID first so frontend can track it
+                yield f"data: {json.dumps({'session_id': session_id, 'continued': True})}\n\n"
+                
+                # Use the agent's continuation streaming method
+                async for chunk in agent.continue_analysis_streaming(continuation_prompt, metric_details={}):
+                    yield chunk
+                
+            except Exception as e:
+                logger.error(f"Error in LangChain continuation streaming generation: {str(e)}")
+                yield f"data: {json.dumps({'error': str(e)})}\n\n"
+        
+        return StreamingResponse(
+            generate_continue_stream(),
+            media_type="text/plain",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no"
+            }
+        )
+        
+    except Exception as e:
+        logger.error(f"Error in langchain_explainer_continue_api: {str(e)}", exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={
+                "status": "error",
+                "message": f"Error in LangChain continuation: {str(e)}"
+            }
+        )
 
 @router.post("/create_monthly_report")
 async def create_monthly_report(request: Request):

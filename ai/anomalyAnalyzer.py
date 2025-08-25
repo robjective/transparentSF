@@ -452,33 +452,35 @@ def get_dataset_columns(context_variables, endpoint=None):
         # Clean the endpoint parameter (remove .json if present)
         endpoint = endpoint.replace('.json', '')
         
-        # Look for dataset metadata in data/datasets directory
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        datasets_dir = os.path.join(script_dir, 'data', 'datasets')
-        
-        # Check if the directory exists
-        if not os.path.exists(datasets_dir):
-            return {"error": f"Datasets directory not found: {datasets_dir}"}
-        
-        # Try to find a metadata file for this endpoint
-        metadata_files = [
-            os.path.join(datasets_dir, f"{endpoint}.json"),
-            os.path.join(datasets_dir, f"{endpoint}_metadata.json"),
-            os.path.join(datasets_dir, f"{endpoint}_columns.json")
-        ]
-        
-        metadata_file = None
-        for file_path in metadata_files:
-            if os.path.exists(file_path):
-                metadata_file = file_path
-                break
-        
-        if not metadata_file:
-            return {"error": f"No metadata found for endpoint: {endpoint}"}
-        
-        # Read the metadata file
-        with open(metadata_file, 'r', encoding='utf-8') as f:
-            metadata = json.load(f)
+        # Get dataset metadata from database
+        try:
+            from tools.db_utils import get_postgres_connection
+            import psycopg2.extras
+            
+            connection = get_postgres_connection()
+            if not connection:
+                return {"error": "Failed to connect to database"}
+            
+            cursor = connection.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            
+            # Query the datasets table
+            cursor.execute("""
+                SELECT endpoint, title, columns
+                FROM datasets 
+                WHERE endpoint = %s AND is_active = true
+            """, (endpoint,))
+            
+            dataset_row = cursor.fetchone()
+            cursor.close()
+            connection.close()
+            
+            if not dataset_row:
+                return {"error": f"No dataset found in database for endpoint: {endpoint}"}
+            
+            metadata = dataset_row['columns'] or []
+        except Exception as e:
+            logger.error(f"Error getting dataset metadata from database: {str(e)}")
+            return {"error": f"Failed to get dataset metadata from database: {str(e)}"}
         
         # Extract columns information (adapt based on your metadata structure)
         columns = []

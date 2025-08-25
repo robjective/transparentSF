@@ -12,18 +12,25 @@ import os
 from enum import Enum
 from typing import Dict, Any, Optional, List
 from dotenv import load_dotenv
+from pathlib import Path
 
 # LangChain imports
 from langchain_openai import ChatOpenAI
 from langchain_anthropic import ChatAnthropic
 from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_xai import ChatXAI
 
-load_dotenv()
+# Load environment variables from the ai/.env file
+current_dir = Path(__file__).parent
+ai_dir = current_dir.parent.parent  # Go up two levels: config -> agents -> ai
+dotenv_path = ai_dir / '.env'
+load_dotenv(dotenv_path=dotenv_path)
 
 class ModelProvider(Enum):
     OPENAI = "openai"
     ANTHROPIC = "anthropic"
     GOOGLE = "google"
+    GROK = "grok"
 
 class ModelConfig:
     """Configuration for a specific model."""
@@ -61,6 +68,9 @@ class ModelConfig:
             elif self.provider == ModelProvider.GOOGLE:
                 print(f"Creating Google LLM with model: {self.model_name}")
                 return ChatGoogleGenerativeAI(model=self.model_name, google_api_key=api_key, **self.config)
+            elif self.provider == ModelProvider.GROK:
+                print(f"Creating Grok LLM with model: {self.model_name}")
+                return ChatXAI(model=self.model_name, api_key=api_key, **self.config)
             else:
                 raise ValueError(f"Unsupported provider: {self.provider}")
         except Exception as e:
@@ -76,26 +86,6 @@ MODEL_CONFIGS = {
         # temperature parameter removed - GPT-5 only supports default (1.0)
     }),
     "gpt-4o": ModelConfig(ModelProvider.OPENAI, "gpt-4o", {
-        "max_tokens": 8192,
-        "temperature": 0.1
-    }),
-    "gpt-4.1": ModelConfig(ModelProvider.OPENAI, "gpt-4.1", {
-        "max_tokens": 8192,
-        "temperature": 0.1
-    }),
-    "gpt-4": ModelConfig(ModelProvider.OPENAI, "gpt-4", {
-        "max_tokens": 8192,
-        "temperature": 0.1
-    }),
-    "gpt-4-turbo": ModelConfig(ModelProvider.OPENAI, "gpt-4-turbo-preview", {
-        "max_tokens": 8192,
-        "temperature": 0.1
-    }),
-    "gpt-3.5-turbo": ModelConfig(ModelProvider.OPENAI, "gpt-3.5-turbo", {
-        "max_tokens": 4096,
-        "temperature": 0.1
-    }),
-    "gpt-3.5-turbo-16k": ModelConfig(ModelProvider.OPENAI, "gpt-3.5-turbo-16k", {
         "max_tokens": 8192,
         "temperature": 0.1
     }),
@@ -143,6 +133,15 @@ MODEL_CONFIGS = {
         "top_k": 40,
         "max_output_tokens": 8192
     }),
+    # Grok Models (X-AI) - with Live Search capabilities
+    "grok-beta": ModelConfig(ModelProvider.GROK, "grok-beta", {
+        "max_tokens": 8192,
+        "temperature": 0.1
+    }, api_key_env_var="XAI_API_KEY"),
+    "grok-3-latest": ModelConfig(ModelProvider.GROK, "grok-3-latest", {
+        "max_tokens": 8192,
+        "temperature": 0.1
+    }, api_key_env_var="XAI_API_KEY"),
 }
 
 def get_model_config(model_key: str) -> ModelConfig:
@@ -199,10 +198,10 @@ def get_fallback_models(preferred_model: str) -> List[str]:
     # Define fallback order by provider
     fallback_order = [
         "gpt-4o",           # OpenAI GPT-4o (reliable)
-        "gpt-4",            # OpenAI GPT-4 (reliable)
+        "gpt-5",            # OpenAI GPT-5 (reliable)
+        "grok-beta",        # Grok beta (reliable, with tool calling)
         "claude-3-5-sonnet", # Anthropic (if not rate limited)
-        "gpt-4-turbo",      # OpenAI GPT-4 Turbo
-        "gpt-3.5-turbo",    # OpenAI GPT-3.5 (fastest fallback)
+        "grok-3-latest",    # Grok latest (with Live Search)
     ]
     
     # Remove the preferred model from fallbacks and filter by availability

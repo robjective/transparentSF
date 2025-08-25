@@ -2,7 +2,7 @@
 
 ## Overview
 
-The LangChain Explainer Agent now includes comprehensive session logging that captures detailed information about each interaction for debugging and improvement purposes.
+The LangChain Explainer Agent now includes comprehensive session logging that captures detailed information about each interaction for debugging and improvement purposes. The system has been improved to capture intermediate responses between tool calls and eliminate duplicate final responses.
 
 ## Features
 
@@ -16,6 +16,15 @@ Each session is logged as a structured JSON file containing:
 - **Tool Calls**: Detailed information about each tool execution
 - **Performance Metrics**: Execution times and success rates
 - **Error Information**: Detailed error tracking and categorization
+
+### Intermediate Response Capture
+
+The system now captures intermediate responses that occur between tool calls:
+
+- **Real-time Token Tracking**: Uses `on_llm_new_token` callback to capture streaming content
+- **Response Segmentation**: Automatically segments responses at sentence boundaries
+- **Tool Call Integration**: Interleaves responses with tool calls in conversation history
+- **Timestamp Tracking**: Each response segment includes precise timestamps
 
 ### Tool Call Tracking
 
@@ -64,7 +73,7 @@ agent = LangChainExplainerAgent(
 
 Session logs are stored in: `ai/logs/sessions/`
 
-File naming convention: `session_YYYYMMDD_HHMMSS_sessionid.json`
+File naming convention: `{session_id}.json` (e.g., `1fa8cd8b-f0f1-4ce3-b28d-603aa088b1a3.json`)
 
 ## Log File Structure
 
@@ -83,9 +92,30 @@ File naming convention: `session_YYYYMMDD_HHMMSS_sessionid.json`
     },
     {
       "role": "assistant",
-      "content": "I'll help you analyze the crime data...",
+      "content": "I'll help you analyze the crime data for district 3.",
+      "timestamp": "2025-01-15T10:30:15Z"
+    },
+    {
+      "role": "tool_call",
+      "content": "Tool: get_dashboard_metric",
+      "timestamp": "2025-01-15T10:30:16Z"
+    },
+    {
+      "role": "assistant",
+      "content": "Based on the data I retrieved, I can see that crime incidents in district 3 have increased by 15% compared to the previous month.",
+      "timestamp": "2025-01-15T10:30:20Z"
+    }
+  ],
+  "intermediate_responses": [
+    {
+      "content": "I'll help you analyze the crime data for district 3.",
       "timestamp": "2025-01-15T10:30:15Z",
-      "sender": "LangChain Explainer"
+      "type": "intermediate_response"
+    },
+    {
+      "content": "Based on the data I retrieved, I can see that crime incidents in district 3 have increased by 15% compared to the previous month.",
+      "timestamp": "2025-01-15T10:30:20Z",
+      "type": "intermediate_response"
     }
   ],
   "tool_calls": [
@@ -119,6 +149,35 @@ File naming convention: `session_YYYYMMDD_HHMMSS_sessionid.json`
   "available_tools": ["get_dashboard_metric", "query_anomalies_db", ...]
 }
 ```
+
+## Technical Implementation
+
+### Callback System
+
+The session logging uses LangChain's callback system:
+
+- **EnhancedExecutionTraceCallback**: Captures intermediate responses and tool calls
+- **on_llm_new_token**: Tracks streaming tokens and segments responses
+- **on_tool_start/on_tool_end**: Captures tool execution details
+- **on_agent_finish**: Finalizes session data
+
+### Streaming Integration
+
+The system integrates with streaming responses:
+
+- **Real-time Capture**: Captures responses as they stream to the UI
+- **No Duplication**: Eliminates duplicate final responses
+- **Conversation Building**: Constructs conversation from streaming data
+- **Tool Call Interleaving**: Properly sequences responses and tool calls
+
+### Data Sources
+
+Tool call information is captured through:
+
+- **LangChain Callbacks**: Primary source for tool execution details
+- **Event Streaming**: Real-time tool call events during streaming
+- **Execution Trace**: Fallback for missed tool calls
+- **Session Enhancement**: Post-processing to add missing details
 
 ## Usage Examples
 
@@ -211,6 +270,31 @@ The session logging feature requires:
 
 - `dataclasses-json>=0.6.0` (added to requirements.txt)
 - Standard Python libraries (json, datetime, pathlib, etc.)
+
+## Recent Improvements
+
+### Version 2.0 - Enhanced Response Capture
+
+- **Intermediate Response Tracking**: Captures responses between tool calls
+- **Duplicate Elimination**: Fixed duplicate final response issue
+- **Conversation Reconstruction**: Builds conversation from streaming data
+- **Enhanced Callbacks**: Improved token tracking and response segmentation
+
+### Key Changes
+
+1. **Added `intermediate_responses` field** to `AgentSession` class
+2. **Enhanced `EnhancedExecutionTraceCallback`** with `on_llm_new_token` method
+3. **Improved conversation building** from streaming data
+4. **Fixed duplicate response logging** in session completion
+5. **Added tool call interleaving** in conversation history
+
+### Technical Details
+
+- **Token-level tracking**: Uses `on_llm_new_token` to capture streaming content
+- **Response segmentation**: Automatically segments at sentence boundaries
+- **Conversation reconstruction**: Builds conversation from streaming data
+- **Tool call integration**: Interleaves responses with tool calls
+- **Duplicate prevention**: Eliminates duplicate final responses
 
 ## Future Enhancements
 

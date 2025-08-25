@@ -729,8 +729,8 @@
         
         .filters {
             display: flex;
-            gap: 15px;
-            margin-bottom: 20px;
+            gap: 12px;
+            margin-bottom: 15px;
             flex-wrap: wrap;
         }
         
@@ -741,13 +741,197 @@
         }
         
         .filter-group label {
-            font-size: 0.9rem;
-            margin-bottom: 0;
+            font-size: 0.8rem;
+            margin-bottom: 2px;
         }
         
         .filter-group select {
-            padding: 6px 10px;
+            padding: 4px 8px;
+            font-size: 0.8rem;
+        }
+        
+        /* Sessions tab styles */
+        .sessions-summary {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .summary-card {
+            background: white;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 15px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .summary-card h3 {
+            margin: 0 0 10px 0;
+            color: #333;
+            font-size: 1rem;
+        }
+        
+        .summary-stat {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 6px;
+            padding: 4px 0;
+            border-bottom: 1px solid #f0f0f0;
             font-size: 0.9rem;
+        }
+        
+        .summary-stat:last-child {
+            border-bottom: none;
+            margin-bottom: 0;
+        }
+        
+        .stat-label {
+            font-weight: 500;
+            color: #666;
+        }
+        
+        .stat-value {
+            font-weight: 600;
+            color: #333;
+        }
+        
+        .stat-value.success {
+            color: #28a745;
+        }
+        
+        .stat-value.warning {
+            color: #ffc107;
+        }
+        
+        .stat-value.danger {
+            color: #dc3545;
+        }
+        
+        .sessions-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        
+        .session-item {
+            background: white;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            padding: 12px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .session-item:hover {
+            border-color: #ad35fa;
+            box-shadow: 0 2px 8px rgba(173, 53, 250, 0.1);
+        }
+        
+        .session-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 6px;
+        }
+        
+        .session-title {
+            font-weight: 600;
+            color: #333;
+            font-size: 0.9rem;
+        }
+        
+        .session-meta {
+            display: flex;
+            gap: 12px;
+            font-size: 0.75rem;
+            color: #888;
+            margin-bottom: 4px;
+        }
+        
+        .session-input {
+            color: #666;
+            font-size: 0.8rem;
+            margin-bottom: 6px;
+            font-style: italic;
+        }
+        
+        .session-stats {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+        
+        .session-stat {
+            background: #f8f9fa;
+            padding: 3px 6px;
+            border-radius: 10px;
+            font-size: 0.75rem;
+            font-weight: 500;
+        }
+        
+        .session-stat.tool-calls {
+            background: #e3f2fd;
+            color: #1976d2;
+        }
+        
+        .session-stat.successful {
+            background: #d4edda;
+            color: #155724;
+        }
+        
+        .session-stat.failed {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        
+        .session-stat.time {
+            background: #f3e5f5;
+            color: #7b1fa2;
+        }
+        
+        .session-success {
+            font-weight: 600;
+            padding: 3px 6px;
+            border-radius: 10px;
+            font-size: 0.75rem;
+        }
+        
+        .session-success.true {
+            background: #d4edda;
+            color: #155724;
+        }
+        
+        .session-success.false {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        
+        .tool-call-breakdown {
+            margin-top: 10px;
+            padding: 10px;
+            background: #f8f9fa;
+            border-radius: 4px;
+        }
+        
+        .tool-call-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 4px 0;
+            font-size: 0.8rem;
+        }
+        
+        .tool-call-name {
+            font-weight: 500;
+            color: #333;
+        }
+        
+        .tool-call-stats {
+            display: flex;
+            gap: 8px;
+            color: #666;
         }
         
         @media (max-width: 768px) {
@@ -797,6 +981,7 @@
         <div class="tabs">
             <div class="tab tab-active" onclick="showTab('groups')">Eval Groups</div>
             <div class="tab" onclick="showTab('results')">Results</div>
+            <div class="tab" onclick="showTab('sessions')">Sessions</div>
             <div class="tab" onclick="showTab('create')">Create New</div>
         </div>
         
@@ -812,26 +997,7 @@
                 <div class="filter-group">
                     <label for="model-select">Model:</label>
                 <select id="model-select">
-                    <!-- OpenAI Models -->
-                    <option value="gpt-5">GPT-5 (OpenAI)</option>
-                    <option value="gpt-4o">GPT-4o (OpenAI)</option>
-                    <option value="gpt-4">GPT-4 (OpenAI)</option>
-                    <option value="gpt-4-turbo">GPT-4 Turbo (OpenAI)</option>
-                    <option value="gpt-3.5-turbo">GPT-3.5 Turbo (OpenAI)</option>
-                    <option value="gpt-3.5-turbo-16k">GPT-3.5 Turbo 16k (OpenAI)</option>
-                    
-                    <!-- Anthropic Models -->
-                    <option value="claude-opus-4">Claude Opus 4 (Anthropic)</option>
-                    <option value="claude-sonnet-4">Claude Sonnet 4 (Anthropic)</option>
-                    <option value="claude-3-7-sonnet" selected>Claude 3.7 Sonnet (Anthropic)</option>
-                    <option value="claude-3-5-sonnet">Claude 3.5 Sonnet (Anthropic)</option>
-                    <option value="claude-3-5-haiku">Claude 3.5 Haiku (Anthropic)</option>
-                    <option value="claude-3-haiku">Claude 3 Haiku (Anthropic)</option>
-                    
-                    <!-- Google Models -->
-                    <option value="gemini-2.5-pro">Gemini 2.5 Pro (Google)</option>
-                    <option value="gemini-1.5-pro">Gemini 1.5 Pro (Google)</option>
-                    <option value="gemini-1.5-flash">Gemini 1.5 Flash (Google)</option>
+                    <option value="">Loading models...</option>
                 </select>
             </div>
             </div>
@@ -866,6 +1032,52 @@
                 <div class="spinner"></div>
                     <span>Loading results...</span>
             </div>
+            </div>
+        </div>
+
+        <!-- Sessions Tab -->
+        <div id="sessions-tab" class="tab-content">
+            <div class="filters">
+                <div class="filter-group">
+                    <label for="session-model-filter">Model:</label>
+                    <select id="session-model-filter" onchange="filterSessions()">
+                        <option value="">All Models</option>
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <label for="session-initiation-filter">Initiation Type:</label>
+                    <select id="session-initiation-filter" onchange="filterSessions()">
+                        <option value="">All Types</option>
+                        <option value="UI">UI</option>
+                        <option value="Eval">Eval</option>
+                        <option value="Newsletter">Newsletter</option>
+                        <option value="Anomaly">Anomaly</option>
+                        <option value="Metric Management">Metric Management</option>
+                        <option value="Data Analysis">Data Analysis</option>
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <label for="session-success-filter">Success:</label>
+                    <select id="session-success-filter" onchange="filterSessions()">
+                        <option value="">All</option>
+                        <option value="true">Successful</option>
+                        <option value="false">Failed</option>
+                    </select>
+                </div>
+            </div>
+
+            <div id="sessions-summary-container">
+                <div class="loading">
+                    <div class="spinner"></div>
+                    <span>Loading sessions summary...</span>
+                </div>
+            </div>
+
+            <div id="sessions-container">
+                <div class="loading">
+                    <div class="spinner"></div>
+                    <span>Loading sessions...</span>
+                </div>
             </div>
         </div>
 
@@ -1017,16 +1229,109 @@
         </div>
     </div>
 
+    <!-- Eval Streaming Modal -->
+    <div id="eval-streaming-modal" class="modal" style="display: none;">
+        <div class="modal-content" style="max-width: 900px; height: 85vh;">
+            <div class="modal-header">
+                <h3 id="eval-streaming-title">Running Evaluation</h3>
+                <div class="eval-header-actions" style="display: flex; align-items: center; gap: 10px;">
+                    <button class="btn small" onclick="viewEvalInConversationViewer()" style="display: none;" id="view-conversation-btn">Open in Viewer</button>
+                    <span class="close" onclick="hideEvalStreamingModal()">&times;</span>
+                </div>
+            </div>
+            <div class="modal-body" style="display: flex; flex-direction: column; height: calc(100% - 60px);">
+                <div class="eval-prompt-section" style="background: #f8f9fa; padding: 10px; border-radius: 4px; margin-bottom: 15px;">
+                    <strong>Evaluation Query:</strong>
+                    <div id="eval-prompt-display" style="font-family: monospace; font-size: 0.9em; margin-top: 5px;"></div>
+                </div>
+                
+                <div class="eval-conversation-section" style="flex: 1; display: flex; flex-direction: column;">
+                    <div id="eval-conversation-renderer" style="flex: 1; border: 1px solid #ddd; border-radius: 4px; overflow: hidden; background: #fff;"></div>
+                </div>
+                
+                <div class="eval-status-section" style="margin-top: 10px; padding: 8px; background: #f0f0f0; border-radius: 4px; font-size: 0.9em;">
+                    <div id="eval-streaming-status">Initializing...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Dependencies -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    
+    <!-- Conversation Renderer -->
+    <link rel="stylesheet" href="/static/conversation-renderer.css">
+    <script src="/static/js/conversation-renderer.js"></script>
+
     <script>
         // Global state
         let evalGroups = [];
         let evals = [];
         let results = [];
+        let sessionsData = [];
         
+        // Load available models for the dropdown
+        async function loadAvailableModels() {
+            try {
+                const response = await fetch('/backend/available-models');
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    const modelSelect = document.getElementById('model-select');
+                    
+                    // Clear existing options
+                    modelSelect.innerHTML = '';
+                    
+                    // Add default option
+                    const defaultOption = document.createElement('option');
+                    defaultOption.value = '';
+                    defaultOption.textContent = `Default (${data.default_model})`;
+                    modelSelect.appendChild(defaultOption);
+                    
+                    // Add available models grouped by provider
+                    const modelsByProvider = {};
+                    data.models.forEach(model => {
+                        if (!modelsByProvider[model.provider]) {
+                            modelsByProvider[model.provider] = [];
+                        }
+                        modelsByProvider[model.provider].push(model);
+                    });
+                    
+                    // Add models by provider
+                    Object.keys(modelsByProvider).forEach(provider => {
+                        // Add provider header
+                        const providerOption = document.createElement('option');
+                        providerOption.value = '';
+                        providerOption.textContent = `--- ${provider.toUpperCase()} ---`;
+                        providerOption.disabled = true;
+                        modelSelect.appendChild(providerOption);
+                        
+                        // Add models for this provider
+                        modelsByProvider[provider].forEach(model => {
+                            const option = document.createElement('option');
+                            option.value = model.key;
+                            option.textContent = model.name;
+                            modelSelect.appendChild(option);
+                        });
+                    });
+                } else {
+                    console.error('Failed to load models:', data.message);
+                    const modelSelect = document.getElementById('model-select');
+                    modelSelect.innerHTML = '<option value="">Error loading models</option>';
+                }
+            } catch (error) {
+                console.error('Error loading models:', error);
+                const modelSelect = document.getElementById('model-select');
+                modelSelect.innerHTML = '<option value="">Error loading models</option>';
+            }
+        }
+
         // Initialize the page
         document.addEventListener('DOMContentLoaded', function() {
+            loadAvailableModels();
             loadEvalGroups();
             loadResults();
+            loadSessionsSummary();
         });
         
         // Tab functionality
@@ -1214,6 +1519,15 @@
                                 <span class="execution-time">⏱️ ${result.execution_time_seconds ? result.execution_time_seconds.toFixed(1) + 's' : 'N/A'}</span>
                                 <span>${new Date(result.created_at).toLocaleString()}</span>
                                 <span>${result.status}</span>
+                                ${result.success_details && result.success_details.session_id ? `
+                                    <a href="/backend/conversation?session=${result.success_details.session_id}" 
+                                       target="_blank" 
+                                       class="session-link" 
+                                       style="color: #007bff; text-decoration: none; font-size: 0.9em;"
+                                       onclick="event.stopPropagation();">
+                                        📋 Session
+                                    </a>
+                                ` : ''}
                                 ${result.tool_calls_made && Array.isArray(result.tool_calls_made) && result.tool_calls_made.length > 0 ? `
                                     <div class="tool-call-stats">
                                         <span class="tool-call-count">🔧 ${result.tool_calls_made.length}</span>
@@ -1269,6 +1583,16 @@
                                 <div class="result-details-section">
                                     <h4>Success Details</h4>
                                     <pre>${JSON.stringify(result.success_details, null, 2)}</pre>
+                                    ${result.success_details.session_id ? `
+                                        <div class="session-link-section" style="margin-top: 10px;">
+                                            <a href="/backend/conversation?session=${result.success_details.session_id}" 
+                                               target="_blank" 
+                                               class="btn small" 
+                                               style="background: #007bff; color: white; text-decoration: none; padding: 5px 10px; border-radius: 3px;">
+                                                📋 View Session (${result.success_details.session_id.substring(0, 8)}...)
+                                            </a>
+                                        </div>
+                                    ` : ''}
                             </div>
                             ` : ''}
                             
@@ -1355,6 +1679,202 @@
             updateResultsDisplay();
         }
         
+        // Load sessions summary
+        async function loadSessionsSummary() {
+            try {
+                const response = await fetch('/backend/api/sessions-summary');
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    sessionsData = data.summary.sessions;
+                    updateSessionsSummaryDisplay(data.summary);
+                    updateSessionsDisplay();
+                    updateSessionsFilters();
+                }
+            } catch (error) {
+                console.error('Error loading sessions summary:', error);
+            }
+        }
+        
+        // Update sessions summary display
+        function updateSessionsSummaryDisplay(summary) {
+            const container = document.getElementById('sessions-summary-container');
+            
+            const summaryHtml = `
+                <div class="sessions-summary">
+                    <div class="summary-card">
+                        <h3>📊 Overall Statistics</h3>
+                        <div class="summary-stat">
+                            <span class="stat-label">Total Sessions</span>
+                            <span class="stat-value">${summary.total_sessions}</span>
+                        </div>
+                        <div class="summary-stat">
+                            <span class="stat-label">Successful</span>
+                            <span class="stat-value success">${summary.sessions.filter(s => s.success).length}</span>
+                        </div>
+                        <div class="summary-stat">
+                            <span class="stat-label">Failed</span>
+                            <span class="stat-value danger">${summary.sessions.filter(s => !s.success).length}</span>
+                        </div>
+                        <div class="summary-stat">
+                            <span class="stat-label">Tool Call Success Rate</span>
+                            <span class="stat-value ${(() => {
+                                const totalToolCalls = summary.sessions.reduce((sum, s) => sum + s.tool_call_count, 0);
+                                const successfulToolCalls = summary.sessions.reduce((sum, s) => sum + s.successful_tool_calls, 0);
+                                const rate = totalToolCalls > 0 ? (successfulToolCalls / totalToolCalls * 100) : 100;
+                                return rate > 80 ? 'success' : rate > 60 ? 'warning' : 'danger';
+                            })()}">${(() => {
+                                const totalToolCalls = summary.sessions.reduce((sum, s) => sum + s.tool_call_count, 0);
+                                const successfulToolCalls = summary.sessions.reduce((sum, s) => sum + s.successful_tool_calls, 0);
+                                return totalToolCalls > 0 ? (successfulToolCalls / totalToolCalls * 100).toFixed(1) : '100.0';
+                            })()}%</span>
+                        </div>
+                    </div>
+                    
+                    <div class="summary-card">
+                        <h3>🤖 Model Performance</h3>
+                        ${Object.entries(summary.model_success_rates).map(([model, rate]) => `
+                            <div class="summary-stat">
+                                <span class="stat-label">${model}</span>
+                                <span class="stat-value ${rate > 80 ? 'success' : rate > 60 ? 'warning' : 'danger'}">${rate}%</span>
+                            </div>
+                        `).join('')}
+                    </div>
+                    
+                    <div class="summary-card">
+                        <h3>🎯 Initiation Types</h3>
+                        ${Object.entries(summary.initiation_stats).map(([type, count]) => `
+                            <div class="summary-stat">
+                                <span class="stat-label">${type}</span>
+                                <span class="stat-value">${count}</span>
+                            </div>
+                        `).join('')}
+                    </div>
+                    
+                    <div class="summary-card">
+                        <h3>🔧 Top Tools</h3>
+                        ${Object.entries(summary.tool_call_stats).slice(0, 5).map(([tool, stats]) => `
+                            <div class="summary-stat">
+                                <span class="stat-label">${tool}</span>
+                                <span class="stat-value">${stats.total_calls} (${stats.successful_calls}/${stats.failed_calls})</span>
+                            </div>
+                        `).join('')}
+                        ${Object.keys(summary.tool_call_stats).length > 5 ? `
+                            <div class="summary-stat">
+                                <span class="stat-label">... and ${Object.keys(summary.tool_call_stats).length - 5} more</span>
+                                <span class="stat-value"></span>
+                            </div>
+                        ` : ''}
+                    </div>
+                    
+                    <div class="summary-card">
+                        <h3>📈 Session Performance</h3>
+                        <div class="summary-stat">
+                            <span class="stat-label">Avg Tool Calls per Session</span>
+                            <span class="stat-value">${(() => {
+                                const totalToolCalls = summary.sessions.reduce((sum, s) => sum + s.tool_call_count, 0);
+                                return summary.total_sessions > 0 ? (totalToolCalls / summary.total_sessions).toFixed(1) : '0.0';
+                            })()}</span>
+                        </div>
+                        <div class="summary-stat">
+                            <span class="stat-label">Avg Execution Time</span>
+                            <span class="stat-value">${(() => {
+                                const totalTime = summary.sessions.reduce((sum, s) => sum + s.total_execution_time_ms, 0);
+                                return summary.total_sessions > 0 ? (totalTime / summary.total_sessions / 1000).toFixed(1) + 's' : '0.0s';
+                            })()}</span>
+                        </div>
+                        <div class="summary-stat">
+                            <span class="stat-label">Sessions with Tool Calls</span>
+                            <span class="stat-value">${summary.sessions.filter(s => s.tool_call_count > 0).length}/${summary.total_sessions}</span>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            container.innerHTML = summaryHtml;
+        }
+        
+        // Update sessions display
+        function updateSessionsDisplay() {
+            const container = document.getElementById('sessions-container');
+            const selectedModel = document.getElementById('session-model-filter').value;
+            const selectedInitiation = document.getElementById('session-initiation-filter').value;
+            const selectedSuccess = document.getElementById('session-success-filter').value;
+            
+            let filteredSessions = sessionsData;
+            
+            if (selectedModel) {
+                filteredSessions = filteredSessions.filter(s => s.model === selectedModel);
+            }
+            
+            if (selectedInitiation) {
+                filteredSessions = filteredSessions.filter(s => s.initiation_type === selectedInitiation);
+            }
+            
+            if (selectedSuccess) {
+                filteredSessions = filteredSessions.filter(s => s.success.toString() === selectedSuccess);
+            }
+            
+            if (filteredSessions.length === 0) {
+                container.innerHTML = '<p>No sessions found matching the selected filters.</p>';
+                return;
+            }
+            
+            const sessionsHtml = filteredSessions.map(session => `
+                <div class="session-item" onclick="viewSession('${session.session_id}')">
+                    <div class="session-header">
+                        <div class="session-title">${session.agent_type} - ${session.model}</div>
+                        <div class="session-success ${session.tool_call_count > 0 ? (session.successful_tool_calls / session.tool_call_count > 0.8 ? 'true' : 'false') : 'true'}">${session.tool_call_count > 0 ? (session.successful_tool_calls / session.tool_call_count > 0.8 ? '✅ Good' : '⚠️ Mixed') : '✅ No Tools'}</div>
+                    </div>
+                    
+                    <div class="session-meta">
+                        <span>${new Date(session.timestamp).toLocaleString()}</span>
+                        <span>${session.initiation_type}</span>
+                        <span>${(session.total_execution_time_ms / 1000).toFixed(1)}s</span>
+                    </div>
+                    
+                    <div class="session-input">"${session.user_input}"</div>
+                    
+                    <div class="session-stats">
+                        <span class="session-stat tool-calls">🔧 ${session.tool_call_count} tools</span>
+                        <span class="session-stat successful">✅ ${session.successful_tool_calls}</span>
+                        <span class="session-stat failed">❌ ${session.failed_tool_calls}</span>
+                        <span class="session-stat time">⏱️ ${(session.total_execution_time_ms / 1000).toFixed(1)}s</span>
+                    </div>
+                </div>
+            `).join('');
+            
+            container.innerHTML = sessionsHtml;
+        }
+        
+        // Update sessions filters
+        function updateSessionsFilters() {
+            const modelFilter = document.getElementById('session-model-filter');
+            const models = [...new Set(sessionsData.map(s => s.model))];
+            
+            // Clear existing options
+            modelFilter.innerHTML = '<option value="">All Models</option>';
+            
+            // Add model options
+            models.forEach(model => {
+                const option = document.createElement('option');
+                option.value = model;
+                option.textContent = model;
+                modelFilter.appendChild(option);
+            });
+        }
+        
+        // Filter sessions
+        function filterSessions() {
+            updateSessionsDisplay();
+        }
+        
+        // View session details
+        function viewSession(sessionId) {
+            const url = `/backend/conversation?session=${sessionId}`;
+            window.open(url, '_blank');
+        }
+        
         // Toggle result details
         function toggleResultDetails(resultId) {
             const detailsElement = document.getElementById(`result-details-${resultId}`);
@@ -1438,16 +1958,135 @@
             }
         }
         
-        // Run a single eval
+        // Run a single eval with streaming progress
         async function runEval(evalId) {
             const modelName = document.getElementById('model-select').value;
             
-            // Show loading indicator
-            const loadingOverlay = document.getElementById('loading-overlay');
-            const loadingText = document.getElementById('loading-operation-text');
-            loadingText.textContent = `Running eval...`;
-            loadingOverlay.style.display = 'flex';
-            
+            try {
+                // First get the eval details to get the prompt
+                const evalResponse = await fetch(`/backend/api/evals/${evalId}`);
+                const evalData = await evalResponse.json();
+                
+                if (evalData.status !== 'success') {
+                    alert(`Error getting eval details: ${evalData.message}`);
+                    return;
+                }
+                
+                const evalPrompt = evalData.eval.prompt;
+                
+                // Show modal with loading state
+                showEvalStreamingModal(evalData.eval.name, evalPrompt);
+                updateEvalStreamingModal('Running evaluation...', 'info');
+                
+                // Use the proper eval endpoint that runs through eval_runner
+                const response = await fetch(`/backend/api/run-eval/${evalId}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ 
+                        model_name: modelName 
+                    })
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                // Handle the eval response (non-streaming)
+                const evalResult = await response.json();
+                
+                if (evalResult.status !== 'success') {
+                    throw new Error(`Eval failed: ${evalResult.message || 'Unknown error'}`);
+                }
+                
+                // Extract results from the eval response
+                const executionResult = evalResult.execution_result;
+                const successScore = executionResult.success_score;
+                const toolCalls = executionResult.tool_calls || [];
+                const responseText = executionResult.response || '';
+                const sessionId = executionResult.success_details?.session_id;
+                
+                // Update the modal with results
+                updateEvalStreamingModal(`✅ Evaluation completed! Success score: ${successScore}`, 'success');
+                
+                // Show the response in the conversation view
+                if (responseText) {
+                    // Start an assistant message and add the response
+                    evalCurrentAssistantMessage = evalConversationRenderer.addMessage('', 'assistant', false);
+                    evalConversationRenderer.appendToMessage(evalCurrentAssistantMessage, responseText);
+                }
+                
+                // Handle session completion
+                if (sessionId) {
+                    handleEvalSessionComplete({session_id: sessionId});
+                }
+                
+                // Show completion message with close button
+                const statusDiv = document.getElementById('eval-streaming-status');
+                statusDiv.innerHTML = `✅ Evaluation completed! Success: ${(successScore * 100).toFixed(0)}% ` + 
+                    (sessionId ? '<span style="color: #22c55e;">| Session link available</span>' : '');
+                
+                // Add close button
+                const closeBtn = document.createElement('button');
+                closeBtn.textContent = 'Close Modal';
+                closeBtn.className = 'btn small';
+                closeBtn.onclick = hideEvalStreamingModal;
+                closeBtn.style.marginTop = '10px';
+                closeBtn.style.marginLeft = '10px';
+                statusDiv.appendChild(closeBtn);
+                
+                // Refresh results
+                setTimeout(() => {
+                    loadResults(); // Refresh results
+                }, 1000);
+                
+            } catch (error) {
+                console.error('Error running streaming eval:', error);
+                updateEvalStreamingModal(`❌ Error: ${error.message}`, 'error');
+                setTimeout(() => hideEvalStreamingModal(), 3000);
+            }
+        }
+        
+        // Save eval results from streaming session (no re-run)
+        async function saveStreamingEvalResults(evalId, modelName, streamingResults) {
+            try {
+                const response = await fetch(`/backend/api/save-streaming-eval-result/${evalId}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ 
+                        model_name: modelName,
+                        streaming_results: streamingResults
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    const score = (data.execution_result.success_score * 100).toFixed(1);
+                    updateEvalStreamingModal(`📊 Final Score: ${score}%`, 'success');
+                    
+                    // Display tool call summary from streaming
+                    const { tool_calls_count, successful_tool_calls, failed_tool_calls } = data.execution_result;
+                    if (tool_calls_count > 0) {
+                        updateEvalStreamingModal(
+                            `🔧 Tools Used: ${tool_calls_count} total (✅ ${successful_tool_calls} successful, ❌ ${failed_tool_calls} failed)`, 
+                            'info'
+                        );
+                    }
+                } else {
+                    updateEvalStreamingModal(`⚠️ Warning: Could not save results: ${data.message}`, 'warning');
+                }
+            } catch (error) {
+                console.error('Error saving streaming eval results:', error);
+                updateEvalStreamingModal(`⚠️ Warning: Could not save results: ${error.message}`, 'warning');
+            }
+        }
+        
+        // Helper function to run the database eval (fallback for saving results)
+        async function runDatabaseEval(evalId, modelName) {
             try {
                 const response = await fetch(`/backend/api/run-eval/${evalId}`, {
                     method: 'POST',
@@ -1460,17 +2099,186 @@
                 const data = await response.json();
                 
                 if (data.status === 'success') {
-                    alert(`Eval completed successfully! Score: ${(data.execution_result.success_score * 100).toFixed(1)}%`);
-                    loadResults(); // Refresh results
+                    const score = (data.execution_result.success_score * 100).toFixed(1);
+                    updateEvalStreamingModal(`📊 Final Score: ${score}%`, 'success');
                 } else {
-                    alert(`Error running eval: ${data.message}`);
+                    updateEvalStreamingModal(`⚠️ Warning: Could not save results: ${data.message}`, 'warning');
                 }
             } catch (error) {
-                console.error('Error running eval:', error);
-                alert('Error running eval. Please try again.');
-            } finally {
-                // Hide loading indicator
-                loadingOverlay.style.display = 'none';
+                console.error('Error saving eval results:', error);
+                updateEvalStreamingModal(`⚠️ Warning: Could not save results: ${error.message}`, 'warning');
+            }
+        }
+        
+        // Global variables for eval streaming
+        let evalConversationRenderer = null;
+        let evalCurrentSessionId = null;
+        let evalCurrentAssistantMessage = null; // Track current assistant message for streaming content
+        let evalActiveToolCalls = new Map(); // Track active tool calls
+        
+
+        
+        // Eval Streaming Modal Functions
+        function showEvalStreamingModal(evalName, prompt) {
+            const modal = document.getElementById('eval-streaming-modal');
+            const title = document.getElementById('eval-streaming-title');
+            const promptDisplay = document.getElementById('eval-prompt-display');
+            const statusDiv = document.getElementById('eval-streaming-status');
+            const conversationContainer = document.getElementById('eval-conversation-renderer');
+            
+            // Clear previous content completely
+            title.textContent = `Running: ${evalName}`;
+            promptDisplay.textContent = prompt;
+            statusDiv.innerHTML = 'Initializing...'; // Use innerHTML to clear any buttons
+            conversationContainer.innerHTML = ''; // Clear previous conversation
+            
+            // Initialize conversation renderer
+            if (typeof ConversationRenderer === 'undefined') {
+                console.error('ConversationRenderer is not defined. Script may not have loaded.');
+                statusDiv.textContent = 'Error: ConversationRenderer not available';
+                return;
+            }
+            
+            try {
+                evalConversationRenderer = new ConversationRenderer('eval-conversation-renderer', {
+                    showTimestamps: false,
+                    enableMarkdown: true,
+                    enableToolCallDetails: true,
+                    enableChartProcessing: true,
+                    autoScroll: true
+                });
+            } catch (error) {
+                console.error('Error creating ConversationRenderer:', error);
+                statusDiv.textContent = 'Error: Failed to initialize conversation renderer';
+                return;
+            }
+            
+            // Add initial user message
+            evalConversationRenderer.addMessage(prompt, 'user', false);
+            
+            // Reset session tracking
+            evalCurrentSessionId = null;
+            evalCurrentAssistantMessage = null; // Reset assistant message tracking
+            evalActiveToolCalls.clear(); // Reset tool call tracking
+            document.getElementById('view-conversation-btn').style.display = 'none';
+            
+            modal.style.display = 'block';
+        }
+        
+        function hideEvalStreamingModal() {
+            const modal = document.getElementById('eval-streaming-modal');
+            modal.style.display = 'none';
+        }
+        
+        function updateEvalStreamingModal(message, type = 'info') {
+            // Update status in the status bar
+            const statusDiv = document.getElementById('eval-streaming-status');
+            const timestamp = new Date().toLocaleTimeString();
+            
+            let icon = '📋';
+            switch (type) {
+                case 'success':
+                    icon = '✅';
+                    break;
+                case 'error':
+                    icon = '❌';
+                    break;
+                case 'warning':
+                    icon = '⚠️';
+                    break;
+                case 'tool':
+                    icon = '🔧';
+                    break;
+                case 'info':
+                default:
+                    icon = '📋';
+            }
+            
+            statusDiv.innerHTML = `<span style="opacity: 0.7;">[${timestamp}]</span> ${icon} ${message}`;
+            
+            // Only add system messages for major status updates, not tool call success/failure
+            if ((type === 'success' || type === 'error') && !message.includes('completed') && !message.includes('failed')) {
+                if (evalConversationRenderer) {
+                    evalConversationRenderer.addSystemMessage(`${icon} ${message}`);
+                }
+            }
+        }
+        
+        function appendEvalStreamingContent(content) {
+            if (!evalConversationRenderer) return;
+            
+            // Create a new message if we don't have one
+            if (!evalCurrentAssistantMessage) {
+                evalCurrentAssistantMessage = evalConversationRenderer.addMessage('', 'assistant', true);
+            }
+            
+            // Use the ConversationRenderer's appendToMessage method
+            evalConversationRenderer.appendToMessage(evalCurrentAssistantMessage, content);
+        }
+        
+        // Start a new assistant message (called after tool call completes)
+        function startNewAssistantMessage() {
+            evalCurrentAssistantMessage = null;
+        }
+        
+        // Handle tool call events - using ConversationRenderer component
+        function handleEvalToolCall(toolName, toolId) {
+            if (evalConversationRenderer) {
+                const displayToolId = evalConversationRenderer.addToolCall(toolName, toolId);
+                // Track this tool call for completion
+                evalActiveToolCalls.set(toolName, displayToolId);
+                return displayToolId;
+            }
+            return toolId;
+        }
+        
+        function handleEvalToolCallComplete(toolName, success, response, executionTime) {
+            // Look up the tool ID
+            const toolId = evalActiveToolCalls.get(toolName);
+            if (toolId && evalConversationRenderer) {
+                evalConversationRenderer.completeToolCall(toolId, success, response, executionTime);
+                // Remove from active tracking
+                evalActiveToolCalls.delete(toolName);
+                // Start a new assistant message after this tool call
+                startNewAssistantMessage();
+            }
+        }
+        
+        function handleEvalToolCallArguments(toolId, args) {
+            if (evalConversationRenderer) {
+                evalConversationRenderer.updateToolCallArguments(toolId, args);
+            }
+        }
+        
+        // View conversation in standalone viewer
+        function viewEvalInConversationViewer() {
+            if (evalCurrentSessionId) {
+                const url = `/backend/conversation?session=${evalCurrentSessionId}`;
+                
+                // Copy to clipboard and open in new tab
+                navigator.clipboard.writeText(url).then(() => {
+                    console.log('Conversation URL copied to clipboard');
+                }).catch(() => {
+                    console.log('Failed to copy URL to clipboard');
+                });
+                
+                window.open(url, '_blank');
+            } else {
+                alert('No session ID available yet.');
+            }
+        }
+        
+        // Handle session completion to enable conversation viewer link
+        function handleEvalSessionComplete(sessionData) {
+            if (sessionData && sessionData.session_id) {
+                evalCurrentSessionId = sessionData.session_id;
+                const shareBtn = document.getElementById('view-conversation-btn');
+                if (shareBtn) {
+                    shareBtn.style.display = 'inline-block';
+                    shareBtn.textContent = `📋 View Session (${sessionData.session_id.substring(0, 8)}...)`;
+                    console.log('Share button should now be visible');
+                }
+                updateEvalStreamingModal('Conversation complete - view session link available', 'success');
             }
         }
         

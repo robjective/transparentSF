@@ -28,42 +28,20 @@ GPT_MODEL = 'gpt-4.1'
 # ------------------------------
 
 def load_combined_data(datasets_folder, log_file):
-    combined_data = []
-    article_list = [f for f in os.listdir(datasets_folder) if f.endswith('.json')]
-
-    if not article_list:
-        print(f"No JSON files found in {datasets_folder}")
-        return combined_data
-
-    print(f"Found {len(article_list)} JSON files to process.")
-
-    for filename in article_list:
-        article_path = os.path.join(datasets_folder, filename)
-        print(f"\nProcessing file: {filename}")
-        try:
-            with open(article_path, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-                if isinstance(data, dict):
-                    combined_data.append(data)
-                elif isinstance(data, list) and data:
-                    combined_data.extend(data)
-                else:
-                    print(f"No valid data structure found in {filename}")
-        except json.JSONDecodeError as e:
-            print(f"JSON decode error in file {filename}: {e}")
-            continue
-        except Exception as e:
-            print(f"Error reading file {filename}: {e}")
-            continue
-
-    if combined_data:
-        print(f"Total records before sorting: {len(combined_data)}")
-        combined_data.sort(key=lambda x: (str(x.get('report_category', 'Unknown')),
-                                         str(x.get('periodic', 'Unknown'))))
-    else:
-        print("No valid data found in the files.")
-
-    return combined_data
+    """
+    Load combined data from database instead of files.
+    TODO: This function needs to be updated to load the appropriate data structure from the database.
+    For now, returning empty list to prevent errors.
+    """
+    print("WARNING: load_combined_data called but datasets have been moved to database.")
+    print("This function needs to be updated to load data from the database instead of files.")
+    print("Returning empty list to prevent errors.")
+    
+    # TODO: Update this function to load data from the database
+    # The function should query the appropriate tables and return data in the expected format
+    # that the analysis functions expect.
+    
+    return []
 
 def save_combined_html(combined_data, output_folder):
     output_file = os.path.join(output_folder, 'all_data.html')

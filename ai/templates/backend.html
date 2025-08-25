@@ -410,6 +410,33 @@
             transform: scale(1.05);
         }
         
+        .explainer-share {
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+            border: 1px solid var(--border-primary);
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s ease;
+            margin-left: 4px;
+        }
+        
+        .explainer-share:hover {
+            background: var(--bg-tertiary);
+            border-color: var(--text-secondary);
+            transform: scale(1.05);
+        }
+        
+        .explainer-share:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
         .explainer-header h3 {
             font-family: 'Inter', sans-serif;
             font-weight: 600;
@@ -1344,6 +1371,24 @@
         .settings-button.reload:hover {
             background: var(--warm-coral);
         }
+        
+        .settings-button.clear-sessions {
+            background: #dc3545;
+            color: white;
+        }
+        
+        .settings-button.clear-sessions:hover {
+            background: #c82333;
+        }
+        
+        .settings-button.check-config {
+            background: #28a745;
+            color: white;
+        }
+        
+        .settings-button.check-config:hover {
+            background: #218838;
+        }
     </style>
 </head>
 <body>
@@ -1422,6 +1467,12 @@
             <div class="explainer-header">
                 <div class="explainer-header-left">
                     <button class="explainer-new-chat" id="explainer-new-chat" title="Start New Chat">+</button>
+                    <button class="explainer-share" id="explainer-share" title="Copy Link to Conversation" style="display: none;">
+                        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M13 4.5a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0ZM13 11.5a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0ZM5 8a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0Z" fill="currentColor"/>
+                            <path d="M7.5 8.97L9.97 10.22M7.5 7.03L9.97 5.78" stroke="currentColor" stroke-width="1.2"/>
+                        </svg>
+                    </button>
                     <h3>Seymour</h3>
                 </div>
                 <div class="explainer-header-right">
@@ -1467,26 +1518,7 @@
                         ></textarea>
                         <div class="explainer-controls">
                             <select id="explainer-model-select" class="explainer-model-select">
-                                <!-- OpenAI Models -->
-                                 <option value="gpt-5">GPT-5 (OpenAI)</option>
-                                <option value="gpt-4o">GPT-4o (OpenAI)</option>
-                                <option value="gpt-4">GPT-4 (OpenAI)</option>
-                                <option value="gpt-4-turbo">GPT-4 Turbo (OpenAI)</option>
-                                <option value="gpt-3.5-turbo">GPT-3.5 Turbo (OpenAI)</option>
-                                <option value="gpt-3.5-turbo-16k">GPT-3.5 Turbo 16k (OpenAI)</option>
-                                
-                                <!-- Anthropic Models -->
-                                <option value="claude-opus-4">Claude Opus 4 (Anthropic)</option>
-                                <option value="claude-sonnet-4">Claude Sonnet 4 (Anthropic)</option>
-                                <option value="claude-3-7-sonnet" selected>Claude 3.7 Sonnet (Anthropic)</option>
-                                <option value="claude-3-5-sonnet">Claude 3.5 Sonnet (Anthropic)</option>
-                                <option value="claude-3-5-haiku">Claude 3.5 Haiku (Anthropic)</option>
-                                <option value="claude-3-haiku">Claude 3 Haiku (Anthropic)</option>
-                                
-                                <!-- Google Models -->
-                                <option value="gemini-2.5-pro">Gemini 2.5 Pro (Google)</option>
-                                <option value="gemini-1.5-pro">Gemini 1.5 Pro (Google)</option>
-                                <option value="gemini-1.5-flash">Gemini 1.5 Flash (Google)</option>
+                                <option value="">Loading models...</option>
                             </select>
                             <button class="explainer-send" id="explainer-send">Send</button>
                             <button class="explainer-stop" id="explainer-stop" style="display: none;">Stop</button>
@@ -1524,6 +1556,8 @@
                                     <button class="settings-button cancel" id="settings-cancel">Cancel</button>
                                     <button class="settings-button save" id="settings-save" disabled>Save</button>
                                     <button class="settings-button reload" id="settings-reload">Reload Agent</button>
+                <button class="settings-button clear-sessions" id="settings-clear-sessions">Clear Sessions</button>
+                <button class="settings-button check-config" id="settings-check-config">Check Config</button>
                                 </div>
                             </div>
                         </div>
@@ -1791,6 +1825,9 @@
                 explainerSessionId = null;
             }
             
+            // Hide share button since there's no conversation to share
+            updateShareButtonVisibility();
+            
             // Add welcome message back
             addExplainerMessage('I\'m Seymour, the AI behind Transparent SF.\n\nI turn San Francisco\'s public data into clear, no-spin insights you can actually use. Crime trends, housing shifts, budget breakdowns — I surface the signals that matter and show who\'s responsible.\n\nNo jargon. No panic. Just clean, calm, civic intelligence.', 'system', false);
         }
@@ -1809,6 +1846,44 @@
                 });
             } catch (error) {
                 console.error('Error clearing session on backend:', error);
+            }
+        }
+        
+        // Share conversation function
+        function shareExplainerConversation() {
+            if (!explainerSessionId) {
+                alert('No active conversation to share. Start a conversation first!');
+                return;
+            }
+            
+            const conversationUrl = `${window.location.origin}/backend/conversation?session=${explainerSessionId}`;
+            
+            // Copy directly to clipboard
+            navigator.clipboard.writeText(conversationUrl).then(() => {
+                const shareBtn = document.getElementById('explainer-share');
+                const originalTitle = shareBtn.title;
+                shareBtn.title = 'Link copied to clipboard!';
+                shareBtn.style.backgroundColor = 'var(--success-green, #22c55e)';
+                shareBtn.style.borderColor = 'var(--success-green, #22c55e)';
+                
+                setTimeout(() => {
+                    shareBtn.title = originalTitle;
+                    shareBtn.style.backgroundColor = '';
+                    shareBtn.style.borderColor = '';
+                }, 2000);
+            }).catch(() => {
+                // Fallback - show URL in prompt for older browsers
+                prompt('Copy this URL to share the conversation:', conversationUrl);
+            });
+        }
+        
+        // Update share button visibility based on session state
+        function updateShareButtonVisibility() {
+            const shareBtn = document.getElementById('explainer-share');
+            if (explainerSessionId) {
+                shareBtn.style.display = 'flex';
+            } else {
+                shareBtn.style.display = 'none';
             }
         }
         
@@ -2044,7 +2119,7 @@
             // Get selected model and use default tool groups
             const modelSelect = document.getElementById('explainer-model-select');
             const selectedModel = modelSelect.value;
-            const selectedToolGroups = ['core', 'metrics']; // Default tool groups
+            const selectedToolGroups = ['core', 'analysis', 'metrics']; // Default tool groups - include analysis
             
             // Show typing indicator
             showExplainerTyping();
@@ -2071,6 +2146,8 @@
                 currentRequest = abortController;
                 
                 // Send request to LangChain streaming endpoint
+                console.log('Sending tool groups:', selectedToolGroups); // Debug log
+                console.log('Current timestamp:', new Date().toISOString()); // Debug timestamp
                 const response = await fetch('/backend/api/langchain-explainer-streaming', {
                     method: 'POST',
                     headers: {
@@ -2114,6 +2191,8 @@
                                 if (data.session_id && !explainerSessionId) {
                                     explainerSessionId = data.session_id;
                                     console.log('Received session ID:', explainerSessionId);
+                                    // Show share button now that we have an active session
+                                    updateShareButtonVisibility();
                                 }
                                 
                                 // Handle tool call start
@@ -2364,6 +2443,8 @@
                                 // Handle session ID and continued flag
                                 if (data.session_id && data.continued) {
                                     console.log('Continuation confirmed for session:', data.session_id);
+                                    // Ensure share button is visible during continuation
+                                    updateShareButtonVisibility();
                                 }
                                 
                                 // Handle tool call start
@@ -2466,7 +2547,69 @@
             textarea.style.height = Math.min(textarea.scrollHeight, 120) + 'px';
         }
         
+        // Load available models for the dropdown
+        async function loadAvailableModels() {
+            try {
+                const response = await fetch('/backend/available-models');
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    const modelSelect = document.getElementById('explainer-model-select');
+                    
+                    // Clear existing options
+                    modelSelect.innerHTML = '';
+                    
+                    // Add default option
+                    const defaultOption = document.createElement('option');
+                    defaultOption.value = '';
+                    defaultOption.textContent = `Default (${data.default_model})`;
+                    modelSelect.appendChild(defaultOption);
+                    
+                    // Add available models grouped by provider
+                    const modelsByProvider = {};
+                    data.models.forEach(model => {
+                        if (!modelsByProvider[model.provider]) {
+                            modelsByProvider[model.provider] = [];
+                        }
+                        modelsByProvider[model.provider].push(model);
+                    });
+                    
+                    // Add models by provider
+                    Object.keys(modelsByProvider).forEach(provider => {
+                        // Add provider header
+                        const providerOption = document.createElement('option');
+                        providerOption.value = '';
+                        providerOption.textContent = `--- ${provider.toUpperCase()} ---`;
+                        providerOption.disabled = true;
+                        modelSelect.appendChild(providerOption);
+                        
+                        // Add models for this provider
+                        modelsByProvider[provider].forEach(model => {
+                            const option = document.createElement('option');
+                            option.value = model.key;
+                            option.textContent = model.name;
+                            modelSelect.appendChild(option);
+                        });
+                    });
+                } else {
+                    console.error('Failed to load models:', data.message);
+                    const modelSelect = document.getElementById('explainer-model-select');
+                    modelSelect.innerHTML = '<option value="">Error loading models</option>';
+                }
+            } catch (error) {
+                console.error('Error loading models:', error);
+                const modelSelect = document.getElementById('explainer-model-select');
+                modelSelect.innerHTML = '<option value="">Error loading models</option>';
+            }
+        }
+
         document.addEventListener('DOMContentLoaded', () => {
+            // Load available models
+            loadAvailableModels();
+            
+            // Initialize share button visibility (hidden by default)
+            updateShareButtonVisibility();
+            
             // Load dashboard by default
             const iframe = document.getElementById('content-frame');
             iframe.src = '/backend/dashboard';
@@ -2555,6 +2698,7 @@
             document.getElementById('explainer-toggle').addEventListener('click', toggleExplainerPanel);
             document.getElementById('explainer-close').addEventListener('click', closeExplainerPanel);
             document.getElementById('explainer-new-chat').addEventListener('click', clearExplainerChat);
+            document.getElementById('explainer-share').addEventListener('click', shareExplainerConversation);
             
             // Settings event listeners
             document.getElementById('explainer-settings').addEventListener('click', openExplainerSettings);
@@ -2564,6 +2708,8 @@
             document.getElementById('settings-cancel').addEventListener('click', closeExplainerSettings);
             document.getElementById('settings-save').addEventListener('click', saveSettingsSection);
             document.getElementById('settings-reload').addEventListener('click', reloadExplainerAgent);
+        document.getElementById('settings-clear-sessions').addEventListener('click', clearExplainerSessions);
+        document.getElementById('settings-check-config').addEventListener('click', checkAgentConfig);
             
             // Settings textarea change detection
             document.getElementById('settings-textarea').addEventListener('input', function() {
@@ -3657,10 +3803,74 @@
                     alert('Error reloading agent: ' + (data.message || 'Unknown error'));
                 }
             } catch (error) {
-                console.error('Error reloading agent:', error);
-                alert('Error reloading agent: ' + error.message);
+                        console.error('Error reloading agent:', error);
+        alert('Error reloading agent: ' + error.message);
+    }
+}
+
+async function clearExplainerSessions() {
+    try {
+        const statusElement = document.getElementById('settings-status');
+        statusElement.textContent = 'Clearing sessions...';
+        
+        const response = await fetch('/backend/api/clear-explainer-sessions', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
             }
+        });
+        
+        if (response.ok) {
+            const data = await response.json();
+            statusElement.textContent = 'Sessions cleared successfully!';
+            // Reset session ID to force new session creation
+            explainerSessionId = null;
+            console.log('Sessions cleared, will create new agent on next request');
+        } else {
+            const data = await response.json();
+            statusElement.textContent = 'Error clearing sessions: ' + (data.message || 'Unknown error');
         }
+    } catch (error) {
+        const statusElement = document.getElementById('settings-status');
+        statusElement.textContent = 'Error clearing sessions: ' + error.message;
+        console.error('Error clearing sessions:', error);
+        alert('Error clearing sessions: ' + error.message);
+    }
+}
+
+async function checkAgentConfig() {
+    try {
+        const statusElement = document.getElementById('settings-status');
+        statusElement.textContent = 'Checking agent configuration...';
+        
+        if (!explainerSessionId) {
+            statusElement.textContent = 'No active session to check';
+            return;
+        }
+        
+        const response = await fetch(`/backend/api/agent-config/${explainerSessionId}`, {
+            method: 'GET',
+            headers: {
+                'Content-Type': 'application/json',
+            }
+        });
+        
+        if (response.ok) {
+            const data = await response.json();
+            const config = data.config;
+            statusElement.textContent = `Agent config: Model=${config.model}, Tool groups=${config.tool_groups.join(', ')}, Tools=${config.tools.length}`;
+            console.log('Agent configuration:', config);
+        } else {
+            const data = await response.json();
+            statusElement.textContent = 'Error checking config: ' + (data.message || 'Unknown error');
+        }
+    } catch (error) {
+        const statusElement = document.getElementById('settings-status');
+        statusElement.textContent = 'Error checking config: ' + error.message;
+        console.error('Error checking agent config:', error);
+        alert('Error checking agent config: ' + error.message);
+    }
+}
 
         // Dark mode iframe communication
         function setupIframeThemeCommunication() {

@@ -34,6 +34,7 @@ langchain-core>=0.3.0
 langchain-google-genai>=2.1.0
 langchain-openai>=0.2.0
 langchain-anthropic>=0.2.0
+langchain-xai>=0.1.0
 
 # Data serialization
 dataclasses-json>=0.6.0
