@@ -39,6 +39,7 @@ import traceback
 from tools.store_anomalies import get_anomaly_details as get_anomaly_details_from_db, get_anomalies
 # Import the generate_chart_message function
 from chart_message import generate_chart_message, generate_anomaly_chart_html
+# Functions query_anomalies_db and get_anomaly_details are now defined in anomalyAnalyzer.py
 import re
 
 # ------------------------------
@@ -671,242 +672,8 @@ Stack trace:
 """)
         return {"error": f"Failed to get dataset columns: {str(e)}"}
 
-def query_anomalies_db(context_variables, query_type='recent', limit=10, group_filter=None, date_start=None, date_end=None, only_anomalies=True, metric_name=None, district_filter=None, metric_id=None, period_type=None):
-    """
-    Query the PostgreSQL database for anomalies based on the specified parameters.
-    
-    Args:
-        context_variables: Context variables from the chatbot
-        query_type: Type of query to execute (recent, top, bottom, by_group, by_metric, by_metric_id)
-        limit: Maximum number of results to return
-        group_filter: Filter by specific group value
-        date_start: Start date for filtering
-        date_end: End date for filtering
-        only_anomalies: If True, only return results where out_of_bounds is True
-        metric_name: Filter by specific field_name (metric name)
-        district_filter: Filter by specific district
-        metric_id: Filter by object_id (metric ID)
-        period_type: Filter by period type (year, month, week, day)
-        
-    Returns:
-        Dictionary with query results and metadata
-    """
-    logger = logging.getLogger(__name__)
-    logger.info(f"""
-=== query_anomalies_db called ===
-Parameters:
-- query_type: {query_type}
-- limit: {limit}
-- group_filter: {group_filter}
-- date_start: {date_start}
-- date_end: {date_end}
-- only_anomalies: {only_anomalies}
-- metric_name: {metric_name}
-- district_filter: {district_filter}
-- metric_id: {metric_id}
-- period_type: {period_type}
-""")
-    
-    try:
-        # Get database connection parameters from environment variables
-        db_host = os.getenv("POSTGRES_HOST", "localhost")
-        db_port = os.getenv("POSTGRES_PORT", "5432")
-        db_user = os.getenv("POSTGRES_USER", "postgres")
-        db_password = os.getenv("POSTGRES_PASSWORD", "postgres")
-        db_name = os.getenv("POSTGRES_DB", "transparentsf")
-        
-        logger.info(f"Using database connection: {db_host}:{db_port}/{db_name} (user: {db_user})")
-        
-        # Use the get_anomalies function from store_anomalies.py
-        # First, we need to convert query_type from our naming convention to store_anomalies' naming
-        sa_query_type = query_type
-        
-        # Special handling for by_metric_id query type
-        if query_type == 'by_metric_id' and metric_id:
-            # Keep the query_type as is, since we're filtering by metric_id
-            logger.info(f"Using query_type 'by_metric_id' with metric_id={metric_id}")
-        elif query_type == 'top':
-            sa_query_type = 'by_anomaly_severity'  # Most significant anomalies first
-            logger.info(f"Converting query_type 'top' to 'by_anomaly_severity'")
-        elif query_type == 'bottom':
-            sa_query_type = 'by_anomaly_severity'  # We'll manually reverse the order after
-            logger.info(f"Converting query_type 'bottom' to 'by_anomaly_severity'")
-        elif query_type in ['by_metric', 'by_metric_id']:
-            sa_query_type = 'recent'  # Default to recent for these types, we'll filter by metric
-            logger.info(f"Converting query_type '{query_type}' to 'recent'")
-        
-        logger.info(f"Calling get_anomalies with query_type={sa_query_type}, limit={limit}")
-        logger.info(f"Additional filters: group_filter={group_filter}, date_start={date_start}, date_end={date_end}, only_anomalies={only_anomalies}, metric_name={metric_name}, district_filter={district_filter}, metric_id={metric_id}, period_type={period_type}")
-        
-        start_time = time_module.time()
-        result = get_anomalies(
-            query_type=sa_query_type,
-            limit=limit,
-            group_filter=group_filter,
-            date_start=date_start,
-            date_end=date_end,
-            only_anomalies=only_anomalies,
-            metric_name=metric_name,
-            district_filter=district_filter,
-            metric_id=metric_id,
-            period_type=period_type,
-            db_host=db_host,
-            db_port=int(db_port),
-            db_name=db_name,
-            db_user=db_user,
-            db_password=db_password
-        )
-        query_time = time_module.time() - start_time
-        logger.info(f"get_anomalies query completed in {query_time:.2f} seconds")
-        
-        if result["status"] == "error":
-            logger.error(f"Error from get_anomalies: {result['message']}")
-            return {
-                'error': result["message"],
-                'results': [],
-                'count': 0,
-                'query_info': {
-                    'type': query_type,
-                    'limit': limit
-                }
-            }
-        
-        logger.info(f"get_anomalies returned {len(result.get('results', []))} results")
-        
-        # Process results
-        processed_results = []
-        start_time = time_module.time()
-        
-        for row in result["results"]:
-            # Convert to regular dictionary (should already be a dict)
-            row_dict = dict(row)
-            
-            # Extract metadata information
-            metadata = row_dict.get("metadata", {})
-            
-            # Add missing fields from metadata
-            row_dict["field_name"] = metadata.get("numeric_field", row_dict.get("field_name", ""))
-            row_dict["object_id"] = metadata.get("object_id", row_dict.get("object_id", ""))
-            row_dict["object_name"] = metadata.get("object_name", "")
-            row_dict["period_type"] = metadata.get("period_type", row_dict.get("period_type", ""))
-            
-            # Calculate percent change
-            if row_dict.get('comparison_mean') and row_dict.get('comparison_mean') != 0:
-                percent_change = ((row_dict.get('recent_mean', 0) - row_dict.get('comparison_mean', 0)) / 
-                                 abs(row_dict.get('comparison_mean', 0)) * 100)
-                row_dict['percent_change'] = round(percent_change, 2)
-            else:
-                row_dict['percent_change'] = None
-            
-            processed_results.append(row_dict)
-        
-        processing_time = time_module.time() - start_time
-        logger.info(f"Processed {len(processed_results)} results in {processing_time:.2f} seconds")
-        
-        # Handle reverse sorting for 'bottom' query type
-        if query_type == 'bottom':
-            logger.info("Sorting results by difference (ascending) for 'bottom' query type")
-            processed_results = sorted(processed_results, key=lambda x: x.get('difference', 0))
-        
-        # Build response
-        response = {
-            'results': processed_results,
-            'count': len(processed_results),
-            'query_info': {
-                'type': query_type,
-                'limit': limit,
-                'filters_applied': {
-                    'group_filter': group_filter,
-                    'date_start': date_start,  # Don't call isoformat() on potentially string values
-                    'date_end': date_end,      # Don't call isoformat() on potentially string values
-                    'only_anomalies': only_anomalies,
-                    'metric_name': metric_name,
-                    'district_filter': district_filter,
-                    'metric_id': metric_id,
-                    'period_type': period_type
-                }
-            }
-        }
-        
-        logger.info(f"Returning {len(processed_results)} results for query_type={query_type}")
-        return response
-    except Exception as e:
-        logger.error(f"Error in query_anomalies_db: {str(e)}")
-        logger.error(traceback.format_exc())
-        return {
-            'error': str(e),
-            'results': [],
-            'count': 0,
-            'query_info': {
-                'type': query_type,
-                'limit': limit
-            }
-        }
-
-def get_anomaly_details(context_variables, anomaly_id):
-    """
-    Tool to retrieve detailed information about a specific anomaly by ID.
-    
-    Args:
-        context_variables: The context variables dictionary
-        anomaly_id: The ID of the anomaly to retrieve
-        
-    Returns:
-        Dictionary with detailed anomaly information
-    """
-    try:
-        # Use the imported function from store_anomalies.py
-        result = get_anomaly_details_from_db(anomaly_id=anomaly_id)
-        
-        # If successful, format the result
-        if result["status"] == "success":
-            item = result["anomaly"]
-            
-            # Extract metadata for easier access
-            if 'metadata' in item and item['metadata']:
-                metadata = item['metadata']
-                item['metric_name'] = metadata.get('object_name', metadata.get('title', 'unknown'))
-                item['metric_field'] = metadata.get('numeric_field', 'unknown')
-                item['group_field'] = metadata.get('group_field', 'unknown')
-                item['period_type'] = metadata.get('period_type', 'month')
-                
-                # Extract period information
-                if 'recent_period' in metadata:
-                    item['recent_period'] = metadata['recent_period']
-                if 'comparison_period' in metadata:
-                    item['comparison_period'] = metadata['comparison_period']
-            
-            # Generate an explanation summary based on the anomaly data
-            explanation = f"Analysis of anomaly for '{item['group_value']}' detected on {item['created_at'].split('T')[0]}:\n"
-            
-            # Add district information if available
-            if item.get('district') and item['district'] != 'None' and item['district'] != 'unknown':
-                explanation += f"District: {item['district']}\n"
-            
-            if item.get('out_of_bounds'):
-                direction = "increased" if item.get('difference', 0) > 0 else "decreased"
-                percent_change = abs(item.get('difference', 0) / item.get('comparison_mean', 1) * 100) if item.get('comparison_mean') else 0
-                explanation += f"The value {direction} by {percent_change:.1f}% from {item.get('comparison_mean', 0):.2f} to {item.get('recent_mean', 0):.2f}.\n"
-                explanation += f"This change is {abs(item.get('difference', 0) / item.get('std_dev', 1)):.1f} standard deviations from the mean."
-            else:
-                explanation += "This data point is within normal range of expected values."
-                
-            # Add the explanation to the item
-            item['explanation'] = explanation
-            
-            return {
-                "status": "success",
-                "anomaly": item
-            }
-        else:
-            return result  # Return error as is
-            
-    except Exception as e:
-        logger.error(f"Error retrieving anomaly details: {str(e)}", exc_info=True)
-        return {
-            "status": "error",
-            "message": f"Failed to retrieve anomaly details: {str(e)}"
-        }
+# query_anomalies_db function moved to anomalyAnalyzer.py
+# get_anomaly_details function moved to anomalyAnalyzer.py
 
 
 # Define the anomaly finder agent
@@ -1212,9 +979,7 @@ anomaly_explainer_agent = Agent(
         get_dataset,
         set_dataset,
         query_docs,
-        query_anomalies_db,
         get_dashboard_metric,
-        get_anomaly_details,
         get_dataset_columns,
         generate_map,
         get_map_by_id,
@@ -1458,8 +1223,6 @@ function_mapping = {
     'get_map_by_id': get_map_by_id,
     'get_recent_maps': get_recent_maps,
     'create_datawrapper_map': create_datawrapper_map,
-    'query_anomalies_db': query_anomalies_db,
-    'get_anomaly_details': get_anomaly_details,
     'get_dataset_columns': get_dataset_columns,
 }
 
@@ -1645,8 +1408,6 @@ function_mapping = {
     'get_map_by_id': get_map_by_id,
     'get_recent_maps': get_recent_maps,
     'create_datawrapper_map': create_datawrapper_map,
-    'query_anomalies_db': query_anomalies_db,
-    'get_anomaly_details': get_anomaly_details,
     'get_dataset_columns': get_dataset_columns,
 }
 

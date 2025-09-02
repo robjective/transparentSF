@@ -47,7 +47,6 @@ try:
     # Import other utility functions from webChat (only those not in notes_manager)
     from webChat import (
         get_dataset,
-        query_anomalies_db,
         get_dataset_columns,
         generate_chart_message,
         get_columns,
@@ -57,6 +56,8 @@ try:
         transfer_to_analyst_agent,
         transfer_to_researcher_agent
     )
+    # Import anomaly-related functions from anomalyAnalyzer
+    from anomalyAnalyzer import query_anomalies_db
     from tools.dashboard_metric_tool import get_dashboard_metric
     
 except ImportError as e:

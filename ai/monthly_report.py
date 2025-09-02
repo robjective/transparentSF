@@ -1246,7 +1246,7 @@ def store_prioritized_items(prioritized_items, period_type='month', district=Non
                 metric_name,
                 metric_id,
                 group_value,
-                "group", # Default group field name
+                item.get("group_field_name", "group"),  # Use group_field_name from item data
                 period_type,
                 item.get("comparison_mean", 0),
                 item.get("recent_mean", 0),
@@ -1372,10 +1372,16 @@ def generate_explanations(report_ids, model_key=None):
             # Format district display for the prompt
             district_display = "citywide" if district == "0" else f"district {district}"
             
-            prompt = f"""Please explain why the metric '{metric_name}' (ID: {metric_id})  {direction} from {comparison_mean} to {recent_mean} ({percent_change_str}) between {previous_month} and {recent_month} for {district_display}.
+            # Get group field information for better context
+            group_field_name = item.get("group_field_name", "")
+            group_context = ""
+            if group_field_name and group_value and group_value != "All":
+                group_context = f" in {group_field_name} '{group_value}'"
+            
+            prompt = f"""Please explain why the anomaly '{metric_name}' (ID: {metric_id}){group_context} {direction} from {comparison_mean} to {recent_mean} ({percent_change_str}) between {previous_month} and {recent_month} for {district_display}.
 
 Use the available tools to research this change and provide a comprehensive explanation that can be included in a monthly newsletter for city residents.
-Please share anomalies, groups or data-points that explain a large portion of the difference in the metric.  Your goal is a clear explanation of the change.  
+Please share anomalies (referenced by anomaly_ID, not metric_ID), groups or data-points that explain a large portion of the difference in the metric.  Your goal is a clear explanation of the change.  
 
 Your response MUST be returned as a properly formatted JSON object with the following fields:
 - "explanation": A clear and thorough explanation of what happened (at least 3 paragraphs)
@@ -1395,6 +1401,7 @@ DO NOT include any additional content, headers, or formatting outside of this JS
                     "metric_name": metric_name,
                     "metric_id": metric_id,
                     "group_value": group_value,
+                    "group_field_name": group_field_name,  # Add group_field_name for better context
                     "recent_mean": recent_mean,
                     "comparison_mean": comparison_mean,
                     "difference": difference,
@@ -5060,8 +5067,8 @@ def reprioritize_deltas_for_report(filename, district="0", period_type="month", 
                     metric_name,
                     metric_id,
                     group_value,
-                    "group",
-                    actual_period_type,
+                    item.get("group_field_name", "group"),  # Use group_field_name from item data
+                    period_type,
                     item.get("comparison_mean", 0),
                     item.get("recent_mean", 0),
                     item.get("difference", 0),

@@ -33,11 +33,19 @@ from tools.vector_query import query_docs
 from tools.anomaly_detection import anomaly_detection
 from tools.generateAnomalyCharts import generate_anomalies_summary_with_charts
 from tools.genChart import generate_time_series_chart
+# Import functions from their proper locations to avoid circular imports
+from tools.vector_query import query_docs
+from tools.data_fetcher import set_dataset
+from tools.anomaly_detection import anomaly_detection
+from tools.genChart import generate_time_series_chart
+from chart_message import generate_chart_message
+from tools.generate_map import generate_map
+
+# Import from webChat only what's not available elsewhere
 from webChat import (
     swarm_client, context_variables, client, AGENT_MODEL, load_and_combine_notes,
-    query_docs, set_dataset, get_dataset, set_columns, get_data_summary, 
-    anomaly_detection, generate_time_series_chart, transfer_to_researcher_agent, 
-    generate_chart_message, get_anomaly_details, query_anomalies_db, generate_map
+    get_dataset, set_columns, get_data_summary, 
+    transfer_to_researcher_agent
 )
 from tools.dashboard_metric_tool import get_dashboard_metric
 from tools.store_anomalies import get_anomalies, get_anomaly_details as get_anomaly_details_from_db  # Import the new functions
@@ -199,11 +207,7 @@ def explain_anomaly(context_variables, group_value, group_field, numeric_field, 
         "chart_html": chart_html["chart_html"]
     }
 
-def get_anomalies(context_variables):
-    """
-    Tool to retrieve the list of detected anomalies.
-    """
-    return {"anomalies": context_variables.get("anomalies", [])}
+# get_anomalies function removed - using imported version from tools.store_anomalies
 
 def run_anomaly_detection(context_variables, group_field, numeric_field, date_field, period_type='month', min_diff=2):
     """
@@ -241,91 +245,175 @@ def get_analysis_parameters(context_variables):
         "current_period_type": context_variables.get("current_period_type")
     }
 
-def query_anomalies_db(context_variables, query_type='recent', limit=10, group_filter=None, date_start=None, date_end=None, only_anomalies=True, metric_name=None, district_filter=None):
+def query_anomalies_db(context_variables, query_type='recent', limit=10, group_filter=None, date_start=None, date_end=None, only_anomalies=True, metric_name=None, district_filter=None, metric_id=None, period_type=None):
     """
-    Tool to query the anomalies table in the PostgreSQL database.
+    Query the PostgreSQL database for anomalies based on the specified parameters.
     
     Args:
-        context_variables: The context variables dictionary
-        query_type: Type of query to run (recent, by_group, by_date, by_metric)
-        limit: Maximum number of records to return (default: 10)
-        group_filter: Filter by group value (substring match)
-        date_start: Start date for filtering (format: YYYY-MM-DD)
-        date_end: End date for filtering (format: YYYY-MM-DD)
-        only_anomalies: If True, only return records where out_of_bounds=True
-        metric_name: Filter by metric name in metadata
+        context_variables: Context variables from the chatbot
+        query_type: Type of query to execute (recent, top, bottom, by_group, by_metric, by_metric_id)
+        limit: Maximum number of results to return
+        group_filter: Filter by specific group value
+        date_start: Start date for filtering
+        date_end: End date for filtering
+        only_anomalies: If True, only return results where out_of_bounds is True
+        metric_name: Filter by specific field_name (metric name)
         district_filter: Filter by specific district
-    
+        metric_id: Filter by object_id (metric ID)
+        period_type: Filter by period type (year, month, week, day)
+        
     Returns:
-        Dictionary with query results
+        Dictionary with query results and metadata
     """
+    logger.info(f"""
+=== query_anomalies_db called ===
+Parameters:
+- query_type: {query_type}
+- limit: {limit}
+- group_filter: {group_filter}
+- date_start: {date_start}
+- date_end: {date_end}
+- only_anomalies: {only_anomalies}
+- metric_name: {metric_name}
+- district_filter: {district_filter}
+- metric_id: {metric_id}
+- period_type: {period_type}
+""")
+    
     try:
-        # Use the imported get_anomalies function
+        # Get database connection parameters from environment variables
+        db_host = os.getenv("POSTGRES_HOST", "localhost")
+        db_port = os.getenv("POSTGRES_PORT", "5432")
+        db_user = os.getenv("POSTGRES_USER", "postgres")
+        db_password = os.getenv("POSTGRES_PASSWORD", "postgres")
+        db_name = os.getenv("POSTGRES_DB", "transparentsf")
+        
+        logger.info(f"Using database connection: {db_host}:{db_port}/{db_name} (user: {db_user})")
+        
+        # Use the get_anomalies function from store_anomalies.py
+        # First, we need to convert query_type from our naming convention to store_anomalies' naming
+        sa_query_type = query_type
+        
+        # Special handling for by_metric_id query type
+        if query_type == 'by_metric_id' and metric_id:
+            # Keep the query_type as is, since we're filtering by metric_id
+            logger.info(f"Using query_type 'by_metric_id' with metric_id={metric_id}")
+        elif query_type == 'top':
+            sa_query_type = 'by_anomaly_severity'  # Most significant anomalies first
+            logger.info(f"Converting query_type 'top' to 'by_anomaly_severity'")
+        elif query_type == 'bottom':
+            sa_query_type = 'by_anomaly_severity'  # We'll manually reverse the order after
+            logger.info(f"Converting query_type 'bottom' to 'by_anomaly_severity'")
+        elif query_type in ['by_metric', 'by_metric_id']:
+            sa_query_type = 'recent'  # Default to recent for these types, we'll filter by metric
+            logger.info(f"Converting query_type '{query_type}' to 'recent'")
+        
+        logger.info(f"Calling get_anomalies with query_type={sa_query_type}, limit={limit}")
+        logger.info(f"Additional filters: group_filter={group_filter}, date_start={date_start}, date_end={date_end}, only_anomalies={only_anomalies}, metric_name={metric_name}, district_filter={district_filter}, metric_id={metric_id}, period_type={period_type}")
+        
+        start_time = time.time()
         result = get_anomalies(
-            query_type=query_type,
+            query_type=sa_query_type,
             limit=limit,
             group_filter=group_filter,
             date_start=date_start,
             date_end=date_end,
             only_anomalies=only_anomalies,
             metric_name=metric_name,
-            district_filter=district_filter
+            district_filter=district_filter,
+            metric_id=metric_id,
+            period_type=period_type,
+            db_host=db_host,
+            db_port=int(db_port),
+            db_name=db_name,
+            db_user=db_user,
+            db_password=db_password
         )
+        query_time = time.time() - start_time
+        logger.info(f"get_anomalies query completed in {query_time:.2f} seconds")
         
-        # If successful, format the results for display
-        if result["status"] == "success":
-            # Format results for display
-            formatted_results = []
-            for item in result["results"]:
-                # Extract relevant information from metadata
-                metadata = item.get("metadata", {})
-                object_name = metadata.get("object_name", "Unknown Metric")
-                
-                # Format the difference for better readability
-                difference = item.get("difference", 0)
-                if difference > 0:
-                    difference_str = f"+{difference:.2f}"
-                else:
-                    difference_str = f"{difference:.2f}"
-                
-                # Add formatted item
-                formatted_results.append({
-                    "id": item.get("id"),
-                    "metric": object_name,
-                    "group": item.get("group_value", "Unknown"),
-                    "recent_mean": round(item.get("recent_mean", 0), 2),
-                    "comparison_mean": round(item.get("comparison_mean", 0), 2),
-                    "difference": difference_str,
-                    "difference_value": difference,  # Used for sorting
-                    "std_dev": round(item.get("std_dev", 0), 2),
-                    "created_at": item.get("created_at"),
-                    "district": item.get("district")
-                })
-                
+        if result["status"] == "error":
+            logger.error(f"Error from get_anomalies: {result['message']}")
             return {
-                "status": "success", 
-                "count": len(formatted_results),
-                "results": formatted_results,
-                "query_info": {
-                    "query_type": query_type,
-                    "filters_applied": {
-                        "group_filter": group_filter,
-                        "date_start": date_start,
-                        "date_end": date_end,
-                        "only_anomalies": only_anomalies,
-                        "metric_name": metric_name,
-                        "district_filter": district_filter
-                    }
+                'error': result["message"],
+                'results': [],
+                'count': 0,
+                'query_info': {
+                    'type': query_type,
+                    'limit': limit
                 }
             }
-        else:
-            return result  # Return the error result as is
         
+        logger.info(f"get_anomalies returned {len(result.get('results', []))} results")
+        
+        # Process results
+        processed_results = []
+        start_time = time.time()
+        
+        for row in result["results"]:
+            # Convert to regular dictionary (should already be a dict)
+            row_dict = dict(row)
+            
+            # Extract metadata information
+            metadata = row_dict.get("metadata", {})
+            
+            # Add missing fields from metadata
+            row_dict["field_name"] = metadata.get("numeric_field", row_dict.get("field_name", ""))
+            row_dict["object_id"] = metadata.get("object_id", row_dict.get("object_id", ""))
+            row_dict["object_name"] = metadata.get("object_name", "")
+            row_dict["period_type"] = metadata.get("period_type", row_dict.get("period_type", ""))
+            
+            # Calculate percent change
+            if row_dict.get('comparison_mean') and row_dict.get('comparison_mean') != 0:
+                percent_change = ((row_dict.get('recent_mean', 0) - row_dict.get('comparison_mean', 0)) / 
+                                 abs(row_dict.get('comparison_mean', 0)) * 100)
+                row_dict['percent_change'] = round(percent_change, 2)
+            else:
+                row_dict['percent_change'] = None
+            
+            processed_results.append(row_dict)
+        
+        processing_time = time.time() - start_time
+        logger.info(f"Processed {len(processed_results)} results in {processing_time:.2f} seconds")
+        
+        # Handle reverse sorting for 'bottom' query type
+        if query_type == 'bottom':
+            logger.info("Sorting results by difference (ascending) for 'bottom' query type")
+            processed_results = sorted(processed_results, key=lambda x: x.get('difference', 0))
+        
+        # Build response
+        response = {
+            'results': processed_results,
+            'count': len(processed_results),
+            'query_info': {
+                'type': query_type,
+                'limit': limit,
+                'filters_applied': {
+                    'group_filter': group_filter,
+                    'date_start': date_start,  # Don't call isoformat() on potentially string values
+                    'date_end': date_end,      # Don't call isoformat() on potentially string values
+                    'only_anomalies': only_anomalies,
+                    'metric_name': metric_name,
+                    'district_filter': district_filter,
+                    'metric_id': metric_id,
+                    'period_type': period_type
+                }
+            }
+        }
+        
+        logger.info(f"Returning {len(processed_results)} results for query_type={query_type}")
+        return response
     except Exception as e:
-        logger.error(f"Error querying anomalies database: {str(e)}", exc_info=True)
+        logger.error(f"Error in query_anomalies_db: {str(e)}")
+        logger.error(traceback.format_exc())
         return {
-            "status": "error",
-            "message": f"Failed to query anomalies database: {str(e)}"
+            'error': str(e),
+            'results': [],
+            'count': 0,
+            'query_info': {
+                'type': query_type,
+                'limit': limit
+            }
         }
 
 def get_anomaly_details(context_variables, anomaly_id):
@@ -2206,7 +2294,7 @@ async def query_anomalies_endpoint(
                     # Extract data from the result
                     anomaly_data = {
                         "id": item.get("id"),
-                        "metric_name": item.get("object_name", ""),  # Use object_name directly
+                        "metric_name": item.get("metadata", {}).get("object_name", "") if isinstance(item.get("metadata"), dict) else "",  # Extract object_name from metadata
                         "object_id": item.get("object_id", ""),      # Use object_id directly
                         "district": item.get("district", "0"),
                         "group_value": item.get("group_value", ""),
@@ -2222,6 +2310,14 @@ async def query_anomalies_endpoint(
                         "is_active": item.get("is_active", True),
                         "greendirection": item.get("greendirection")  # Include greendirection from metrics table
                     }
+                    
+                    # Debug logging to see what fields are available
+                    logger.info(f"Processing anomaly item: {item.get('id')}")
+                    logger.info(f"Available fields: {list(item.keys())}")
+                    logger.info(f"group_field_name: {item.get('group_field_name')}")
+                    logger.info(f"group_value: {item.get('group_value')}")
+                    logger.info(f"metadata: {item.get('metadata')}")
+                    logger.info(f"Final anomaly_data: {anomaly_data}")
                     
                     # Categorize anomaly as positive or negative based on greendirection
                     if percent_change is not None and item.get("greendirection"):
@@ -2642,6 +2738,7 @@ async def add_to_monthly_report(request: Request):
             "metric": item_data.get("object_name", "Unknown Metric"),
             "metric_id": item_data.get("id", "Unknown"),
             "group": item_data.get("group_value", "All"),
+            "group_field_name": item_data.get("group_field_name", "group"),  # Add group_field_name
             "recent_mean": float(item_data.get("recent_value", 0)),
             "comparison_mean": float(item_data.get("previous_value", 0)),
             "difference_value": float(item_data.get("delta", 0)),
@@ -2695,7 +2792,13 @@ async def add_to_monthly_report(request: Request):
                 # Create item title
                 metric_name = prioritized_item["metric"]
                 group_value = prioritized_item["group"]
-                item_title = f"{metric_name} - {group_value}" if group_value != "All" else metric_name
+                group_field_name = item_data.get("group_field_name", "group")
+                
+                # Create a more descriptive title for anomalies
+                if item_data.get("type") == "anomaly" and group_field_name and group_value and group_value != "All":
+                    item_title = f"{metric_name} ({group_field_name}: {group_value})"
+                else:
+                    item_title = f"{metric_name} - {group_value}" if group_value != "All" else metric_name
                 
                 # Insert the new record
                 cursor.execute("""
@@ -2713,7 +2816,7 @@ async def add_to_monthly_report(request: Request):
                     prioritized_item["metric"],
                     prioritized_item["metric_id"],
                     prioritized_item["group"],
-                    "group",
+                    item_data.get("group_field_name", "group"),  # Use actual group_field_name from item_data
                     period_type,
                     prioritized_item["comparison_mean"],
                     prioritized_item["recent_mean"],

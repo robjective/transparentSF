@@ -4,7 +4,13 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Metric Change Analyzer | Transparent SF</title>
-    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+    <!-- Favicon -->
+    <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+    <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="/static/favicon.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png">
+    <link rel="manifest" href="/static/site.webmanifest">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;500;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
     <!-- Add Font Awesome for icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <!-- Add Markdown-it for rendering markdown -->
@@ -1775,6 +1781,12 @@
         
         // Function to append an anomaly row
         function appendAnomalyRow(anomaly) {
+            console.log('appendAnomalyRow called with anomaly:', anomaly);
+            console.log('Available anomaly fields:', Object.keys(anomaly));
+            console.log('group_field_name:', anomaly.group_field_name);
+            console.log('group_value:', anomaly.group_value);
+            console.log('metric_name:', anomaly.metric_name);
+            
             const row = document.createElement('tr');
             row.className = 'anomaly-row';
             row.setAttribute('data-anomaly', JSON.stringify(anomaly));
@@ -1818,6 +1830,7 @@
                 object_name: anomaly.metric_name,
                 group_name: anomaly.group_field_name,
                 group_value: anomaly.group_value,
+                group_field_name: anomaly.group_field_name,  // Add this field
                 district: anomaly.district,
                 previous_value: anomaly.comparison_mean,
                 recent_value: anomaly.recent_mean,
@@ -1850,7 +1863,7 @@
                 <td class="${changeClass}">${formatPercentChange(anomaly.percent_change)}</td>
                 <td>
                     <button class="action-button" onclick="analyzeMetricChange(${JSON.stringify({
-                        id: anomaly.metric_key,
+                        id: anomaly.id,
                         object_name: anomaly.metric_name,
                         group_name: anomaly.group_field_name,
                         group_value: anomaly.group_value,

@@ -216,7 +216,7 @@ def query_anomalies_db_tool(query_type: str = 'by_metric_id', metric_id: int = N
     
     try:
         # Import the original function and call it
-        from ai.anomalyAnalyzer import query_anomalies_db
+        from anomalyAnalyzer import query_anomalies_db
         
         # Call the original function with empty context
         result = query_anomalies_db({}, query_type=query_type, metric_id=metric_id, district_filter=district_filter, only_anomalies=only_anomalies)
@@ -243,7 +243,7 @@ def get_anomaly_details_tool(anomaly_id: int) -> Dict[str, Any]:
     
     try:
         # Import the original function and call it
-        from ai.anomalyAnalyzer import get_anomaly_details
+        from anomalyAnalyzer import get_anomaly_details
         
         # Call the original function with empty context
         result = get_anomaly_details({}, anomaly_id=anomaly_id)
@@ -270,7 +270,7 @@ def get_dataset_columns_tool(endpoint: str) -> Dict[str, Any]:
     
     try:
         # Import the database version that queries Firebase/database
-        from ai.webChat import get_dataset_columns
+        from webChat import get_dataset_columns
         
         # Call the database version with empty context
         result = get_dataset_columns({}, endpoint=endpoint)
