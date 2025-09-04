@@ -381,7 +381,7 @@ def _extract_any_valid_json(text):
 def load_prompts():
     """
     Load prompts from the JSON file and store them in the global _PROMPTS variable.
-    Only loads the prompts once. Includes robust error handling and retry logic.
+    Only loads the prompts once. Uses shared utility for robust error handling.
     
     Returns:
         Dictionary containing all prompts
@@ -389,105 +389,10 @@ def load_prompts():
     global _PROMPTS
     
     if _PROMPTS is None:
-        prompts_path = Path(__file__).parent / 'data' / 'prompts.json'
-        max_retries = 3
-        retry_delay = 1  # seconds
-        
-        for attempt in range(max_retries):
-            try:
-                # Check if file exists and is readable
-                if not prompts_path.exists():
-                    raise FileNotFoundError(f"Prompts file not found: {prompts_path}")
-                
-                if not prompts_path.is_file():
-                    raise ValueError(f"Prompts path is not a file: {prompts_path}")
-                
-                # Check file size (should be reasonable for a JSON file)
-                file_size = prompts_path.stat().st_size
-                if file_size == 0:
-                    raise ValueError(f"Prompts file is empty: {prompts_path}")
-                
-                if file_size < 100:  # Suspiciously small for our prompts
-                    raise ValueError(f"Prompts file is too small ({file_size} bytes), may be corrupted: {prompts_path}")
-                
-                logger.info(f"Loading prompts from {prompts_path} (attempt {attempt + 1}/{max_retries}, file size: {file_size} bytes)")
-                
-                # Try to read and parse the file with specific error handling
-                try:
-                    with open(prompts_path, 'r', encoding='utf-8') as f:
-                        file_content = f.read()
-                        
-                    # Validate that we got content
-                    if not file_content.strip():
-                        raise ValueError("File content is empty after reading")
-                    
-                    # Parse JSON with better error reporting
-                    try:
-                        _PROMPTS = json.loads(file_content)
-                    except json.JSONDecodeError as json_err:
-                        raise ValueError(f"JSON parsing error at line {json_err.lineno}, column {json_err.colno}: {json_err.msg}")
-                        
-                except OSError as io_err:
-                    # Handle specific I/O errors
-                    if io_err.errno == 5:  # Input/output error
-                        raise IOError(f"I/O error reading file (errno 5): {io_err}. This may indicate disk issues or file corruption.")
-                    else:
-                        raise IOError(f"File I/O error (errno {io_err.errno}): {io_err}")
-                
-                # Validate the loaded prompts structure
-                if not isinstance(_PROMPTS, dict):
-                    raise ValueError(f"Loaded prompts is not a dictionary: {type(_PROMPTS)}")
-                
-                if 'monthly_report' not in _PROMPTS:
-                    raise ValueError("Missing 'monthly_report' key in prompts")
-                
-                logger.info(f"Successfully loaded prompts with keys: {list(_PROMPTS.keys())}")
-                break  # Success, exit retry loop
-                
-            except (FileNotFoundError, ValueError, IOError) as e:
-                logger.error(f"Error loading prompts (attempt {attempt + 1}/{max_retries}): {str(e)}")
-                
-                if attempt == max_retries - 1:  # Last attempt
-                    logger.error(f"Failed to load prompts after {max_retries} attempts")
-                    raise RuntimeError(f"Could not load prompts file after {max_retries} attempts: {str(e)}")
-                else:
-                    logger.info(f"Retrying in {retry_delay} seconds...")
-                    time.sleep(retry_delay)
-                    retry_delay *= 2  # Exponential backoff
-            
-            except Exception as e:
-                # Unexpected error, don't retry
-                logger.error(f"Unexpected error loading prompts: {str(e)}")
-                
-                if attempt == max_retries - 1:  # Last attempt, try fallback
-                    logger.warning("Using minimal fallback prompts due to persistent loading failures")
-                    _PROMPTS = get_fallback_prompts()
-                    break
-                else:
-                    raise RuntimeError(f"Unexpected error loading prompts: {str(e)}")
+        from ai.tools.prompts_loader import load_prompts_with_retry
+        _PROMPTS = load_prompts_with_retry(use_cache=False)  # Don't use utility cache since we have our own
     
     return _PROMPTS
-
-def get_fallback_prompts():
-    """
-    Return minimal fallback prompts in case the main prompts file cannot be loaded.
-    This ensures the application can continue to function with basic functionality.
-    
-    Returns:
-        Dictionary containing minimal prompts
-    """
-    return {
-        "monthly_report": {
-            "generate_report_text": {
-                "system": "You are a helpful assistant for assembling newsletter stories.",
-                "prompt": "Review the following content and assemble it into a 3-5 paragraph news story. Keep it factual and clear. Content: {rationale} {explanation} {trend_analysis} {charts} {citations} {perplexity_context} {citywide_changes}"
-            },
-            "prioritize_deltas": {
-                "system": "You are a data analyst helping prioritize important changes.",
-                "prompt": "Identify the {max_items} most important changes from the following data: {changes_text} {notes_text_short}. Return JSON with items array containing index, metric, metric_id, group, priority, and explanation fields."
-            }
-        }
-    }
 
 def initialize_monthly_reporting_table():
     """

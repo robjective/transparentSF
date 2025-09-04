@@ -3763,20 +3763,8 @@ async def clear_logs():
 async def get_prompts():
     """Get all prompts from the prompts.json file."""
     try:
-        # Get file path to prompts.json
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        prompts_file = os.path.join(script_dir, "data", "prompts.json")
-        
-        if not os.path.exists(prompts_file):
-            logger.error(f"Prompts file not found at: {prompts_file}")
-            return JSONResponse({
-                "status": "error",
-                "message": "Prompts file not found"
-            }, status_code=404)
-        
-        # Read the prompts file
-        with open(prompts_file, 'r', encoding='utf-8') as f:
-            prompts = json.load(f)
+        from ai.tools.prompts_loader import load_prompts_with_retry
+        prompts = load_prompts_with_retry()
         
         return JSONResponse({
             "status": "success",
@@ -3806,20 +3794,9 @@ async def update_prompt(request: Request):
                 "message": "Missing required parameters: category, key, or prompt"
             }, status_code=400)
         
-        # Get file path to prompts.json
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        prompts_file = os.path.join(script_dir, "data", "prompts.json")
-        
-        if not os.path.exists(prompts_file):
-            logger.error(f"Prompts file not found at: {prompts_file}")
-            return JSONResponse({
-                "status": "error",
-                "message": "Prompts file not found"
-            }, status_code=404)
-        
-        # Read the prompts file
-        with open(prompts_file, 'r', encoding='utf-8') as f:
-            prompts = json.load(f)
+        # Load prompts using the robust loader
+        from ai.tools.prompts_loader import load_prompts_with_retry, save_prompts
+        prompts = load_prompts_with_retry()
         
         # Check if the category and key exist
         if category not in prompts:
@@ -3837,14 +3814,17 @@ async def update_prompt(request: Request):
         # Update the prompt
         prompts[category][key] = prompt
         
-        # Write the updated prompts back to the file
-        with open(prompts_file, 'w', encoding='utf-8') as f:
-            json.dump(prompts, f, indent=4)
-        
-        return JSONResponse({
-            "status": "success",
-            "message": f"Prompt {category}.{key} updated successfully"
-        })
+        # Save the updated prompts using the robust saver
+        if save_prompts(prompts):
+            return JSONResponse({
+                "status": "success",
+                "message": f"Prompt {category}.{key} updated successfully"
+            })
+        else:
+            return JSONResponse({
+                "status": "error",
+                "message": f"Failed to save updated prompt {category}.{key}"
+            }, status_code=500)
     except Exception as e:
         error_message = f"Error updating prompt: {str(e)}"
         logger.error(error_message)

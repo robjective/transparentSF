@@ -1,1348 +1,412 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
     <head>
-        <meta charset="UTF-8" />
-        <title>Transparent SF Agent Chat</title>
-        <meta
-            name="viewport"
-            content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"
-        />
-        <!-- Favicon -->
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TransparentSF - Coming Soon</title>
         <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
         <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon.png">
         <link rel="icon" type="image/png" sizes="16x16" href="/static/favicon.png">
         <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png">
         <link rel="manifest" href="/static/site.webmanifest">
-        <link rel="stylesheet" href="/static/darkmode.css">
-        <script src="/static/js/darkmode.js"></script>
-        <script src="/static/js/iframe-darkmode.js"></script>
         <style>
-            /* Reset and base styles */
+        /* Import brand fonts */
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap');
+        
+        :root {
+            /* Brand Colors */
+            --ink-black: #222222;
+            --cloud-gray: #E8E9EB;
+            --warm-coral: #FF6B5A;
+            --bright-purple: #ad35fa;
+            --soft-sand: #F6F1EA;
+            --sky-tint: #B8D8E3;
+        }
+
             * {
                 margin: 0;
                 padding: 0;
                 box-sizing: border-box;
             }
 
-            body,
-            html {
-                height: 100%;
-                font-family: Arial, sans-serif;
-                background-color: var(--bg-primary);
-                /* Base font size */
-                font-size: 12px;
-            }
-
-            /* Layout */
-            .main {
-                display: flex;
-                height: 100vh;
-                width: 100%;
-            }
-
-            /* Iframe mode styles */
-            body.iframe-mode .main {
-                height: 100%;
-                width: 100%;
-            }
-
-            body.iframe-mode .chat {
-                width: 100%;
-                height: 100%;
-                border-right: none;
-                padding: 10px;
-            }
-
-            body.iframe-mode .chat h1 {
-                font-size: 1.5em;
-                margin-bottom: 10px;
-            }
-
-            body.iframe-mode #chat-container {
-                height: calc(100% - 50px);
-            }
-
-            body.iframe-mode #response-area {
-                height: calc(100% - 70px);
-            }
-
-            .chat {
-                width: 50%;
-                height: 100vh;
-                display: flex;
-                flex-direction: column;
-                border-right: 1px solid var(--border-primary);
-                /* Ensure padding for better readability */
-                padding: 20px;
-            }
-
-            .chat h1 {
-                /* Header font size */
-                font-size: 2em;
-                margin-bottom: 20px;
-                text-align: center;
-                position: relative; /* Add this to position the new chat button */
-                color: var(--text-primary);
-            }
-
-            #chat-container {
-                display: flex;
-                flex-direction: column;
-                flex: 1;
-                height: calc(100vh - 70px); /* Adjusted for increased padding */
-                overflow: hidden;
-                padding: 10px;
-            }
-
-            #response-area {
-                flex-grow: 1;
-                overflow-y: auto;
-                height: calc(100% - 80px); /* Adjusted for increased padding */
-                border: 1px solid var(--border-primary);
-                padding: 15px; /* Increased padding */
-                background-color: var(--bg-primary);
-                /* Increase font size for messages */
-                font-size: 1.1em;
-                /* Prevent horizontal scroll */
-                overflow-x: hidden;
-            }
-
-            /* Message styling */
-            .message {
-                padding: 15px 20px; /* Increased padding */
-                margin: 8px 0; /* Increased margin */
-                border-radius: 20px; /* More rounded corners */
-                max-width: 100%;
-                word-wrap: break-word;
-                display: inline-block;
-                position: relative;
-                clear: both;
-                /* Increase font size */
-                font-size: 1.1em;
-            }
-
-            .user-message {
-                background-color: var(--bg-secondary);
-                color: var(--text-primary);
-                align-self: flex-end;
-                float: right;
-            }
-            .ai-message {
-                background-color: var(--bg-secondary);
-                color: var(--text-primary);
-                align-self: flex-start;
-                float: left;
-            }
-
-            .system-message {
-                background-color: var(--bg-tertiary);
-                color: var(--text-secondary);
-                align-self: center;
-                float: none;
-                text-align: center;
-                width: 100%;
-                clear: both;
-                font-style: italic;
-            }
-
-            .sender {
-                font-weight: bold;
-                display: inline;
-                font-size: 1em;
-            }
-
-            /* Tool call styling */
-            .tool-call {
-                background-color: var(--bg-secondary);
-                color: var(--text-primary);
-                font-style: italic;
-                border-left: 4px solid var(--bright-purple);
-                padding: 8px; /* Increased padding */
-                margin: 12px 0; /* Increased margin */
-                font-size: 1em; /* Increased font size */
-            }
-
-            /* Input area */
-            #input-container {
-                display: flex;
-                margin-top: 15px; /* Increased margin */
-            }
-
-            #userInput {
-                flex-grow: 1;
-                padding: 12px; /* Increased padding */
-                border: 1px solid var(--border-primary);
-                border-radius: 5px;
-                background-color: var(--bg-secondary);
-                color: var(--text-primary);
-                /* Ensure font size is at least 16px to prevent zoom */
-                font-size: 16px;
-            }
-
-            #submit-button {
-                margin-left: 12px; /* Increased margin */
-                padding: 12px 24px; /* Increased padding */
-                border: none;
-                background-color: var(--bright-purple);
-                color: #ffffff;
-                border-radius: 5px;
-                cursor: pointer;
-                /* Ensure button has consistent font size */
-                font-size: 16px;
-                flex-shrink: 0; /* Prevent button from shrinking */
-            }
-
-            /* Responsive Images and Charts */
-            #response-area img,
-        #response-area canvas, /* For charts rendered as canvas */
-        #response-area svg {
-                /* For SVG charts */
-                max-width: 100%;
-                height: auto;
-                display: block;
-                margin: 10px 0; /* Optional: Add some margin for spacing */
-            }
-
-            /* List Styling */
-            #response-area ul,
-            #response-area ol {
-                margin-left: 20px; /* Proper indentation */
-                padding-left: 10px; /* Additional padding to align bullets/numbers */
-            }
-
-            #response-area li {
-                margin-bottom: 5px; /* Spacing between list items */
-            }
-            #response-area p {
-                margin-top: 1em; /* Add space after paragraphs */
-            }
-
-            #response-area p:last-child {
-                margin-bottom: 0; /* Remove margin from last paragraph to avoid extra space */
-            }
-            /* Mobile and Portrait styles */
-            @media (max-width: 767px), (orientation: portrait) {
-                .divider,
-                .canvas-container {
-                    display: none;
-                }
-                #response-area p {
-                    margin-top: 0.8em; /* Slightly less spacing on mobile */
-                }
-                .chat {
-                    width: 100%;
-                    border-right: none;
-                    background-color: #1a1a1a;
-                    padding: 0;
-                    display: flex;  /* Add flex display */
-                    flex-direction: column;  /* Stack children vertically */
-                }
-
-                .chat h1 {
-                    font-size: 1.2em;  /* Reduced from 1.4em */
-                    color: #ffffff;
-                    margin: 10px;  /* Reduced margin */
-                    text-align: center;
-                    position: sticky;  /* Make header sticky */
-                    top: 0;  /* Stick to top */
-                    background-color: #1a1a1a;  /* Match background */
-                    z-index: 1001;  /* Ensure it stays above content */
-                    padding: 5px 0;  /* Add some padding */
-                }
-
                 body {
-                    font-size: 16px;  /* Reduced from 18px */
-                    background-color: #1a1a1a;
-                    color: #ffffff;
-                }
+            font-family: 'IBM Plex Sans', Arial, Helvetica, sans-serif;
+            background: linear-gradient(to bottom, #ffffff 0%, #ffffff 150px, var(--bright-purple) 150px, var(--sky-tint) 100%);
+            color: #ffffff;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            position: relative;
+        }
 
-                #chat-container {
-                    padding: 1px; /* Maintain minimal padding */
-                }
+                .background-pattern {
+            position: absolute;
+            top: 150px;
+            left: 0;
+            width: 100%;
+            height: calc(100% - 150px);
+            background-image: 
+                radial-gradient(circle at 20% 50%, rgba(173, 53, 250, 0.3) 0%, transparent 50%),
+                radial-gradient(circle at 80% 20%, rgba(255, 107, 90, 0.2) 0%, transparent 50%),
+                radial-gradient(circle at 40% 80%, rgba(184, 216, 227, 0.4) 0%, transparent 50%);
+            animation: float 20s ease-in-out infinite;
+        }
 
-                #response-area {
-                    background-color: #2d2d2d;
-                    border-color: #444;
-                    margin-bottom: 80px; /* Increased margin to accommodate fixed input */
-                    font-size: 1em; /* Slightly decreased from 1.2em to 1em */
-                    padding: 10px; /* Reduced padding to save space */
-                    line-height: 1.7; /* Added line height for better readability */
-                }
+        @keyframes float {
+            0%, 100% { transform: translateY(0px) rotate(0deg); }
+            33% { transform: translateY(-20px) rotate(1deg); }
+            66% { transform: translateY(10px) rotate(-1deg); }
+        }
 
-                /* Adjust message sizes */
-                .message {
-                    font-size: 0.95em;  /* Reduced from 1.1em */
-                    padding: 12px 16px;  /* Increased padding for better readability */
-                    margin: 10px 5px;  /* Added horizontal margin and increased vertical margin */
-                    border-radius: 15px;  /* Slightly more rounded corners */
-                    max-width: 85%;  /* Limit maximum width of messages */
-                }
+                .header {
+            background: #ffffff;
+            padding: 2rem 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            position: relative;
+            z-index: 2;
+        }
 
-                .user-message {
-                    background-color: #264653;
-                    color: #ffffff;
-                    margin-left: auto;  /* Push user messages to the right */
-                    margin-right: 5px;  /* Add some space from the right edge */
-                }
-                .ai-message {
-                    background-color: #2a3f4d;
-                    color: #ffffff;
-                    margin-right: auto;  /* Push AI messages to the left */
-                    margin-left: 5px;  /* Add some space from the left edge */
-                }
+        .header-content {
+            max-width: 800px;
+            width: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 0 2rem;
+        }
 
-                #input-container {
-                    position: fixed;
-                    bottom: 0;
-                    left: 0;
-                    right: 0;
-                    padding: 15px; /* Maintained padding */
-                    background-color: #2d2d2d;
-                    z-index: 1000;
-                    /* Adjust flex properties for better alignment */
-                    display: flex;
-                    align-items: center;
-                }
+        .logo-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        
+        .logo-image {
+            height: 80px;
+            width: auto;
+        }
 
-                #submit-button {
-                    background-color: #2a9d8f;
-                    font-size: 16px;
-                    padding: 12px 20px;
-                    min-height: 44px;
-                    flex-shrink: 0; /* Ensure button does not shrink */
-                }
+        .main-actions {
+            display: flex;
+            gap: 2rem;
+            justify-content: center;
+            margin-bottom: 3rem;
+        }
 
-                #userInput {
-                    font-size: 16px;
-                    padding: 12px;
-                    min-height: 44px;
-                    border-radius: 8px;
-                    background-color: #333;
-                    color: #fff;
-                    /* Ensure input takes available space without causing overflow */
-                    margin-right: 10px;
-                }
+        .action-card {
+            background: rgba(255, 255, 255, 0.15);
+            backdrop-filter: blur(10px);
+            border: 2px solid rgba(255, 255, 255, 0.2);
+            border-radius: 20px;
+            padding: 2rem;
+            text-align: center;
+            transition: all 0.3s ease;
+            text-decoration: none;
+            color: white;
+            min-width: 200px;
+            position: relative;
+            overflow: hidden;
+        }
 
-                /* Ensure the "Send" button is always visible and aligned */
-                #input-container button {
-                    white-space: nowrap;
-                }
+        .action-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: linear-gradient(45deg, var(--bright-purple), var(--warm-coral));
+            opacity: 0;
+            transition: opacity 0.3s ease;
+            z-index: -1;
+        }
 
-                /* Adjust tool-call font size on mobile */
-                .tool-call {
-                    font-size: 0.9em; /* Slightly reduced font size */
-                    padding: 6px; /* Reduced padding */
-                    margin: 10px 0; /* Reduced margin */
-                }
+        .action-card:hover::before {
+            opacity: 1;
+        }
 
-                /* Adjust sender font size on mobile */
-                .sender {
-                    font-size: 0.9em; /* Reduced from 1em to 0.9em */
-                }
+        .action-card:hover {
+            transform: translateY(-5px);
+            border-color: rgba(255, 255, 255, 0.4);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+        }
 
-                /* Responsive Images and Charts on Mobile */
-                #response-area img,
-                #response-area canvas,
-                #response-area svg {
-                    max-width: 100%;
-                    height: auto;
-                    display: block;
-                    margin: 8px 0; /* Adjusted margin for mobile */
-                    margin-bottom: 0.8em; /* Slightly less spacing on mobile */
+        .action-icon {
+            font-size: 3rem;
+            margin-bottom: 1rem;
+            display: block;
+        }
 
-                }
+        .action-title {
+            font-family: 'Inter', sans-serif;
+            font-size: 1.5rem;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+        }
 
-                /* List Styling on Mobile */
-                #response-area ul,
-                #response-area ol {
-                    margin-left: 15px; /* Reduced indentation for mobile */
-                    padding-left: 10px; /* Additional padding to align bullets/numbers */
-                }
+        .action-description {
+            font-size: 1rem;
+            opacity: 0.9;
+            line-height: 1.4;
+        }
 
-                #response-area li {
-                    margin-bottom: 4px; /* Reduced spacing between list items */
-                }
+        .container {
+            text-align: center;
+            z-index: 1;
+            position: relative;
+            max-width: 800px;
+            padding: 2rem;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-self: center;
+        }
 
-                #agentSelector {
-                    font-size: 0.8em;
-                    margin-left: 10px;
-                    background-color: #333;
-                    color: #fff;
-                    border-color: #555;
-                }
+        @keyframes glow {
+            from { filter: drop-shadow(0 0 20px rgba(173, 53, 250, 0.3)); }
+            to { filter: drop-shadow(0 0 30px rgba(173, 53, 250, 0.6)); }
+        }
+
+        .tagline {
+            font-family: 'Inter', sans-serif;
+            font-size: 1.5rem;
+            font-weight: 500;
+            margin-bottom: 2rem;
+            opacity: 0.95;
+            line-height: 1.4;
+        }
+
+        .description {
+            font-size: 1.1rem;
+            line-height: 1.6;
+            margin-bottom: 3rem;
+            opacity: 0.8;
+            max-width: 600px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+
+        .features {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 2rem;
+            margin-top: 3rem;
+            max-width: 600px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        .feature {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 1.5rem;
+            border-radius: 15px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        .feature:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+        }
+
+        .feature-icon {
+            font-size: 2.5rem;
+            margin-bottom: 1rem;
+            display: block;
+        }
+
+        .feature-title {
+            font-family: 'Inter', sans-serif;
+            font-size: 1.2rem;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+        }
+
+        .feature-description {
+            opacity: 0.8;
+            line-height: 1.4;
+        }
+
+        .contact {
+            margin-top: 3rem;
+            opacity: 0.7;
+        }
+
+        .contact a {
+            color: #ffffff;
+            text-decoration: none;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.3);
+            transition: border-color 0.3s ease;
+        }
+
+        .contact a:hover {
+            border-color: rgba(255, 255, 255, 0.8);
+        }
+
+        @media (max-width: 768px) {
+            .header-content {
+                padding: 0 1rem;
             }
 
-            .canvas-container {
-                flex: 1;  /* Add this to make it take remaining space */
-                height: 100vh;
-                display: flex;  /* Add this to ensure iframe fills container */
+            .logo-image {
+                height: 60px;
             }
 
-            .canvas-container iframe {
-                flex: 1;  /* Add this to make iframe fill container */
-                width: 100%;
-                height: 100%;
-                border: none;
-            }
-
-            /* Add new overlay styles */
-            .overlay {
-                display: none;
-                position: fixed;
-                top: 0;
-                left: 0;
-                width: 100%;
-                height: 100%;
-                background-color: rgba(0, 0, 0, 0.9);
-                z-index: 2000;
-                overflow: auto;
-            }
-
-            .overlay-content {
-                position: relative;
-                width: 100%;
-                height: 100%;
-                display: flex;
+            .main-actions {
                 flex-direction: column;
-            }
-
-            .overlay-header {
-                padding: 15px;
-                background-color: #2d2d2d;
-                display: flex;
-                justify-content: space-between;
+                gap: 1rem;
                 align-items: center;
             }
 
-            .close-overlay {
-                background: none;
-                border: none;
-                color: #ffffff;
-                font-size: 24px;
-                cursor: pointer;
-                padding: 5px 15px;
+            .action-card {
+                min-width: 280px;
+                padding: 1.5rem;
             }
 
-            .overlay iframe {
-                flex: 1;
-                width: 100%;
-                border: none;
-                background: #ffffff;
+            .action-icon {
+                font-size: 2.5rem;
             }
 
-            /* Add new chat button styles */
-            #newChatButton {
+            .action-title {
+                font-size: 1.3rem;
+            }
+            
+            .tagline {
+                font-size: 1.2rem;
+            }
+            
+            .description {
+                font-size: 1rem;
+            }
+            
+            .container {
+                padding: 1rem;
+            }
+            
+            .features {
+                grid-template-columns: 1fr;
+                gap: 1rem;
+            }
+        }
+
+                .particles {
+            position: absolute;
+            top: 150px;
+            left: 0;
+            width: 100%;
+            height: calc(100% - 150px);
+            overflow: hidden;
+            z-index: 0;
+        }
+
+        .particle {
                 position: absolute;
-                left: 20px;
-                top: 50%;
-                transform: translateY(-50%);
-                background: none;
-                border: none;
-                font-size: 1.5em;
-                cursor: pointer;
-                padding: 5px 10px;
-                color: #999;
-            }
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 50%;
+            animation: particle-float 15s infinite ease-in-out;
+        }
 
-            /* Add blinking cursor animation */
-            @keyframes blink {
-                0% { opacity: 1; }
-                50% { opacity: 0; }
-                100% { opacity: 1; }
-            }
+        @keyframes particle-float {
+            0%, 100% { transform: translateY(100vh) translateX(0px) rotate(0deg); opacity: 0; }
+            10% { opacity: 1; }
+            90% { opacity: 1; }
+        }
 
-            .typing-indicator {
-                display: inline-block;
-                width: 4px;
-                height: 16px;
-                background-color: #ffffff;
-                margin-left: 4px;
-                animation: blink 1s infinite;
-            }
-
-            #agentSelector {
-                margin-left: 15px;
-                padding: 5px 10px;
-                border-radius: 5px;
-                border: 1px solid #ccc;
-                background-color: #f8f9fa;
-                font-size: 0.5em;
-                vertical-align: middle;
-                cursor: pointer;
-            }
-        </style>
-        <script>
-            // Check if the page is loaded in an iframe
-            window.addEventListener('DOMContentLoaded', function() {
-                if (window.self !== window.top) {
-                    // Page is loaded in an iframe
-                    document.body.classList.add('iframe-mode');
-                    
-                    // Hide the header if it exists
-                    const header = document.querySelector('.header');
-                    if (header) {
-                        header.style.display = 'none';
-                    }
-                    
-                    // Adjust the chat container to take full height
-                    const chatContainer = document.getElementById('chat-container');
-                    if (chatContainer) {
-                        chatContainer.style.height = '100%';
-                    }
-                    
-                    // If there's a query parameter for auto-focus, focus the input
-                    const urlParams = new URLSearchParams(window.location.search);
-                    if (urlParams.has('auto_focus')) {
-                        const input = document.getElementById('user-input');
-                        if (input) {
-                            input.focus();
-                        }
-                    }
-                }
-            });
-        </script>
+        .particle:nth-child(1) { width: 4px; height: 4px; left: 10%; animation-delay: 0s; animation-duration: 12s; }
+        .particle:nth-child(2) { width: 6px; height: 6px; left: 20%; animation-delay: 2s; animation-duration: 15s; }
+        .particle:nth-child(3) { width: 3px; height: 3px; left: 30%; animation-delay: 4s; animation-duration: 18s; }
+        .particle:nth-child(4) { width: 5px; height: 5px; left: 40%; animation-delay: 1s; animation-duration: 14s; }
+        .particle:nth-child(5) { width: 4px; height: 4px; left: 50%; animation-delay: 3s; animation-duration: 16s; }
+        .particle:nth-child(6) { width: 6px; height: 6px; left: 60%; animation-delay: 5s; animation-duration: 13s; }
+        .particle:nth-child(7) { width: 3px; height: 3px; left: 70%; animation-delay: 2.5s; animation-duration: 17s; }
+        .particle:nth-child(8) { width: 5px; height: 5px; left: 80%; animation-delay: 4.5s; animation-duration: 15s; }
+        .particle:nth-child(9) { width: 4px; height: 4px; left: 90%; animation-delay: 1.5s; animation-duration: 19s; }
+    </style>
     </head>
     <body>
-        <div class="main">
-            <div class="chat">
-                <h1>
-                    <button id="newChatButton" title="Start new chat">+</button>
-                    Transparent SF Agent Chat
-                    <select id="agentSelector" title="Select agent">
-                        <option value="researcher">Researcher</option>
-                        <option value="analyst">Analyst</option>
-                        <option value="explainer">Explainer</option>
-                    </select>
-                </h1>
-                <div id="chat-container">
-                    <div id="response-area"></div>
-                    <div id="input-container">
-                        <input
-                            type="text"
-                            id="userInput"
-                            placeholder="Type your message..."
-                            autocomplete="off"
-                        />
-                        <button id="submit-button">Send</button>
-                    </div>
-                </div>
-            </div>
-            <div class="divider"></div>
-            <div class="canvas-container">
-                <iframe
-                    name="canvasTarget"
-                    style="width: 100%; height: 100%; border: none"
-                ></iframe>
+    <div class="header">
+        <div class="header-content">
+            <div class="logo-container">
+                <img src="/static/wordmark.png" alt="TransparentSF" class="logo-image">
             </div>
         </div>
+    </div>
 
-        <!-- Add overlay markup -->
-        <div id="mobileOverlay" class="overlay">
-            <div class="overlay-content">
-                <div class="overlay-header">
-                    <button class="close-overlay" onclick="closeMobileOverlay()">×</button>
-                </div>
-                <iframe id="overlayFrame" name="overlayFrame"></iframe>
-            </div>
+    <div class="background-pattern"></div>
+    
+    <div class="particles">
+        <div class="particle"></div>
+        <div class="particle"></div>
+        <div class="particle"></div>
+        <div class="particle"></div>
+        <div class="particle"></div>
+        <div class="particle"></div>
+        <div class="particle"></div>
+        <div class="particle"></div>
+        <div class="particle"></div>
+    </div>
+
+    <div class="container">
+        <p class="tagline">Making San Francisco government data transparent and accessible</p>
+        
+        <div class="main-actions">
+            <a href="https://dashboard.transparentsf.com" class="action-card" target="_blank">
+                <div class="action-icon">📊</div>
+                <div class="action-title">Dashboard</div>
+                <div class="action-description">Explore data insights and analytics</div>
+            </a>
+            <a href="https://www.transparentsf.com" class="action-card" target="_blank">
+                <div class="action-icon">📮</div>
+                <div class="action-title">Newsletter</div>
+                <div class="action-description">Stay updated with monthly reports</div>
+            </a>
         </div>
+        
+                <p class="description">
+            An intelligent platform that transforms complex government data into clear, actionable insights. 
+            Explore San Francisco's metrics, trends, and civic information through our analytics dashboard and stay informed with our monthly newsletter.
+        </p>
 
-        <!-- Include Marked.js library -->
-        <script src="https://cdn.jsdelivr.net/npm/marked@4.2.12/marked.min.js"></script>
-        <!-- Include DOMPurify library -->
-        <script src="https://cdn.jsdelivr.net/npm/dompurify@2.4.0/dist/purify.min.js"></script>
-        <!-- Include Chart.js library -->
-        <script src="https://cdn.jsdelivr.net/npm/chart.js@3.7.0/dist/chart.min.js"></script>
+        <div class="contact">
+            <p>Questions? Reach out to us at <a href="mailto:hello@transparentsf.com">hello@transparentsf.com</a></p>
+        </div>
+    </div>
 
         <script>
-            // Configure Marked.js
-            marked.setOptions({
-                breaks: true,
-                gfm: true,
-                headerIds: false,
-                mangle: false,
+        // Add some interactive elements
+        document.addEventListener('DOMContentLoaded', function() {
+            // Animate features on scroll/load
+            const features = document.querySelectorAll('.feature');
+            features.forEach((feature, index) => {
+                setTimeout(() => {
+                    feature.style.opacity = '0';
+                    feature.style.transform = 'translateY(30px)';
+                    feature.style.transition = 'opacity 0.6s ease, transform 0.6s ease';
+                    
+                    setTimeout(() => {
+                        feature.style.opacity = '1';
+                        feature.style.transform = 'translateY(0)';
+                    }, 100);
+                }, index * 200);
             });
+        });
 
-            // Simplify the image renderer
-            const renderer = new marked.Renderer();
-            renderer.image = function(href, title, text) {
-                // Clean up the href to handle potential datasf.org URLs
-                if (href.includes('datasf.org')) {
-                    // Extract just the path portion if it's a datasf.org URL
-                    const urlPath = href.split('datasf.org').pop();
-                    if (urlPath) {
-                        href = urlPath;
-                    }
-                }
-
-                // Handle data URLs
-                if (href.startsWith('data:')) {
-                    return `<img src="${href}" title="${title || ''}" alt="${text || ''}" />`;
-                }
-                
-                // Handle relative paths
-                let src = href;
-                // Remove any domain references and clean up the path
-                src = src.replace(/^https?:\/\/[^\/]+/, '');
-                if (src.startsWith('../')) {
-                    src = src.substring(3);
-                }
-                // Remove any duplicate 'output/' prefixes and leading slashes
-                src = src.replace(/^\/+|^output\/+|^\/+output\/+/, '');
-                // Ensure path starts with output/
-                src = 'output/' + src;
-                
-                return `<img src="${src}" title="${title || ''}" alt="${text || ''}" />`;
-            };
-            marked.use({ renderer });
-
-            // Add this function at the top of your script section
-            function getOutputDirectory(content) {
-                // Check if this is a query result by looking for "Query URL" pattern
-                const queryUrlMatch = content.match(/\*\*Query URL:\*\* .*?\/resource\/([^.]+)\.json/);
-                if (queryUrlMatch) {
-                    // This is a query result, so the charts will be in the same directory as the markdown
-                    console.log('Found query result for endpoint:', queryUrlMatch[1]);
-                    // Look for directory hints in the content
-                    if (content.includes('Year-to-Date') || content.includes('YTD')) {
-                        return '/output/ytd/';
-                    } else if (content.includes('Monthly Analysis') || content.includes('per Month')) {
-                        return '/output/monthly/';
-                    } else if (content.includes('Daily Analysis') || content.includes('per Day')) {
-                        return '/output/daily/';
-                    } else {
-                        return '/output/annual/';
-                    }
-                }
-
-                // If not a query result, check for explicit paths
-                const pathMatch = content.match(/\/output\/[^/]+\//);
-                if (pathMatch) {
-                    console.log('Found explicit output path:', pathMatch[0]);
-                    return pathMatch[0];
-                }
-
-                // Default to annual
-                console.log('No directory indicators found, defaulting to annual');
-                return '/output/annual/';
-            }
-
-            // Corrected element references
-            const responseArea = document.getElementById("response-area");
-            const userInput = document.getElementById("userInput"); // Correct ID
-            const submitBtn = document.getElementById("submit-button"); // Correct ID
-            let currentAIMessage = null;
-
-            // Add session management
-            let currentSessionId = null;
-
-            // Function to get or create a session ID
-            async function getSessionId() {
-                if (currentSessionId) {
-                    return currentSessionId;
-                }
-                
-                try {
-                    // Try to get session ID from cookie
-                    const cookies = document.cookie.split(';');
-                    for (const cookie of cookies) {
-                        const [name, value] = cookie.trim().split('=');
-                        if (name === 'session_id') {
-                            currentSessionId = value;
-                            return currentSessionId;
-                        }
-                    }
-                    
-                    // If no session ID in cookie, create a new one
-                    currentSessionId = 'session_' + Math.random().toString(36).substring(2, 15);
-                    return currentSessionId;
-                } catch (error) {
-                    console.error("Error getting session ID:", error);
-                    return null;
-                }
-            }
-
-            function handleServerMessage(data) {
-                console.log("Received message:", data);
-
-                if (currentAIMessage == null) {
-                    currentAIMessage = addMessage(
-                        data.sender || "AI",
-                        "ai-message",
-                    );
-                    currentAIMessage.contentSegments = []; // Initialize content segments array
-                }
-
-                if (data.type === "content") {
-                    // Regular content - append to the last content segment
-                    if (typeof currentAIMessage.contentSegments[currentAIMessage.contentSegments.length - 1] === "string") {
-                        currentAIMessage.contentSegments[currentAIMessage.contentSegments.length - 1] += data.content;
-                    } else {
-                        currentAIMessage.contentSegments.push(data.content);
-                    }
-                    // Render the updated content
-                    renderContentSegments(currentAIMessage);
-                } else if (data.type === "tool_call") {
-                    // Add the tool call object as a segment
-                    currentAIMessage.contentSegments.push({
-                        type: "tool_call",
-                        function_name: data.function_name,
-                        arguments: data.arguments,
-                    });
-                    renderContentSegments(currentAIMessage);
-                } else if (data.type === "chart") {
-                    // Log chart message details
-                    console.log("CHART MESSAGE RECEIVED:", {
-                        chart_id: data.chart_id,
-                        chart_type: data.chart_type,
-                        chart_data: data.chart_data,
-                        chart_html_length: data.chart_html ? data.chart_html.length : 0
-                    });
-                    
-                    // Create chart container
-                    const chartContainer = document.createElement("div");
-                    chartContainer.id = data.chart_id;
-                    chartContainer.className = "chart-container";
-                    
-                    // Add chart HTML
-                    chartContainer.innerHTML = data.chart_html;
-                    
-                    // Add the chart as a segment
-                    currentAIMessage.contentSegments.push({
-                        type: "chart",
-                        chart_id: data.chart_id,
-                        chart_type: data.chart_type,
-                        chart_data: data.chart_data,
-                        chart_html: data.chart_html,
-                        container: chartContainer
-                    });
-                    
-                    // Render the updated content
-                    renderContentSegments(currentAIMessage);
-                    
-                    // Initialize chart if it's an anomaly chart
-                    if (data.chart_type === "anomaly" && typeof initializeAnomalyChart === "function") {
-                        console.log("Initializing anomaly chart:", data.chart_id);
-                        initializeAnomalyChart(data.chart_id, data.chart_data);
-                    }
-                } else {
-                    console.warn("Unknown message type:", data.type);
-                }
-
-                responseArea.scrollTop = responseArea.scrollHeight;
-            }
-
-            function renderContentSegments(message) {
-                // Clear the content element
-                message.contentElement.innerHTML = "";
-
-                // Process each segment
-                for (let segment of message.contentSegments) {
-                    if (typeof segment === "string") {
-                        // Log the content we're processing
-                        console.log('Processing content segment:', segment.substring(0, 200) + '...');
-                        
-                        // It's a markdown content segment
-                        try {
-                            const htmlContent = marked.parse(segment);
-                            const sanitizedContent = DOMPurify.sanitize(htmlContent);
-                            const tempDiv = document.createElement("div");
-                            tempDiv.innerHTML = sanitizedContent;
-
-                            // Fix image paths
-                            const images = tempDiv.getElementsByTagName('img');
-                            for (let img of images) {
-                                const src = img.getAttribute('src');
-                                console.log('Processing image source:', src);
-                                
-                                // Clean up the src to handle potential datasf.org URLs
-                                if (src.includes('datasf.org')) {
-                                    // Extract just the path portion if it's a datasf.org URL
-                                    const urlPath = src.split('datasf.org').pop();
-                                    if (urlPath) {
-                                        let newSrc = urlPath;
-                                        // Remove any duplicate 'output/' prefixes and leading slashes
-                                        newSrc = newSrc.replace(/^\/+|^output\/+|^\/+output\/+/, '');
-                                        // Ensure path starts with output/
-                                        newSrc = 'output/' + newSrc;
-                                        console.log('Updated datasf.org URL to local path:', newSrc);
-                                        img.src = newSrc;
-                                        continue;
-                                    }
-                                }
-                                
-                                // Only modify relative paths
-                                if (src && !src.startsWith('data:')) {
-                                    // Remove any domain references
-                                    let newSrc = src.replace(/^https?:\/\/[^\/]+/, '');
-                                    // Remove any duplicate output/ prefixes and leading slashes
-                                    newSrc = newSrc.replace(/^\/+|^output\/+|^\/+output\/+/, '');
-                                    // Ensure path starts with output/
-                                    newSrc = 'output/' + newSrc;
-                                    
-                                    console.log('Updated image path:', newSrc);
-                                    img.src = newSrc;
-                                }
-                            }
-
-                            // Modify links to open in the specified frame
-                            modifyLinksToOpenInFrame(tempDiv, "canvasTarget");
-
-                            // Append the content to the message content element
-                            while (tempDiv.firstChild) {
-                                message.contentElement.appendChild(tempDiv.firstChild);
-                            }
-                        } catch (error) {
-                            console.warn("Markdown parsing error:", error);
-                            console.error(error);
-                        }
-                    } else if (segment.type === "tool_call") {
-                        // It's a tool call segment
-                        const toolCallElement = createToolCallElement(
-                            segment.function_name,
-                            segment.arguments,
-                        );
-                        message.contentElement.appendChild(toolCallElement);
-                    } else if (segment.type === "chart") {
-                        // It's a chart segment
-                        console.log("Rendering chart segment:", segment.chart_id);
-                        
-                        // Use the pre-created container if available
-                        if (segment.container) {
-                            message.contentElement.appendChild(segment.container);
-                        } else {
-                            // Fallback if container wasn't pre-created
-                            const chartContainer = document.createElement("div");
-                            chartContainer.id = segment.chart_id;
-                            chartContainer.className = "chart-container";
-                            chartContainer.innerHTML = segment.chart_html;
-                            message.contentElement.appendChild(chartContainer);
-                            
-                            // Initialize chart if it's an anomaly chart
-                            if (segment.chart_type === "anomaly" && typeof initializeAnomalyChart === "function") {
-                                console.log("Initializing anomaly chart (fallback):", segment.chart_id);
-                                initializeAnomalyChart(segment.chart_id, segment.chart_data);
-                            }
-                        }
-                    }
-                }
-            }
-
-            function createToolCallElement(functionName, args) {
-                const toolCallContainer = document.createElement("div");
-                toolCallContainer.className = "tool-call";
-
-                const toolCallHeader = document.createElement("div");
-                toolCallHeader.className = "tool-call-header";
-
-                const toggleButton = document.createElement("button");
-                toggleButton.textContent = "[+]";
-                toggleButton.className = "toggle-button";
-                // Style the toggle button for better visibility
-                toggleButton.style.background = "none";
-                toggleButton.style.border = "none";
-                toggleButton.style.color = "#6b5b95";
-                toggleButton.style.cursor = "pointer";
-                toggleButton.style.fontSize = "1em";
-                toggleButton.style.marginRight = "10px";
-
-                toolCallHeader.appendChild(toggleButton);
-                toolCallHeader.appendChild(
-                    document.createTextNode(` Tool Call: ${functionName}`),
-                );
-
-                const argsContainer = document.createElement("div");
-                argsContainer.className = "tool-call-args";
-                argsContainer.textContent = `Arguments: ${JSON.stringify(args, null, 2)}`;
-                argsContainer.style.marginLeft = "24px"; // Indent arguments for clarity
-
-                toggleButton.addEventListener("click", () => {
-                    if (argsContainer.style.display === "none") {
-                        argsContainer.style.display = "block";
-                        toggleButton.textContent = "[-]";
-                    } else {
-                        argsContainer.style.display = "none";
-                        toggleButton.textContent = "[+]";
-                    }
-                });
-
-                argsContainer.style.display = "none"; // Start collapsed
-                toolCallContainer.appendChild(toolCallHeader);
-                toolCallContainer.appendChild(argsContainer);
-
-                return toolCallContainer;
-            }
-
-            // Chart initialization function
-            function initializeAnomalyChart(chartId, chartData) {
-                console.log("Initializing chart:", chartId, "with data:", chartData);
-                
-                // Get the chart container
-                const container = document.getElementById(chartId);
-                if (!container) {
-                    console.error("Chart container not found:", chartId);
-                    return;
-                }
-
-                // Create direct access to chart data without relying on parsing
-                let labels = [];
-                let values = [];
-                let title = 'Anomaly Chart';
-
-                try {
-                    // Use a safer approach to extract data directly from the chart_data object
-                    if (chartData && chartData.raw_data) {
-                        // Direct extraction approach - use regex to extract the data we need
-                        const rawDataString = typeof chartData.raw_data === 'string' ? chartData.raw_data : JSON.stringify(chartData.raw_data);
-                        
-                        console.log("Attempting to extract data directly from raw_data string");
-                        
-                        // Extract comparison_dates using regex
-                        const comparisonDatesMatch = rawDataString.match(/'comparison_dates':\s*\[(.*?)\]/);
-                        if (comparisonDatesMatch && comparisonDatesMatch[1]) {
-                            // Extract the dates from the match
-                            labels = comparisonDatesMatch[1]
-                                .split(',')
-                                .map(date => date.trim().replace(/'/g, ''));
-                            console.log("Extracted comparison_dates:", labels);
-                        }
-                        
-                        // Extract comparison_counts using regex
-                        const comparisonCountsMatch = rawDataString.match(/'comparison_counts':\s*\[(.*?)\]/);
-                        if (comparisonCountsMatch && comparisonCountsMatch[1]) {
-                            // Extract the counts from the match
-                            values = comparisonCountsMatch[1]
-                                .split(',')
-                                .map(count => parseFloat(count.trim()));
-                            console.log("Extracted comparison_counts:", values);
-                        }
-                        
-                        // Extract recent dates and counts
-                        const recentDatesMatch = rawDataString.match(/'recent_dates':\s*\[(.*?)\]/);
-                        const recentCountsMatch = rawDataString.match(/'recent_counts':\s*\[(.*?)\]/);
-                        
-                        if (recentDatesMatch && recentDatesMatch[1] && recentCountsMatch && recentCountsMatch[1]) {
-                            const recentDates = recentDatesMatch[1]
-                                .split(',')
-                                .map(date => date.trim().replace(/'/g, ''));
-                                
-                            const recentCounts = recentCountsMatch[1]
-                                .split(',')
-                                .map(count => parseFloat(count.trim()));
-                                
-                            if (recentDates.length > 0 && recentCounts.length > 0) {
-                                labels.push(recentDates[0]);
-                                values.push(recentCounts[0]);
-                                console.log("Added recent data point:", recentDates[0], recentCounts[0]);
-                            }
-                        }
-                        
-                        // Extract title if available
-                        const titleMatch = rawDataString.match(/'title':\s*'([^']+)'/);
-                        if (titleMatch && titleMatch[1]) {
-                            title = titleMatch[1];
-                            console.log("Extracted title:", title);
-                        }
-                    }
-                    
-                    // If no data was extracted, try to get some basic info
-                    if (labels.length === 0 || values.length === 0) {
-                        console.warn("Could not extract data using regex, using fallback approach");
-                        
-                        // Fallback to just hardcoding an example chart
-                        labels = ['Jan', 'Feb', 'Mar', 'Apr', 'May'];
-                        values = [12, 19, 3, 5, 2];
-                        title = 'Anomaly Chart (Fallback)';
-                    }
-                    
-                    // Check if Chart.js is available
-                    if (typeof Chart === 'undefined') {
-                        console.error("Chart.js is not loaded. Loading it now...");
-                        // Create a script element to load Chart.js
-                        const script = document.createElement('script');
-                        script.src = 'https://cdn.jsdelivr.net/npm/chart.js@3.7.0/dist/chart.min.js';
-                        script.onload = function() {
-                            console.log("Chart.js loaded successfully");
-                            createChart();
-                        };
-                        script.onerror = function() {
-                            console.error("Failed to load Chart.js");
-                        };
-                        document.head.appendChild(script);
-                        
-                        // Define the createChart function to be called after Chart.js is loaded
-                        function createChart() {
-                            createChartWithData();
-                        }
-                    } else {
-                        // Chart.js is already available, create the chart directly
-                        createChartWithData();
-                    }
-                    
-                    // Function to create the chart with the prepared data
-                    function createChartWithData() {
-                        // Check if canvas exists, if not create it
-                        let canvas = container.querySelector('canvas');
-                        if (!canvas) {
-                            console.log("Canvas not found, creating one");
-                            canvas = document.createElement('canvas');
-                            container.appendChild(canvas);
-                        }
-                        
-                        // Create the chart using the data
-                        const chart = new Chart(canvas, {
-                            type: 'line',
-                            data: {
-                                labels: labels,
-                                datasets: [{
-                                    label: title,
-                                    data: values,
-                                    borderColor: 'rgb(75, 192, 192)',
-                                    tension: 0.1,
-                                    backgroundColor: 'rgba(75, 192, 192, 0.2)'
-                                }]
-                            },
-                            options: {
-                                responsive: true,
-                                plugins: {
-                                    title: {
-                                        display: true,
-                                        text: title
-                                    }
-                                },
-                                scales: {
-                                    y: {
-                                        beginAtZero: true
-                                    }
-                                }
-                            }
-                        });
-                        
-                        console.log("Chart initialized successfully:", chartId);
-                    }
-                } catch (error) {
-                    console.error("Error initializing chart:", error);
-                }
-            }
-
-            async function sendMessage() {
-                const query = userInput.value.trim();
-                if (query) {
-                    userInput.value = "";
-                    const currentAgent = document.getElementById("agentSelector").value;
-                    
-                    // Add user message to chat
-                    addMessage("user", "user-message", query);
-                    
-                    // Create a new AI message and initialize it
-                    currentAIMessage = addMessage("AI", "ai-message");
-                    
-                    // Create typing indicator
-                    const typingIndicator = document.createElement("div");
-                    typingIndicator.className = "typing-indicator";
-                    typingIndicator.innerHTML = '<div class="spinner"></div>';
-                    currentAIMessage.contentElement.appendChild(typingIndicator);
-                    
-                    try {
-                        const sessionId = await getSessionId();
-                        const response = await fetch('/chat/api/chat', {
-                            method: "POST",
-                            headers: { "Content-Type": "application/json" },
-                            credentials: 'include',
-                            body: JSON.stringify({ 
-                                query,
-                                agent: currentAgent,
-                                session_id: sessionId
-                            }),
-                        });
-
-                        // Initialize content segments but keep typing indicator
-                        currentAIMessage.contentSegments = [];
-
-                        const reader = response.body.getReader();
-                        const decoder = new TextDecoder();
-
-                        let buffer = "";
-                        let firstChunkReceived = false;
-
-                        while (true) {
-                            const { done, value } = await reader.read();
-                            if (done) break;
-
-                            const chunk = decoder.decode(value);
-                            console.log("Received chunk:", chunk);
-                            buffer += chunk;
-
-                            // Only remove typing indicator after we've received actual content
-                            if (!firstChunkReceived && buffer.trim()) {
-                                firstChunkReceived = true;
-                                if (typingIndicator.parentNode === currentAIMessage.contentElement) {
-                                    currentAIMessage.contentElement.removeChild(typingIndicator);
-                                }
-                            }
-
-                            // Process complete lines
-                            let lines = buffer.split("\n");
-                            buffer = lines.pop(); // Keep the last incomplete line in the buffer
-
-                            for (const line of lines) {
-                                if (line.trim()) {
-                                    try {
-                                        const data = JSON.parse(line);
-                                        handleServerMessage(data);
-                                    } catch (e) {
-                                        console.error("Error parsing JSON:", e);
-                                        console.error("Invalid JSON:", line);
-                                    }
-                                }
-                            }
-                        }
-
-                        // Process any remaining data in the buffer
-                        if (buffer.trim()) {
-                            try {
-                                const data = JSON.parse(buffer);
-                                handleServerMessage(data);
-                            } catch (e) {
-                                console.error("Error parsing JSON:", e);
-                                console.error("Invalid JSON:", buffer);
-                            }
-                        }
-
-                        // Ensure typing indicator is removed at the end if it hasn't been already
-                        if (typingIndicator.parentNode === currentAIMessage.contentElement) {
-                            currentAIMessage.contentElement.removeChild(typingIndicator);
-                        }
-                    } catch (error) {
-                        console.error("Error:", error);
-                        // Remove typing indicator if there's an error
-                        if (typingIndicator.parentNode === currentAIMessage.contentElement) {
-                            currentAIMessage.contentElement.removeChild(typingIndicator);
-                        }
-                        addMessage(
-                            "Error",
-                            "error-message",
-                        ).contentElement.textContent =
-                            "An error occurred. Please try again.";
-                    }
-                }
-            }
-            function addMessage(sender, messageType, content) {
-                const messageContainer = document.createElement("div");
-                messageContainer.className = `message ${messageType}`;
-
-                const senderElement = document.createElement("div");
-                senderElement.className = "sender";
-                senderElement.textContent = sender ? `${sender}:` : "";
-
-                const contentElement = document.createElement("div");
-                contentElement.className = "message-content";
-
-                messageContainer.appendChild(senderElement);
-                messageContainer.appendChild(contentElement);
-                responseArea.appendChild(messageContainer);
-                responseArea.scrollTop = responseArea.scrollHeight;
-
-                // If this is a user message, set the content directly
-                if (messageType === "user-message" && content) {
-                    contentElement.textContent = content;
-                }
-
-                return {
-                    messageContainer,
-                    contentElement,
-                    contentSegments: [], // Initialize content segments array
-                };
-            }
-            // JavaScript for draggable divider
-            const divider = document.querySelector(".divider");
-            const chat = document.querySelector(".chat");
-            const canvas = document.querySelector(".canvas-container");
-            let isDragging = false;
-            let isMobile = window.innerWidth < 768;
-
-            // Update resize handler on window resize
-            window.addEventListener("resize", () => {
-                isMobile = window.innerWidth < 768;
-            });
-
-            divider.addEventListener("mousedown", function (e) {
-                isDragging = true;
-                document.body.style.cursor = isMobile
-                    ? "row-resize"
-                    : "col-resize";
-                e.preventDefault();
-            });
-
-            document.addEventListener("mousemove", function (e) {
-                if (!isDragging) return;
-
-                if (isMobile) {
-                    // Vertical resizing for mobile
-                    const main = document.querySelector(".main");
-                    const mainRect = main.getBoundingClientRect();
-                    let newChatHeight = e.clientY;
-
-                    // Set minimum heights (20% of viewport height)
-                    const minHeight = window.innerHeight * 0.2;
-                    const maxHeight = window.innerHeight * 0.8;
-
-                    if (newChatHeight < minHeight) newChatHeight = minHeight;
-                    if (newChatHeight > maxHeight) newChatHeight = maxHeight;
-
-                    chat.style.height = `${newChatHeight}px`;
-                    canvas.style.height = `${window.innerHeight - newChatHeight - divider.offsetHeight}px`;
-                } else {
-                    // Horizontal resizing for desktop
-                    const main = document.querySelector(".main");
-                    const mainRect = main.getBoundingClientRect();
-                    let newChatWidth = e.clientX;
-
-                    const minWidth = 200;
-                    const maxWidth = mainRect.width - 200;
-
-                    if (newChatWidth < minWidth) newChatWidth = minWidth;
-                    if (newChatWidth > maxWidth) newChatWidth = maxWidth;
-
-                    chat.style.width = `${newChatWidth}px`;
-                }
-            });
-
-            document.addEventListener("mouseup", function () {
-                if (isDragging) {
-                    isDragging = false;
-                    document.body.style.cursor = "default";
-                }
-            });
-
-            // Ensure JavaScript runs after DOM is loaded
-            document.addEventListener("DOMContentLoaded", function () {
-                const submitButton = document.getElementById("submit-button");
-                const inputBox = document.getElementById("userInput");
-                const agentSelector = document.getElementById("agentSelector");
-
-                if (submitButton && inputBox) {
-                    submitButton.addEventListener("click", sendMessage);
-                    inputBox.addEventListener("keypress", function (e) {
-                        if (e.key === "Enter") {
-                            sendMessage();
-                        }
-                    });
-                } else {
-                    console.error("submit-button or input-box not found.");
-                }
-                
-                // Set initial agent in dropdown
-                if (agentSelector) {
-                    // Default to researcher agent
-                    agentSelector.value = "researcher";
-                }
-            });
-
-            function modifyLinksToOpenInFrame(element, frameId) {
-                const links = element.getElementsByTagName("a");
-                for (let link of links) {
-                    if (window.innerWidth <= 767) {
-                        link.addEventListener('click', function(e) {
-                            e.preventDefault();
-                            openMobileOverlay(this.href);
-                        });
-                    } else {
-                        link.setAttribute("target", frameId);
-                    }
-                }
-            }
-
-            function openMobileOverlay(url) {
-                const overlay = document.getElementById('mobileOverlay');
-                const frame = document.getElementById('overlayFrame');
-                frame.src = url;
-                overlay.style.display = 'block';
-                document.body.style.overflow = 'hidden';
-            }
-
-            function closeMobileOverlay() {
-                const overlay = document.getElementById('mobileOverlay');
-                const frame = document.getElementById('overlayFrame');
-                overlay.style.display = 'none';
-                frame.src = '';
-                document.body.style.overflow = 'auto';
-            }
-
-            // Update link handling when window is resized
-            window.addEventListener('resize', function() {
-                const responseArea = document.getElementById('response-area');
-                const links = responseArea.getElementsByTagName('a');
-                
-                for (let link of links) {
-                    if (window.innerWidth <= 767) {
-                        link.removeAttribute('target');
-                        // Ensure click handler is added
-                        link.onclick = function(e) {
-                            e.preventDefault();
-                            openMobileOverlay(this.href);
-                        };
-                    } else {
-                        link.setAttribute('target', 'canvasTarget');
-                        link.onclick = null;
-                    }
-                }
-            });
-
-            // Update the new chat button click handler
-            document.getElementById('newChatButton').addEventListener('click', async function() {
-                responseArea.innerHTML = ''; // Clear all messages
-                currentAIMessage = null; // Reset current AI message
-                
-                // Call the server to reset the conversation
-                try {
-                    const sessionId = await getSessionId();
-                    await fetch('/chat/api/reset', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json'
-                        },
-                        credentials: 'include',
-                        body: JSON.stringify({ session_id: sessionId })
-                    });
-                } catch (error) {
-                    console.error('Failed to reset conversation:', error);
-                }
-            });
-
-            // Add agent selector change handler
-            document.getElementById('agentSelector').addEventListener('change', async function() {
-                const selectedAgent = this.value;
-                
-                // Call the server to switch agents
-                try {
-                    const sessionId = await getSessionId();
-                    const response = await fetch('/chat/api/switch-agent', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json'
-                        },
-                        credentials: 'include',
-                        body: JSON.stringify({ 
-                            agent: selectedAgent,
-                            session_id: sessionId
-                        })
-                    });
-                    
-                    const result = await response.json();
-                    
-                    if (result.status === 'success') {
-                        // Add a system message to indicate agent switch
-                        const systemMessage = addMessage("System", "system-message");
-                        systemMessage.contentElement.textContent = `Switched to ${selectedAgent} agent`;
-                        
-                        // Scroll to the bottom
-                        responseArea.scrollTop = responseArea.scrollHeight;
-                    } else {
-                        console.error('Failed to switch agent:', result.message);
-                    }
-                } catch (error) {
-                    console.error('Failed to switch agent:', error);
-                }
+        // Add mouse movement parallax effect
+        document.addEventListener('mousemove', function(e) {
+            const mouseX = e.clientX / window.innerWidth;
+            const mouseY = e.clientY / window.innerHeight;
+            
+            const backgroundPattern = document.querySelector('.background-pattern');
+            const translateX = mouseX * 20 - 10;
+            const translateY = mouseY * 20 - 10;
+            
+            backgroundPattern.style.transform = `translate(${translateX}px, ${translateY}px)`;
             });
         </script>
     </body>
