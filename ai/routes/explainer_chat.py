@@ -12,9 +12,8 @@ import logging
 import uuid
 from typing import Dict, Any
 
-# Import the explainer agents
-from agents.explainer_agent import create_explainer_agent
-from agents.langchain_agent.explainer_agent import create_explainer_agent as create_langchain_explainer_agent
+# Import the LangChain explainer agent
+from agents.langchain_agent.explainer_agent import create_explainer_agent
 from agents.langchain_agent.config.tool_config import ToolGroup
 
 # Import the necessary function for available models
@@ -122,8 +121,14 @@ async def explain_change_api(request: Request):
         # Create explainer agent
         agent = create_explainer_agent()
         
-        # If specific metric parameters are provided, enhance the prompt
+        # Prepare metric details for the agent
+        metric_details = {}
         if metric_id is not None:
+            metric_details = {
+                "metric_id": metric_id,
+                "district_id": district_id,
+                "period_type": period_type
+            }
             enhanced_prompt = f"""
             {prompt}
             
@@ -132,8 +137,8 @@ async def explain_change_api(request: Request):
         else:
             enhanced_prompt = prompt
         
-        # Get explanation
-        result = agent.explain_change_sync(enhanced_prompt, return_json=return_json)
+        # Get explanation using the LangChain agent interface
+        result = agent.explain_change_sync(enhanced_prompt, metric_details)
         
         return JSONResponse(
             content={
@@ -200,7 +205,16 @@ async def explain_change_streaming_api(request: Request):
                 # Send session ID first so frontend can track it
                 yield f"data: {json.dumps({'session_id': session_id})}\n\n"
                 
-                async for chunk in agent.explain_change_streaming(prompt, session_data):
+                # Prepare metric details for the agent
+                metric_details = {}
+                if session_data and 'metric_id' in session_data:
+                    metric_details = {
+                        "metric_id": session_data.get('metric_id'),
+                        "district_id": session_data.get('district_id', 0),
+                        "period_type": session_data.get('period_type', 'month')
+                    }
+                
+                async for chunk in agent.explain_change_streaming(prompt, metric_details):
                     if chunk:
                         # The agent already yields properly formatted SSE data, so pass it through directly
                         yield chunk
@@ -251,7 +265,7 @@ async def langchain_explainer_streaming_api(request: Request):
         data = await request.json()
         prompt = data.get("prompt")
         model_key = data.get("model_key", "claude-3-7-sonnet")
-        tool_groups = data.get("tool_groups", ["core", "analysis"])
+        tool_groups = data.get("tool_groups", ["core", "analysis", "visualization"])
         session_data = data.get("session_data", {})
         session_id = session_data.get("session_id")
         
@@ -277,7 +291,7 @@ async def langchain_explainer_streaming_api(request: Request):
                 logger.warning(f"Unknown tool group: {group_name}")
         
         if not tool_group_enums:
-            tool_group_enums = [ToolGroup.CORE, ToolGroup.ANALYSIS]
+            tool_group_enums = [ToolGroup.CORE, ToolGroup.ANALYSIS, ToolGroup.VISUALIZATION]
         
         # Get or create LangChain explainer agent for this session
         if not session_id:
@@ -288,14 +302,14 @@ async def langchain_explainer_streaming_api(request: Request):
             agent = explainer_sessions[session_key]
             # Update agent configuration if needed
             if hasattr(agent, 'model_key') and agent.model_key != model_key:
-                agent = create_langchain_explainer_agent(model_key=model_key, tool_groups=tool_group_enums, enable_session_logging=True)
+                agent = create_explainer_agent(model_key=model_key, tool_groups=tool_group_enums, enable_session_logging=True)
                 explainer_sessions[session_key] = agent
             elif hasattr(agent, 'tool_groups') and agent.tool_groups != tool_group_enums:
                 agent.update_tool_groups(tool_groups)
             logger.info(f"Using existing LangChain explainer agent for session: {session_key}")
         else:
             # Create new LangChain agent and session with session logging enabled
-            agent = create_langchain_explainer_agent(model_key=model_key, tool_groups=tool_group_enums, enable_session_logging=True)
+            agent = create_explainer_agent(model_key=model_key, tool_groups=tool_group_enums, enable_session_logging=True)
             explainer_sessions[session_key] = agent
             logger.info(f"Created new LangChain explainer agent for session: {session_key}")
         
@@ -305,8 +319,17 @@ async def langchain_explainer_streaming_api(request: Request):
                 # Send session ID first so frontend can track it
                 yield f"data: {json.dumps({'session_id': session_id})}\n\n"
                 
+                # Prepare metric details for the agent
+                metric_details = {}
+                if session_data and 'metric_id' in session_data:
+                    metric_details = {
+                        "metric_id": session_data.get('metric_id'),
+                        "district_id": session_data.get('district_id', 0),
+                        "period_type": session_data.get('period_type', 'month')
+                    }
+                
                 # Use the agent's explain_change_streaming method which includes real-time tool call logging
-                async for chunk in agent.explain_change_streaming(prompt, metric_details={}, session_id=session_id):
+                async for chunk in agent.explain_change_streaming(prompt, metric_details):
                     if chunk:
                         # The agent already yields properly formatted SSE data, so pass it through directly
                         yield chunk
@@ -357,8 +380,6 @@ async def explain_metric_change_api(request: Request):
     }
     """
     try:
-        from agents.explainer_agent import explain_metric_change
-        
         data = await request.json()
         metric_id = data.get("metric_id")
         district_id = data.get("district_id", 0)
@@ -375,18 +396,12 @@ async def explain_metric_change_api(request: Request):
         
         logger.info(f"Explaining metric {metric_id} change for district {district_id}")
         
-        # Get explanation using convenience function
-        result = explain_metric_change(
-            metric_id=metric_id,
-            district_id=district_id,
-            period_type=period_type,
-            return_json=True
-        )
-        
+        # This functionality has been moved to the LangChain-based explainer agent
+        # Use the /api/explain-change endpoint instead
         return JSONResponse(
             content={
-                "status": "success" if result.get("success", True) else "error",
-                "result": result
+                "status": "info",
+                "message": "This functionality has been moved to the LangChain-based explainer agent. Use the /api/explain-change endpoint instead."
             }
         )
         
@@ -565,7 +580,7 @@ async def test_explainer_session():
         
         # Add some test messages
         agent.add_message("user", "Hello, this is a test message")
-        agent.add_message("assistant", "Hello! I received your test message.", "TestExplainer")
+        agent.add_message("assistant", "Hello! I received your test message.")
         
         # Get session info
         session_info = {
@@ -649,9 +664,9 @@ async def langchain_explainer_continue_api(request: Request):
                     except ValueError:
                         logger.warning(f"Unknown tool group: {group_name}")
             else:
-                tool_group_enums = getattr(agent, 'tool_groups', [ToolGroup.CORE])
+                tool_group_enums = getattr(agent, 'tool_groups', [ToolGroup.CORE, ToolGroup.ANALYSIS, ToolGroup.VISUALIZATION])
             
-            agent = create_langchain_explainer_agent(model_key=model_key, tool_groups=tool_group_enums, enable_session_logging=True)
+            agent = create_explainer_agent(model_key=model_key, tool_groups=tool_group_enums, enable_session_logging=True)
             explainer_sessions[session_key] = agent
             logger.info(f"Updated agent with new model: {model_key}")
         elif tool_groups and hasattr(agent, 'tool_groups'):
@@ -706,9 +721,9 @@ async def test_session_logging():
     """Test endpoint to verify session logging is working."""
     try:
         # Create a test LangChain agent with session logging enabled
-        agent = create_langchain_explainer_agent(
+        agent = create_explainer_agent(
             model_key="claude-3-7-sonnet",
-            tool_groups=[ToolGroup.CORE],
+            tool_groups=[ToolGroup.CORE, ToolGroup.ANALYSIS, ToolGroup.VISUALIZATION],
             enable_session_logging=True
         )
         

@@ -5,7 +5,7 @@ import os
 # Each section can be edited independently and will be combined to create the full instructions
 
 # Core persona and identity
-PERSONA_INSTRUCTIONS = """You are seymour clearly, explanation agent that specializes in providing deep insights into detected anomalies.
+PERSONA_INSTRUCTIONS = """You are seymour clearly, explanation agent that specializes in providing deep insights into metric changes and anomalies.
 
 To speak in Seymour's voice, use these instructions:
 
@@ -19,11 +19,11 @@ IMPORTANT: You MUST use tools to gather data BEFORE responding. Direct explanati
 
 # Main task definition
 TASK_INSTRUCTIONS = """Your task is to:
-1. Take an change that has already been identified
+1. Take a change that has already been identified
 2. Research that change to explain what changed and where or what variables explain the change
 3. Analyze anomalies in the dataset to see if they are related to the change
 4. Collect Data use set_dataset to get exactly what you need from DataSF. You can should query the endpoint of the metric in question and look for columns that might explain the change. 
-5. Review maps, charts and visual data to determine how to best explain the chart. 
+5. Review maps and visual data to determine how to best explain geographic patterns. 
 6. Understand the metric's map field configuration (map_query, map_filters, map_config) to explain how geographic data is structured and filtered.
 7. Provide clear, comprehensive explanations with supporting evidence. You don't need to be brief, more is more, so be as complete and thorough as possible.
 8. Return your findings in the form of a JSON object with the following keys:
@@ -158,7 +158,7 @@ CHART_INSTRUCTIONS = """IMPORTANT CHART GENERATION RULES:
 To do this, you should use the get_charts_for_review tool to get a list of charts that are available.  
 When selecting the best visutal to use: 
 
-If the explanation is geographic, a Maps helps.  If you are talking about the absolute value show a density map, if you are taling about a chage show a change map.
+If the explanation is geographic, a Maps helps.  If you are talking about the absolute value show a density map, if you are talking about a change show a change map.
 If the explanation is temporal, charts help.  choose the most simple chart that can show the change.  
 If the explanation is that a specific category spiked in an anomaly, then perhaps show the time series of the metric and the anomaly explaining it. 
 
@@ -181,10 +181,10 @@ For example: [CHART:map:123]"""
 
 
 # Map generation instructions
-GENERATE_MAP_INSTRUCTIONS = """- generate_map: Create a map visualization for geographic data with support for different colored series
+MAP_GENERATION_INSTRUCTIONS = """- generate_map: Create a map visualization for geographic data using the TransparentSF map generation system
   USAGE: generate_map(context_variables, map_title="Title", map_type="supervisor_district", map_metadata={{"description": "Description"}}, series_field=None, color_palette=None)
   
-  RETURNS: {{"map_id": 123, "edit_url": "https://...", "publish_url": "https://..."}}
+  RETURNS: {{"status": "success", "map_id": 123, "message": "Map created successfully"}}
   The map_id is an integer that you use to reference the map in your explanations as [CHART:map:123].  Don't link to the URLS, show the reference.
   
   Parameter guidelines:
@@ -472,143 +472,8 @@ This understanding enables you to:
 - Understand geographic patterns in data
 - Provide better explanations of spatial trends"""
 
-# DataSF map examples
-DATASF_MAP_EXAMPLES = """SERIES MAPS WITH DATASF DATA - PRACTICAL EXAMPLES:
+# DataSF map examples section removed - now using TransparentSF map generation system
 
-1. BUSINESS DATA (endpoint: g8m3-pdis):
-   Example 1: Map of new businesses by industry type
-   ```python
-   # First, query the business data
-   set_dataset(context_variables, 
-              endpoint="g8m3-pdis",
-              query="SELECT location, 
-                    location, 
-                    dba_name || ' - ' || naic_code_description as description,
-                    naic_code_description as series
-                    WHERE dba_start_date >= CURRENT_DATE - INTERVAL '30 days'
-                    ORDER BY dba_start_date DESC")
-   
-   # Then create the map
-   result = generate_map(
-       context_variables,
-       map_title="New Business Registrations by Industry",
-       map_type="point",
-       series_field="series",
-       color_palette="categorical"
-   )
-   ```
-
-   Example 2: Map of business closures by district
-   ```python
-   # First, query the business data aggregated by district
-   set_dataset(context_variables,
-              endpoint="g8m3-pdis",
-              query="SELECT supervisor_district, 
-                    COUNT(*) as value
-                    WHERE location_end_date >= CURRENT_DATE - INTERVAL '30 days'
-                    GROUP BY supervisor_district")
-   
-   # Then create the map
-   result = generate_map(
-       context_variables,
-       map_title="Business Closures by District",
-       map_type="supervisor_district",
-       map_metadata={{"description": "Number of business closures in the last 30 days"}}
-   )
-   ```
-
-2. CRIME DATA (endpoint: wg3w-h783):
-   Example 1: Map of recent crimes by type
-   ```python
-   # First, query the crime data
-   set_dataset(context_variables,
-              endpoint="wg3w-h783",
-              query="SELECT incident_description as title,
-                    latitude,
-                    longitude,
-                    incident_category as description,
-                    incident_category as series
-                    WHERE report_datetime >= CURRENT_DATE - INTERVAL '7 days'
-                    ORDER BY report_datetime DESC")
-   
-   # Then create the map
-   result = generate_map(
-       context_variables,
-       map_title="Recent Crimes by Category",
-       map_type="point",
-       series_field="series",
-       color_palette="categorical"
-   )
-   ```
-
-   Example 2: Map of crime rate changes by district
-   ```python
-   # First, query the crime data with change calculations
-   set_dataset(context_variables,
-              endpoint="wg3w-h783",
-              query="SELECT supervisor_district,
-                    COUNT(*) as current_value,
-                    LAG(COUNT(*)) OVER (PARTITION BY supervisor_district ORDER BY date_trunc_ym(report_datetime)) as previous_value,
-                    COUNT(*) - LAG(COUNT(*)) OVER (PARTITION BY supervisor_district ORDER BY date_trunc_ym(report_datetime)) as delta,
-                    (COUNT(*) - LAG(COUNT(*)) OVER (PARTITION BY supervisor_district ORDER BY date_trunc_ym(report_datetime)))::float / 
-                    NULLIF(LAG(COUNT(*)) OVER (PARTITION BY supervisor_district ORDER BY date_trunc_ym(report_datetime)), 0) as percent_change
-                    WHERE date_trunc_ym(report_datetime) >= date_trunc_ym(CURRENT_DATE - INTERVAL '1 month')
-                    GROUP BY supervisor_district, date_trunc_ym(report_datetime)")
-   
-   # Then create the map
-   result = generate_map(
-       context_variables,
-       map_title="Crime Rate Changes by District",
-       map_type="supervisor_district",
-       map_metadata={
-           "map_type": "delta",
-           "description": "Change in crime rates from previous month"
-       }
-   )
-   ```
-
-3. HOUSING DATA (endpoint: j67f-aayr):
-   Example 1: Map of new housing units by project
-   ```python
-   # First, query the housing data
-   set_dataset(context_variables,
-              endpoint="j67f-aayr",
-              query="SELECT building_permit_application as title,
-                    building_address,
-                    number_of_units_certified as value,
-                    permit_type as description,
-                    permit_type as series
-                    WHERE date_issued >= CURRENT_DATE - INTERVAL '30 days'
-                    ORDER BY date_issued DESC")
-   
-   # Then create the map
-   result = generate_map(
-       context_variables,
-       map_title="New Housing Units by Project Type",
-       map_type="symbol",
-       series_field="series",
-       color_palette="categorical"
-   )
-   ```
-
- 
-IMPORTANT NOTES:
-1. Always use set_dataset first to prepare the data
-2. The dataset will be automatically used by generate_map
-3. For point/symbol maps, ensure you have:
-   - title field (or dba_name, building_permit_application, etc.)
-   - location information (location, latitude/longitude, or address)
-   - description field for tooltips
-   - series field if using series coloring
-   - value field for symbol maps
-4. For district maps, ensure you have:
-   - supervisor_district field
-   - value field for density maps
-   - current_value, previous_value, delta, and percent_change for change maps
-5. Use appropriate date ranges in your queries:
-   - 7 days for recent point data
-   - 30 days for monthly aggregations
-   - 1 month for change calculations"""
 
 # Core tools list
 CORE_TOOLS_INSTRUCTIONS = """TOOLS YOU SHOULD USE:
@@ -780,7 +645,7 @@ def get_system_prompt(name: str, description: str, summary: str, map_type: str) 
         WORKFLOW_INSTRUCTIONS,
         CATEGORY_BEST_PRACTICES,
         CHART_INSTRUCTIONS,
-        GENERATE_MAP_INSTRUCTIONS,
+        MAP_GENERATION_INSTRUCTIONS,
         MAP_FIELD_SYSTEM_INSTRUCTIONS,
     ]
     
@@ -825,20 +690,15 @@ PROMPT_SECTIONS = {
         'content': CORE_TOOLS_INSTRUCTIONS
     },
 
-    'generate_map': {
+    'map_generation': {
         'name': 'Map Generation Tool',
-        'description': 'Comprehensive instructions for creating maps and visualizations',
-        'content': GENERATE_MAP_INSTRUCTIONS
+        'description': 'Comprehensive instructions for creating maps using the TransparentSF system',
+        'content': MAP_GENERATION_INSTRUCTIONS
     },
     'map_field_system': {
         'name': 'Map Field System',
         'description': 'Understanding map queries, filters, and configuration for metrics',
         'content': MAP_FIELD_SYSTEM_INSTRUCTIONS
-    },
-    'datasf_maps': {
-        'name': 'DataSF Map Examples',
-        'description': 'Practical examples for creating maps with DataSF data',
-        'content': DATASF_MAP_EXAMPLES
     },
     'metrics_tools': {
         'name': 'Metrics Management',

@@ -75,16 +75,56 @@ class ModularPromptBuilder:
             self.logger.warning(f"metric_details is not a dictionary: {type(metric_details)}")
             return ""
         
-        name = metric_details.get("name", "")
+        # Handle different field naming conventions
+        name = metric_details.get("name", metric_details.get("metric_name", ""))
         description = metric_details.get("description", "")
         summary = metric_details.get("summary", "")
         map_type = metric_details.get("map_type", "")
         
-        return f"""You are being asked to explain a change in the following metric:
+        # Get district information for proper context
+        district = metric_details.get("district", "0")
+        district_display = "citywide" if district == "0" else f"district {district}"
+        
+        # Determine if this is an anomaly or metric based on available fields
+        has_anomaly_fields = any(field in metric_details for field in ["recent_mean", "comparison_mean", "difference", "percent_change"])
+        has_metric_fields = any(field in metric_details for field in ["metric_id", "metric_name"])
+        
+        if has_anomaly_fields:
+            # This is an anomaly - use anomaly-specific language
+            recent_mean = metric_details.get("recent_mean", "")
+            comparison_mean = metric_details.get("comparison_mean", "")
+            difference = metric_details.get("difference", "")
+            percent_change = metric_details.get("percent_change", "")
+            direction = metric_details.get("direction", "")
+            period_type = metric_details.get("period_type", "month")
+            
+            return f"""You are being asked to explain an ANOMALY in the following metric for {district_display}:
+- Metric Name: {name}
+- Metric ID: {metric_details.get("metric_id", "N/A")}
+- Period Type: {period_type}
+- Change: {direction} from {comparison_mean} to {recent_mean} (difference: {difference}, {percent_change}%)
+- District: {district_display}
+
+This is an ANOMALY analysis - you are explaining why this specific change occurred in this time period."""
+        
+        elif has_metric_fields:
+            # This is a metric - use metric-specific language
+            return f"""You are being asked to explain a change in the following METRIC for {district_display}:
 - Name: {name}
 - Description: {description}  
 - Summary: {summary}
-- Map Type: {map_type}"""
+- Map Type: {map_type}
+- District: {district_display}
+
+This is a METRIC analysis - you are explaining changes in this metric over time."""
+        
+        else:
+            # Generic case - try to provide useful context
+            return f"""You are being asked to explain a change for {district_display}:
+- Name: {name}
+- District: {district_display}
+
+Please analyze this change using the available tools and provide a comprehensive explanation."""
     
     def get_available_sections(self) -> Dict[str, Dict[str, str]]:
         """Get all available prompt sections with their metadata."""

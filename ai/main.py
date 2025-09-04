@@ -180,7 +180,7 @@ logger = logging.getLogger(__name__)
 # --- End Uvicorn Logging Configuration Dictionary ---
 
 # Import routers
-from webChat import router as webchat_router
+# webChat router removed - functionality moved to LangChain-based agents
 try:
     from backend import router as backend_router, set_templates
 except ImportError:
@@ -710,8 +710,8 @@ app.include_router(dw_charts_router, prefix="/backend", tags=["dw-charts"])
 logger.debug("Included DW charts router at /backend")
 
 # Include routers
-app.include_router(webchat_router, prefix="/chat")  # Chat router at /chat
-logger.debug("Included chat router at /chat")
+# webChat router removed - functionality moved to LangChain-based agents
+logger.debug("Chat functionality moved to LangChain-based agents")
 
 # Mount backend router without trailing slash
 app.include_router(backend_router, prefix="/backend", tags=["backend"])

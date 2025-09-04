@@ -2206,70 +2206,8 @@ def process_dataset_for_map(dataset, map_type, series_field=None, color_palette=
             if idx < 3:  # Only log first 3 rows to avoid spam
                 logger.info(f"Row {idx} - intersection: {row.get('intersection')}, intersection_point: {row.get('intersection_point')}, point: {row.get('point')}, latitude: {row.get('latitude')}, longitude: {row.get('longitude')}")
             
-            # Handle point field (DataSF format) - prioritize this over intersection fields
-            if 'point' in row and row['point'] is not None:
-                if idx < 3:  # Only log first 3 rows to avoid spam
-                    logger.info(f"Row {idx} - Processing point field: {row['point']}")
-                    logger.info(f"Row {idx} - Point field type: {type(row['point'])}")
-                point_data = row['point']
-                
-                # Handle string format point data
-                if isinstance(point_data, str):
-                    try:
-                        point_data = json.loads(point_data)
-                        if idx < 3:  # Only log first 3 rows to avoid spam
-                            logger.info(f"Row {idx} - Parsed string point data: {point_data}")
-                    except json.JSONDecodeError:
-                        try:
-                            point_data = ast.literal_eval(point_data)
-                            if idx < 3:  # Only log first 3 rows to avoid spam
-                                logger.info(f"Row {idx} - Parsed string point data with ast: {point_data}")
-                        except (ValueError, SyntaxError):
-                            logger.warning(f"Could not parse point data string: {point_data}")
-                            point_data = None
-                
-                if isinstance(point_data, dict) and point_data.get('type') == 'Point':
-                    coords = point_data.get('coordinates')
-                    if idx < 3:  # Only log first 3 rows to avoid spam
-                        logger.info(f"Row {idx} - Found coordinates: {coords}")
-                    if coords and len(coords) >= 2:
-                        title, description = generate_point_title_and_description(row, idx)
-                        tooltip_fields = extract_tooltip_fields(row, location_fields)
-                        item = {
-                            "lat": coords[1],
-                            "lon": coords[0],
-                            "value": row.get('value', 1),
-                            "title": title,
-                            "description": description,
-                            "coordinates": coords,
-                            "color": "#6B46C1",  # TransparentSF purple
-                            "tooltip_fields": tooltip_fields
-                        }
-                        # Add all original data fields for coloring options
-                        for column, value in row.items():
-                            if column not in ['lat', 'lon', 'long', 'latitude', 'longitude', 'coordinates', 'point', 'point_geom', 'intersection']:
-                                item[column] = value
-                        
-                        # Add tooltip fields as individual properties for coloring
-                        if tooltip_fields:
-                            for field_name, field_value in tooltip_fields.items():
-                                item[field_name] = field_value
-                        
-                        location_data.append(item)
-                        if idx < 3:  # Only log first 3 rows to avoid spam
-                            logger.info(f"Row {idx} - Added point item to location_data with coords: {coords}")
-                        continue
-                    else:
-                        if idx < 3:  # Only log first 3 rows to avoid spam
-                            logger.warning(f"Row {idx} - Point data missing coordinates: {point_data}")
-                else:
-                    if idx < 3:  # Only log first 3 rows to avoid spam
-                        logger.warning(f"Row {idx} - Point data is not a valid GeoJSON Point: {point_data}")
-                        logger.warning(f"Row {idx} - Point data type: {type(point_data)}")
-                        logger.warning(f"Row {idx} - Point data keys: {point_data.keys() if isinstance(point_data, dict) else 'Not a dict'}")
-            
             # Handle intersection_point field with GeoJSON point data
-            elif 'intersection_point' in row and row['intersection_point'] is not None:
+            if 'intersection_point' in row and row['intersection_point'] is not None:
                 try:
                     intersection_data = row['intersection_point']
                     if isinstance(intersection_data, str):
@@ -2312,7 +2250,7 @@ def process_dataset_for_map(dataset, map_type, series_field=None, color_palette=
                     logger.warning(f"Error processing intersection_point data: {str(e)}")
             
             # Handle intersection field with GeoJSON point data
-            elif 'intersection' in row and row['intersection'] is not None and isinstance(row['intersection'], dict):
+            elif 'intersection' in row and row['intersection'] is not None:
                 try:
                     intersection_data = row['intersection']
                     if isinstance(intersection_data, str):
@@ -2409,7 +2347,39 @@ def process_dataset_for_map(dataset, map_type, series_field=None, color_palette=
                         
                         location_data.append(item)
             
-
+            # Handle point field (DataSF format)
+            elif 'point' in row and row['point'] is not None:
+                if idx < 3:  # Only log first 3 rows to avoid spam
+                    logger.info(f"Row {idx} - Processing point field")
+                point_data = row['point']
+                if isinstance(point_data, dict) and point_data.get('type') == 'Point':
+                    coords = point_data.get('coordinates')
+                    if coords and len(coords) >= 2:
+                        title, description = generate_point_title_and_description(row, idx)
+                        tooltip_fields = extract_tooltip_fields(row, location_fields)
+                        item = {
+                            "lat": coords[1],
+                            "lon": coords[0],
+                            "value": row.get('value', 1),
+                            "title": title,
+                            "description": description,
+                            "coordinates": coords,
+                            "color": "#6B46C1",  # TransparentSF purple
+                            "tooltip_fields": tooltip_fields
+                        }
+                        # Add all original data fields for coloring options
+                        for column, value in row.items():
+                            if column not in ['lat', 'lon', 'long', 'latitude', 'longitude', 'coordinates', 'point', 'point_geom', 'intersection']:
+                                item[column] = value
+                        
+                        # Add tooltip fields as individual properties for coloring
+                        if tooltip_fields:
+                            for field_name, field_value in tooltip_fields.items():
+                                item[field_name] = field_value
+                        
+                        location_data.append(item)
+                        if idx < 3:  # Only log first 3 rows to avoid spam
+                            logger.info(f"Row {idx} - Added point item to location_data")
             
             # Handle direct lat/lon fields
             elif ('lat' in row and ('lon' in row or 'long' in row)) or ('latitude' in row and 'longitude' in row):

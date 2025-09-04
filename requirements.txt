@@ -26,7 +26,7 @@ psycopg2-binary==2.9.9
 Pillow==10.2.0
 
 # Git dependency
-git+https://github.com/openai/swarm.git@0c82d7d868bb8e2d380dfd2a319b5c3a1f4c0cb9
+# Swarm dependency removed - using LangChain-based agents instead
 
 # LangChain packages (latest versions)
 langchain-community>=0.3.0

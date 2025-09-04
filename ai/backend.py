@@ -18,7 +18,7 @@ import glob
 import shutil  # Add this import at the top with other imports
 
 
-from periodic_analysis import export_for_endpoint  # Ensure this import is correct
+# periodic_analysis import removed - functionality deprecated
 import logging
 from generate_dashboard_metrics import main as generate_metrics
 from tools.data_fetcher import fetch_data_from_api
@@ -251,11 +251,8 @@ async def run_analysis(endpoint: str, period_type: str = 'year'):
         period_output_dir = os.path.join(output_dir, period_folder)
         os.makedirs(period_output_dir, exist_ok=True)
         
-        logger.info(f"Attempting to run export_for_endpoint with endpoint: {endpoint} and period_type: {period_type}")
-        export_for_endpoint(endpoint, 
-                          period_type=period_type,
-                          output_folder=period_output_dir,
-                          log_file_path=os.path.join(logs_dir, 'processing_log.txt'))
+        logger.info(f"Periodic analysis functionality has been deprecated. Endpoint: {endpoint}, period_type: {period_type}")
+        # export_for_endpoint functionality removed - using LangChain-based analysis instead
         
         if error_log:
             logger.warning(f"Analysis completed with warnings for endpoint '{endpoint}': {error_log}")
@@ -1705,6 +1702,137 @@ async def clear_postgres_data():
             "status": "error",
             "message": str(e)
         })
+
+@router.post("/clear-inactive-timeseries")
+async def clear_inactive_timeseries():
+    """Delete inactive time series data and reclaim database space."""
+    logger.debug("Clear inactive time series data called")
+    
+    # First connection for deletion
+    conn = None
+    cursor = None
+    
+    try:
+        # Connect to PostgreSQL
+        conn = get_db_connection()
+        if not conn:
+            return JSONResponse(
+                status_code=500,
+                content={"detail": "Failed to connect to database"}
+            )
+        
+        # Create a cursor
+        cursor = conn.cursor()
+        
+        # First, count how many records will be affected
+        cursor.execute("""
+            SELECT COUNT(*) FROM time_series_metadata WHERE is_active = FALSE
+        """)
+        inactive_metadata_count = cursor.fetchone()[0]
+        
+        cursor.execute("""
+            SELECT COUNT(*) FROM time_series_data 
+            WHERE chart_id IN (
+                SELECT chart_id FROM time_series_metadata WHERE is_active = FALSE
+            )
+        """)
+        inactive_data_count = cursor.fetchone()[0]
+        
+        if inactive_metadata_count == 0 and inactive_data_count == 0:
+            cursor.close()
+            conn.close()
+            return JSONResponse({
+                "status": "success",
+                "message": "No inactive time series data found to delete"
+            })
+        
+        # Delete inactive time series data first (due to foreign key constraint)
+        cursor.execute("""
+            DELETE FROM time_series_data 
+            WHERE chart_id IN (
+                SELECT chart_id FROM time_series_metadata WHERE is_active = FALSE
+            )
+        """)
+        deleted_data_count = cursor.rowcount
+        
+        # Delete inactive metadata
+        cursor.execute("""
+            DELETE FROM time_series_metadata WHERE is_active = FALSE
+        """)
+        deleted_metadata_count = cursor.rowcount
+        
+        # Commit the transaction
+        conn.commit()
+        
+        # Close the first connection
+        cursor.close()
+        conn.close()
+        
+        # Now reconnect to run VACUUM commands outside of any transaction
+        logger.info("Reconnecting to run VACUUM commands...")
+        conn = get_db_connection()
+        if not conn:
+            return JSONResponse({
+                "status": "error",
+                "message": "Failed to reconnect to database for VACUUM operations"
+            })
+        
+        cursor = conn.cursor()
+        
+        # Set autocommit to True for VACUUM commands
+        conn.autocommit = True
+        
+        # Run VACUUM FULL on the affected tables
+        logger.info("Running VACUUM FULL on time_series_metadata...")
+        cursor.execute("VACUUM FULL time_series_metadata")
+        
+        logger.info("Running VACUUM FULL on time_series_data...")
+        cursor.execute("VACUUM FULL time_series_data")
+        
+        # Update table statistics
+        logger.info("Running ANALYZE on time_series_metadata...")
+        cursor.execute("ANALYZE time_series_metadata")
+        
+        logger.info("Running ANALYZE on time_series_data...")
+        cursor.execute("ANALYZE time_series_data")
+        
+        cursor.close()
+        conn.close()
+        
+        logger.info(f"Successfully deleted {deleted_metadata_count} inactive metadata records and {deleted_data_count} data records, then reclaimed space")
+        return JSONResponse({
+            "status": "success",
+            "message": f"Successfully deleted {deleted_metadata_count} inactive metadata records and {deleted_data_count} data records, then reclaimed database space with VACUUM FULL and ANALYZE"
+        })
+        
+    except Exception as e:
+        logger.exception(f"Error clearing inactive time series data: {str(e)}")
+        
+        # Rollback if we still have an active transaction
+        if conn and not conn.autocommit:
+            try:
+                conn.rollback()
+            except Exception as rollback_error:
+                logger.error(f"Error during rollback: {rollback_error}")
+        
+        return JSONResponse({
+            "status": "error",
+            "message": str(e)
+        })
+    
+    finally:
+        # Ensure connections are closed
+        if cursor:
+            try:
+                cursor.close()
+            except Exception as e:
+                logger.error(f"Error closing cursor: {e}")
+        
+        if conn:
+            try:
+                conn.close()
+            except Exception as e:
+                logger.error(f"Error closing connection: {e}")
 
 @router.post("/clear-all-output")
 async def clear_all_output():
@@ -5047,6 +5175,69 @@ async def fetch_metadata_route():
         })
 
 
+@router.get("/refresh_dataset_urls")
+async def refresh_dataset_urls_route():
+    """Refresh the dataset URLs list using fetch_dataset_urls.py."""
+    logger.debug("Refresh dataset URLs route called")
+    try:
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        script_path = os.path.join(script_dir, "fetch_dataset_urls.py")
+
+        # Ensure logs directory exists
+        logs_dir = os.path.join(script_dir, "logs")
+        os.makedirs(logs_dir, exist_ok=True)
+
+        log_file = os.path.join(logs_dir, "fetch_dataset_urls.log")
+
+        # Clear the log file before running
+        try:
+            with open(log_file, 'w') as f:
+                f.write("")
+        except Exception:
+            # If log file cannot be written, still proceed without halting
+            log_file = None
+
+        # Run the script with proper working directory and environment
+        result = subprocess.run(
+            [sys.executable, script_path],  # Use sys.executable instead of "python"
+            capture_output=True, 
+            text=True,
+            cwd=script_dir,  # Set working directory to script_dir
+            env=os.environ.copy()  # Pass current environment variables
+        )
+
+        # Read the log file content if available
+        log_content = ""
+        if log_file and os.path.exists(log_file):
+            try:
+                with open(log_file, 'r') as f:
+                    log_content = f.read()
+            except Exception as e:
+                log_content = f"Error reading log file: {str(e)}"
+
+        if result.returncode == 0:
+            logger.info("Dataset URLs refreshed successfully.")
+            return JSONResponse({
+                "status": "success",
+                "message": "Dataset URLs refreshed successfully.",
+                "output": result.stdout,
+                "log_content": log_content
+            })
+        else:
+            logger.error(f"Dataset URLs refresh failed: {result.stderr}")
+            return JSONResponse({
+                "status": "error",
+                "message": "Failed to refresh dataset URLs.",
+                "output": result.stderr,
+                "log_content": log_content
+            })
+    except Exception as e:
+        logger.exception(f"Error refreshing dataset URLs: {str(e)}")
+        return JSONResponse({
+            "status": "error",
+            "message": str(e),
+            "log_content": "Error occurred before log file could be read"
+        })
 
 @router.post("/create_monthly_report")
 async def create_monthly_report(request: Request):

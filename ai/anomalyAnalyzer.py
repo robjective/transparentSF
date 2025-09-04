@@ -13,8 +13,6 @@ from datetime import datetime, timedelta, date
 from dateutil.relativedelta import relativedelta
 from dotenv import load_dotenv
 from openai import OpenAI
-from swarm import Swarm, Agent
-
 from fastapi import APIRouter, Request, HTTPException, FastAPI, Response, status
 from fastapi.responses import JSONResponse, HTMLResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
@@ -41,12 +39,8 @@ from tools.genChart import generate_time_series_chart
 from chart_message import generate_chart_message
 from tools.generate_map import generate_map
 
-# Import from webChat only what's not available elsewhere
-from webChat import (
-    swarm_client, context_variables, client, AGENT_MODEL, load_and_combine_notes,
-    get_dataset, set_columns, get_data_summary, 
-    transfer_to_researcher_agent
-)
+# Import tools directly instead of from webChat
+from tools.notes_manager import load_and_combine_notes
 from tools.dashboard_metric_tool import get_dashboard_metric
 from tools.store_anomalies import get_anomalies, get_anomaly_details as get_anomaly_details_from_db  # Import the new functions
 
@@ -97,10 +91,6 @@ if not openai_api_key:
 
 # Initialize OpenAI client
 client = OpenAI()
-
-# Initialize Swarm client
-debug_mode = os.getenv("DEBUG_MODE", "false").lower() == "true"
-swarm_client = Swarm()
 
 # Set models
 EMBEDDING_MODEL = "text-embedding-3-large"
@@ -729,108 +719,20 @@ Periods: {previous_period} → {recent_period}
         logger.error(f"Error explaining metric change: {str(e)}", exc_info=True)
         return {"error": f"Failed to explain metric change: {str(e)}"}
 
-# Define the explainer agent directly like in webChat.py
-ANOMALY_EXPLAINER_INSTRUCTIONS = """You are an anomaly explanation agent that specializes in providing deep insights into detected anomalies.
-
-IMPORTANT: You MUST use tools to gather data BEFORE responding. Direct explanations without tool usage are NOT acceptable.
-
-Your task is to:
-1. Take an anomaly that has already been identified in dashboard metrics
-2. Research and explain why this anomaly might have occurred
-3. Analyze the anomaly from multiple perspectives and dimensions
-4. Provide clear, comprehensive explanations with supporting evidence
-5. Generate visualizations that help illustrate your findings
-
-MANDATORY WORKFLOW (follow this exact sequence):
-1. FIRST, use query_docs to find information about the metric in question
-2. SECOND, if a metric_id is provided, use get_dashboard_metric to retrieve the actual metric data
-3. THIRD, use query_anomalies_db to find related anomalies
-4. FOURTH, if the metric is related to a dataset, use get_dataset_columns to understand available data fields
-5. FINALLY, use explain_metric_change to compile all the gathered data into an explanation
-
-DO NOT skip these steps. You MUST use at least 3 tools before providing your final response.
-
-TOOLS YOU SHOULD USE:
-- get_dashboard_metric: Retrieve dashboard metric data containing anomalies
-  USAGE: get_dashboard_metric(context_variables, district_number=0, metric_id="metric_name")
-  Use this to get the dashboard metric that contains the anomaly the user wants explained.
-
-- query_anomalies_db: Query anomalies directly from the PostgreSQL database
-  USAGE: query_anomalies_db(context_variables, query_type='recent', limit=10, group_filter=None, date_start=None, date_end=None, only_anomalies=True, metric_name=None)
-  Use this to find specific anomalies in the database to explain. Search by various criteria like date range or metric name.
-
-- get_anomaly_details: Get detailed information about a specific anomaly by ID
-  USAGE: get_anomaly_details(context_variables, anomaly_id=123)
-  IMPORTANT: Always pass the anomaly ID using the **anomaly_id=123** keyword. Do NOT pass it positionally or inside an "args" object.
-  Use this to get complete information about a specific anomaly, including its time series data and metadata.
-
-- get_dataset: Get information about any dataset that's been loaded
-  USAGE: get_dataset(context_variables)
-  Use this to see what data is available for further analysis.
-
-- set_dataset: Load a dataset for analysis
-  USAGE: set_dataset(context_variables, endpoint="dataset-id", query="your-soql-query")
-  Use this to load data for further analysis when needed.
-
-- get_dataset_columns: Get column information for a dataset endpoint
-  USAGE: get_dataset_columns(context_variables, endpoint="dataset-id")
-  Use this to explore what columns are available in a specific dataset.
-
-- explain_anomaly: Analyze why an anomaly occurred from different perspectives
-  USAGE: explain_anomaly(context_variables, group_value="specific_value", group_field="category_column", numeric_field="value_column", date_field="date_column")
-  This is your main tool - use it to provide multi-dimensional analysis of anomalies.
-
-- explain_metric_change: Generate an explanation for a specific metric change
-  USAGE: explain_metric_change(context_variables, metric_id=metric_id, metric_name=metric_name, district=district, period_type=period_type, previous_value=previous_value, recent_value=recent_value, previous_period=previous_period, recent_period=recent_period, delta=delta, percent_change=percent_change)
-  Use this to explain why a specific metric changed between two periods.
-
-- get_anomalies: Get the list of anomalies detected in dashboard metrics
-  USAGE: get_anomalies(context_variables)
-  Use this to see what anomalies are available to explain.
-
-- query_docs: Search for additional context in documentation
-  USAGE: query_docs(context_variables, collection_name="SFPublicData", query="information related to [specific anomaly]")
-  Use this to find domain-specific information that might explain the anomaly.
-
-- generate_time_series_chart: Generate visualizations to help explain the anomaly
-  USAGE: generate_time_series_chart(data, date_field="date_column", numeric_field="value_column", title="Chart Title")
-  Use this for additional visualizations that help explain your findings.
-
-When explaining an anomaly or metric change:
-- Consider multiple possible explanations (seasonal patterns, policy changes, economic factors, etc.)
-- Compare the anomaly to historical trends and similar metrics
-- Quantify the magnitude and significance of the anomaly
-- Avoid speculation - stick to what the data and documentation show
-- Always include time-series charts to visualize the anomaly
-"""
-
-# Create the explainer agent directly (similar to how Researcher_agent is created in webChat.py)
-anomaly_explainer_agent = Agent(
-    model=AGENT_MODEL,
-    name="Explainer",
-    instructions=ANOMALY_EXPLAINER_INSTRUCTIONS,
-    functions=[
-        get_dataset,
-        set_dataset,
-        explain_anomaly,
-        get_anomalies,
-        query_docs,
-        generate_time_series_chart,
-        get_dashboard_metric,
-        query_anomalies_db,
-        get_anomaly_details,
-        get_dataset_columns,
-        explain_metric_change
-    ],
-    context_variables=context_variables,
-    debug=debug_mode
-)
+# Import LangChain explainer agent instead of Swarm-based agent
+try:
+    from agents.langchain_agent.explainer_agent import create_explainer_agent
+    anomaly_explainer_agent = create_explainer_agent()
+    logger.info("Successfully imported LangChain explainer agent")
+except ImportError:
+    logger.error("Failed to import LangChain explainer agent")
+    anomaly_explainer_agent = None
 
 # Now update the function mapping to refer directly to the functions
 function_mapping = {
     'get_dataset': get_dataset,
-    'set_dataset': set_dataset,
-    'query_docs': query_docs,
+    # 'set_dataset': set_dataset,  # Function not defined
+    # 'query_docs': query_docs,  # Function not defined
     'run_anomaly_detection': run_anomaly_detection,
     'explain_anomaly': explain_anomaly,
     'get_anomalies': get_anomalies,
@@ -2690,10 +2592,17 @@ async def add_to_monthly_report(request: Request):
         data = await request.json()
         item_data = data.get("item_data", {})
         report_title = data.get("report_title", "")
-        district = data.get("district", "0")
+        # Extract district from item_data if available, otherwise use request parameter
+        district = item_data.get("district", data.get("district", "0"))
         period_type = data.get("period_type", "month")
+        # Get the specific report ID if provided
+        report_id = data.get("report_id")
         
         logger.info(f"Adding item to monthly report: {item_data.get('object_name', 'Unknown')}")
+        logger.info(f"District from item_data: {item_data.get('district', 'Not found')}")
+        logger.info(f"District from request: {data.get('district', 'Not found')}")
+        logger.info(f"Initial district: {district}")
+        logger.info(f"Report ID provided: {report_id}")
         
         # Import the monthly report functions
         from monthly_report import (
@@ -2714,26 +2623,101 @@ async def add_to_monthly_report(request: Request):
         from datetime import datetime
         report_date = datetime.now().date()
         
-        # Check if a report already exists for this month and district
-        existing_reports = get_monthly_reports_list()
+        # Check if a specific report ID was provided, or find an existing report for this month and district
         existing_report = None
         
-        for report in existing_reports:
-            if (report.get("district") == district and 
-                report.get("period_type") == period_type):
-                # Check if it's from the current month
-                report_date_str = report.get("report_date", "")
-                if report_date_str:
-                    try:
-                        report_datetime = datetime.fromisoformat(report_date_str.replace('Z', '+00:00'))
-                        if (report_datetime.year == report_date.year and 
-                            report_datetime.month == report_date.month):
-                            existing_report = report
-                            break
-                    except:
-                        continue
+        if report_id:
+            # Use the specific report ID provided
+            logger.info(f"Using provided report_id: {report_id}")
+            # Get the report details to verify it exists and get its district
+            try:
+                from tools.db_utils import execute_with_connection
+                import os
+                
+                def get_report_details_operation(connection):
+                    cursor = connection.cursor(cursor_factory=psycopg2.extras.DictCursor)
+                    cursor.execute("""
+                        SELECT id, district, period_type, original_filename 
+                        FROM reports 
+                        WHERE id = %s
+                    """, (report_id,))
+                    return cursor.fetchone()
+                
+                report_result = execute_with_connection(
+                    operation=get_report_details_operation,
+                    db_host=os.getenv("POSTGRES_HOST", "localhost"),
+                    db_port=int(os.getenv("POSTGRES_PORT", "5432")),
+                    db_name=os.getenv("POSTGRES_DB", "transparentsf"),
+                    db_user=os.getenv("POSTGRES_USER", "postgres"),
+                    db_password=os.getenv("POSTGRES_PASSWORD", "postgres")
+                )
+                
+                if report_result["status"] == "success" and report_result["result"]:
+                    # Extract and validate the district value
+                    report_district = report_result["result"].get("district", "0")
+                    if report_district is None:
+                        report_district = "0"
+                    
+                    existing_report = {
+                        "id": report_result["result"]["id"],
+                        "district": str(report_district),  # Ensure district is a string
+                        "period_type": report_result["result"]["period_type"],
+                        "original_filename": report_result["result"]["original_filename"]
+                    }
+                    logger.info(f"Found existing report: {existing_report}")
+                    logger.info(f"Report district: {report_district} (type: {type(report_district)})")
+                else:
+                    logger.error(f"Report with ID {report_id} not found or query failed")
+                    return JSONResponse(
+                        status_code=404,
+                        content={"status": "error", "message": f"Report with ID {report_id} not found"}
+                    )
+            except Exception as e:
+                logger.error(f"Error getting report details: {e}")
+                return JSONResponse(
+                    status_code=500,
+                    content={"status": "error", "message": f"Error accessing report: {str(e)}"}
+                )
+        else:
+            # Fallback to finding a report for this month and district
+            logger.info("No report_id provided, looking for existing report for current month and district")
+            existing_reports = get_monthly_reports_list()
+            
+            for report in existing_reports:
+                if (report.get("district") == district and 
+                    report.get("period_type") == period_type):
+                    # Check if it's from the current month
+                    report_date_str = report.get("report_date", "")
+                    if report_date_str:
+                        try:
+                            report_datetime = datetime.fromisoformat(report_date_str.replace('Z', '+00:00'))
+                            if (report_datetime.year == report_date.year and 
+                                report_datetime.month == report_date.month):
+                                existing_report = report
+                                break
+                        except:
+                            continue
         
         # Create the item data in the format expected by store_prioritized_items
+        # Use the report's district if we're adding to an existing report, otherwise use the item's district
+        if existing_report:
+            final_district = existing_report.get("district", district)
+        else:
+            final_district = district
+        
+        # Ensure final_district is always a valid string
+        if final_district is None:
+            final_district = "0"
+        else:
+            final_district = str(final_district)
+        
+        # Now log the final values after they're defined
+        logger.info(f"Existing report found: {existing_report is not None}")
+        if existing_report:
+            logger.info(f"Existing report details: {existing_report}")
+        logger.info(f"Final district used: {final_district}")
+        logger.info(f"Final district after validation: {final_district} (type: {type(final_district)})")
+        
         prioritized_item = {
             "metric": item_data.get("object_name", "Unknown Metric"),
             "metric_id": item_data.get("id", "Unknown"),
@@ -2743,7 +2727,7 @@ async def add_to_monthly_report(request: Request):
             "comparison_mean": float(item_data.get("previous_value", 0)),
             "difference_value": float(item_data.get("delta", 0)),
             "difference": float(item_data.get("delta", 0)),
-            "district": district,
+            "district": final_district,
             "change_type": "positive" if float(item_data.get("delta", 0)) > 0 else "negative",
             "percent_change": float(item_data.get("percent_change", 0)),
             "greendirection": "up",  # Default, could be enhanced to get from metrics table
@@ -2772,6 +2756,11 @@ async def add_to_monthly_report(request: Request):
         if existing_report:
             # Add to existing report
             logger.info(f"Adding item to existing report: {existing_report.get('id')}")
+            
+            # Validate that the item's district is compatible with the report's district
+            if existing_report.get("district") != "0" and item_data.get("district") != existing_report.get("district"):
+                logger.warning(f"Item district ({item_data.get('district')}) doesn't match report district ({existing_report.get('district')})")
+                logger.info(f"Using report district: {existing_report.get('district')}")
             
             # Import database utilities
             from tools.db_utils import execute_with_connection
@@ -2860,8 +2849,17 @@ async def add_to_monthly_report(request: Request):
             })
             
         else:
-            # Create a new report
-            logger.info("Creating new monthly report")
+            # No existing report found
+            if report_id:
+                # If a report_id was provided but not found, this is an error
+                logger.error(f"Report with ID {report_id} was provided but not found")
+                return JSONResponse(
+                    status_code=404,
+                    content={"status": "error", "message": f"Report with ID {report_id} not found"}
+                )
+            
+            # Create a new report only if no report_id was provided
+            logger.info("Creating new monthly report (no report_id provided)")
             
             # Store the prioritized item (this will create a new report)
             store_result = store_prioritized_items(

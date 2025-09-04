@@ -137,18 +137,14 @@ except ImportError:
         raise
 
 # Import necessary functions from other modules
+# Import tools directly instead of from webChat
 try:
-    # First try to import from the ai package
-    from ai.webChat import get_dashboard_metric, swarm_client, context_variables, client, AGENT_MODEL, load_and_combine_notes
-    logger.warning("Successfully imported from ai.webChat")
+    from tools.dashboard_metric_tool import get_dashboard_metric
+    from tools.notes_manager import load_and_combine_notes
+    logger.warning("Successfully imported tools directly")
 except ImportError:
-    try:
-        # If that fails, try to import from the local directory
-        from webChat import swarm_client, context_variables, client, AGENT_MODEL, load_and_combine_notes
-        logger.warning("Successfully imported from webChat")
-    except ImportError:
-        logger.error("Failed to import from webChat", exc_info=True)
-        raise
+    logger.error("Failed to import tools", exc_info=True)
+    raise
 
 # Add new LangChain agent imports
 try:
@@ -805,7 +801,7 @@ def prioritize_deltas(deltas, max_items=10, model_key=None):
     Returns:
         List of prioritized items with explanations
     """
-    from webChat import load_and_combine_notes
+    from tools.notes_manager import load_and_combine_notes
     
     logger.info(f"Prioritizing deltas for discussion (max {max_items} items)")
     
@@ -1378,7 +1374,7 @@ def generate_explanations(report_ids, model_key=None):
             if group_field_name and group_value and group_value != "All":
                 group_context = f" in {group_field_name} '{group_value}'"
             
-            prompt = f"""Please explain why the anomaly '{metric_name}' (ID: {metric_id}){group_context} {direction} from {comparison_mean} to {recent_mean} ({percent_change_str}) between {previous_month} and {recent_month} for {district_display}.
+            prompt = f"""Please explain why the metric '{metric_name}' (ID: {metric_id}){group_context} {direction} from {comparison_mean} to {recent_mean} ({percent_change_str}) between {previous_month} and {recent_month} for {district_display}.
 
 Use the available tools to research this change and provide a comprehensive explanation that can be included in a monthly newsletter for city residents.
 Please share anomalies (referenced by anomaly_ID, not metric_ID), groups or data-points that explain a large portion of the difference in the metric.  Your goal is a clear explanation of the change.  
@@ -1722,7 +1718,9 @@ def generate_monthly_report(report_date=None, district="0", original_filename=No
     Returns:
         Path to the generated report file
     """
-    from webChat import client, AGENT_MODEL
+    from openai import OpenAI
+    client = OpenAI()
+    AGENT_MODEL = "gpt-4o"  # Default model for newsletter generation
     
     logger.info(f"Generating monthly report for district {district}")
     
@@ -2330,7 +2328,9 @@ def proofread_and_revise_report(report_path):
     Returns:
         Path to the revised newsletter file
     """
-    from webChat import client, AGENT_MODEL
+    from openai import OpenAI
+    client = OpenAI()
+    AGENT_MODEL = "gpt-4o"  # Default model for newsletter generation
     
     logger.info(f"Proofreading and revising newsletter at {report_path}")
     
@@ -4296,7 +4296,9 @@ def generate_narrated_report(report_path, output_path=None):
     Returns:
         Dictionary containing paths to the generated audio file and script HTML file, or None if failed
     """
-    from webChat import client, AGENT_MODEL
+    from openai import OpenAI
+    client = OpenAI()
+    AGENT_MODEL = "gpt-4o"  # Default model for newsletter generation
     
     logger.info(f"Generating narrated version of report: {report_path}")
     
@@ -5325,7 +5327,9 @@ def regenerate_explanations_for_report(filename):
         
         # Import the generate_report_text function
         from tools.generate_report_text import generate_report_text
-        from webChat import client, AGENT_MODEL
+        from openai import OpenAI
+        client = OpenAI()
+        AGENT_MODEL = "gpt-4o"  # Default model for newsletter generation
         
         text_result = generate_report_text(
             item_ids, 

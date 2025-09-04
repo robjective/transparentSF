@@ -254,7 +254,7 @@ class ToolConfig:
                 function=None,
                 description="Retrieve a previously created map by ID",
                 group=ToolGroup.DATA_ANALYSIS,
-                required_prompt_sections=["core_tools"],
+                required_prompt_sections=["map_generation"],
                 examples=[
                     "get_map_by_id(context_variables, map_id=123)",
                     "Use this to retrieve the details of a map that was previously created"
@@ -265,7 +265,7 @@ class ToolConfig:
                 function=None,
                 description="Get a list of recently created maps",
                 group=ToolGroup.DATA_ANALYSIS,
-                required_prompt_sections=["core_tools"],
+                required_prompt_sections=["map_generation"],
                 examples=[
                     "get_recent_maps(context_variables, limit=10, map_type='supervisor_district')",
                     "Use this to see what maps have been created recently"
@@ -278,9 +278,9 @@ class ToolConfig:
             ToolDefinition(
                 name="generate_map",
                 function=None,
-                description="Create a map visualization for geographic data",
+                description="Create a map visualization for geographic data using the TransparentSF map generation system",
                 group=ToolGroup.VISUALIZATION,
-                required_prompt_sections=["generate_map", "datasf_maps"],
+                required_prompt_sections=["map_generation"],
                 examples=[
                     "generate_map(context_variables, map_title='Crime by District', map_type='supervisor_district', map_metadata={'description': 'Crime incidents by district'})",
                     "Use this to create maps showing geographic patterns in the data"
@@ -299,8 +299,7 @@ class ToolConfig:
             "charts": "Rules for selecting and referencing charts",
             "core_tools": "Primary tools for data analysis and anomaly investigation",
             "set_dataset": "Instructions for querying DataSF datasets",
-            "generate_map": "Comprehensive instructions for creating maps",
-            "datasf_maps": "Practical examples for creating maps with DataSF data",
+            "map_generation": "Comprehensive instructions for creating maps using the TransparentSF system",
             "metrics_tools": "Tools for managing and querying metrics database"
         }
     

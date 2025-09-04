@@ -570,7 +570,6 @@
             border-color: #28a745 !important;
         }
         
-        #analysis-modal,
         #row-details-modal {
             display: none;
             position: fixed;
@@ -596,13 +595,6 @@
             flex-direction: column;
         }
         
-        #modal-content {
-            flex: 1;
-            overflow: auto;
-            padding: 0;
-            position: relative;
-        }
-        
         #row-modal-content {
             flex: 1;
             overflow: auto;
@@ -610,101 +602,9 @@
             position: relative;
         }
         
-        #webchat-iframe {
-            width: 100%;
-            height: 100%;
-            border: none;
-            display: none;
-        }
+
         
-        /* Markdown content styling */
-        #modal-content {
-            font-family: 'IBM Plex Sans', sans-serif;
-            line-height: 1.6;
-            color: var(--text-primary);
-        }
-        
-        #modal-content h1, 
-        #modal-content h2, 
-        #modal-content h3, 
-        #modal-content h4 {
-            margin-top: 1.5em;
-            margin-bottom: 0.75em;
-            font-family: 'Inter', sans-serif;
-            font-weight: 600;
-            color: var(--civic-blue);
-        }
-        
-        #modal-content h1 { font-size: 24px; }
-        #modal-content h2 { font-size: 20px; }
-        #modal-content h3 { font-size: 18px; }
-        #modal-content h4 { font-size: 16px; }
-        
-        #modal-content p {
-            margin-bottom: 1em;
-        }
-        
-        #modal-content ul, 
-        #modal-content ol {
-            margin-bottom: 1em;
-            padding-left: 1.5em;
-        }
-        
-        #modal-content li {
-            margin-bottom: 0.5em;
-        }
-        
-        #modal-content table {
-            border-collapse: collapse;
-            width: 100%;
-            margin: 1em 0;
-        }
-        
-        #modal-content th,
-        #modal-content td {
-            border: 1px solid var(--neutral-gray-light);
-            padding: 8px 12px;
-        }
-        
-        #modal-content th {
-            background-color: var(--neutral-gray-lighter);
-            font-weight: 600;
-        }
-        
-        #modal-content code {
-            background-color: var(--neutral-gray-lighter);
-            padding: 2px 4px;
-            border-radius: 3px;
-            font-family: monospace;
-            font-size: 0.9em;
-        }
-        
-        #modal-content pre {
-            background-color: var(--neutral-gray-lighter);
-            padding: 12px;
-            border-radius: 4px;
-            overflow-x: auto;
-            margin-bottom: 1em;
-        }
-        
-        #modal-content pre code {
-            background-color: transparent;
-            padding: 0;
-        }
-        
-        #modal-content blockquote {
-            border-left: 4px solid var(--civic-blue-light);
-            padding-left: 12px;
-            margin-left: 0;
-            color: var(--text-secondary);
-        }
-        
-        #modal-content img {
-            max-width: 100%;
-            height: auto;
-            margin: 1em 0;
-            border-radius: 4px;
-        }
+        /* Modal content styling removed - no longer needed */
         
         .modal-header {
             display: flex;
@@ -1141,19 +1041,7 @@
         </div>
     </div>
     
-    <!-- Add Modal for Analysis -->
-    <div id="analysis-modal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h3 id="modal-title">Analyzing Metric Change</h3>
-                <span class="modal-close">&times;</span>
-            </div>
-            <div id="modal-loader" class="loader"></div>
-            <div id="modal-content">
-                <iframe id="webchat-iframe" style="width: 100%; height: 600px; border: none; display: block;"></iframe>
-            </div>
-        </div>
-    </div>
+    <!-- Analysis Modal removed - analysis now runs directly in main content area -->
     
     <!-- Add Modal for Row Details -->
     <div id="row-details-modal">
@@ -1219,7 +1107,7 @@
         const retryButton = document.getElementById('retry-button');
 
         
-        // Modal elements
+        // Modal elements (kept for compatibility but not used)
         const analysisModal = document.getElementById('analysis-modal');
         const modalTitle = document.getElementById('modal-title');
         const modalLoader = document.getElementById('modal-loader');
@@ -1276,17 +1164,7 @@
             }
         });
         
-        // Close modal when clicking the X
-        modalClose.addEventListener('click', function() {
-            analysisModal.style.display = 'none';
-        });
-        
-        // Close modal when clicking outside of it
-        window.addEventListener('click', function(event) {
-            if (event.target === analysisModal) {
-                analysisModal.style.display = 'none';
-            }
-        });
+        // Modal event listeners removed - no longer needed
         
         // Close row details modal when clicking the X
         rowModalClose.addEventListener('click', function() {
@@ -1740,7 +1618,7 @@
                 </td>
             `;
             
-            // Add click event to show details modal
+            // Add click event to automatically run analysis
             row.addEventListener('click', function(e) {
                 // Don't trigger if they clicked the analyze button
                 if (e.target.tagName === 'BUTTON') return;
@@ -1753,10 +1631,8 @@
                 // Add selected class to this row
                 this.classList.add('selected');
                 
-                // Show metric details modal
-                showMetricDetailsModal(metric).catch(error => {
-                    console.error('Error showing metric details modal:', error);
-                });
+                // Automatically run analysis instead of showing modal
+                analyzeMetricChange(metric);
             });
             
             metricsTbody.appendChild(row);
@@ -1882,7 +1758,7 @@
                 </td>
             `;
             
-            // Add click event to show details modal
+            // Add click event to automatically run analysis
             row.addEventListener('click', function(e) {
                 // Don't trigger if they clicked the analyze button
                 if (e.target.tagName === 'BUTTON') return;
@@ -1895,8 +1771,24 @@
                 // Add selected class to this row
                 this.classList.add('selected');
                 
-                // Show anomaly details modal
-                showAnomalyDetailsModal(anomaly);
+                // Automatically run analysis instead of showing modal
+                // Create a metric-like object for the anomaly
+                const metricData = {
+                    id: anomaly.object_id || anomaly.id,
+                    object_name: anomaly.metric_name,
+                    district: anomaly.district,
+                    previous_value: anomaly.comparison_mean,
+                    recent_value: anomaly.recent_mean,
+                    delta: anomaly.difference,
+                    percent_change: anomaly.percent_change,
+                    previous_period: anomaly.period_date,
+                    recent_period: anomaly.period_date,
+                    period_type: anomaly.period_type,
+                    anomaly_id: anomaly.id,
+                    group_name: anomaly.group_field_name,
+                    group_value: anomaly.group_value
+                };
+                analyzeMetricChange(metricData);
             });
             
             metricsTbody.appendChild(row);
@@ -2432,8 +2324,8 @@
             // Create the prompt message based on whether this is an anomaly or regular metric
             let promptMessage;
             if (metric.anomaly_id) {
-                // This is an anomaly analysis
-                promptMessage = `The metric "${metricData.name}" (ID: ${metricData.id}) for ${districtDisplay} in ${metric.group_name} "${metric.group_value}" has ${metricData.direction} from ${metricData.previousValue} in ${metricData.previousPeriod} to ${metricData.recentValue} in ${metricData.recentPeriod}, an absolute change of ${metricData.delta} and a percentage change of ${metricData.percentChange}%.
+                // This is an anomaly analysis - use anomaly_id format like in monthly_report.py
+                promptMessage = `Please explain this anomaly (anomaly_id: ${metric.anomaly_id}) for the anomaly "${metricData.name}" (anomaly_id: ${metric.anomaly_id}) for ${districtDisplay} in ${metric.group_name} "${metric.group_value}" which has ${metricData.direction} from ${metricData.previousValue} in ${metricData.previousPeriod} to ${metricData.recentValue} in ${metricData.recentPeriod}, an absolute change of ${metricData.delta} and a percentage change of ${metricData.percentChange}%.
 
 Can you help me understand:
 1. What might have caused this change?
@@ -2541,78 +2433,106 @@ Can you help me understand:
                 return;
             }
             
-            // Standard modal view for non-embed mode
-            // Show the modal
-            analysisModal.style.display = 'block';
-            modalTitle.textContent = `Analyzing ${metricData.name || 'Metric Change'}`;
-            modalLoader.style.display = 'block';
-            
-            // Set up webchat iframe
-            const webchatIframe = document.createElement('iframe');
-            webchatIframe.id = 'webchat-iframe';
-            webchatIframe.style.display = 'block';
-            modalContent.innerHTML = '';
-            modalContent.appendChild(webchatIframe);
-            
-            // Build query parameters with structured data
-            const params = new URLSearchParams({
-                initialize: 'true',
-                analyze: 'true',
-                metric_id: metricData.id || '',
-                metric_name: metricData.name,
-                district: metricData.district,
-                previous_value: metricData.previousValue,
-                recent_value: metricData.recentValue,
-                delta: metricData.delta,
-                previous_period: metricData.previousPeriod,
-                recent_period: metricData.recentPeriod,
-                direction: metricData.direction,
-                percent_change: metricData.percentChange,
-                magnitude: metricData.magnitude,
-                prompt: promptMessage
-            });
-
-            // Add anomaly-specific parameters if this is an anomaly
-            if (metric.anomaly_id) {
-                params.append('anomaly_id', metric.anomaly_id);
-                params.append('group_name', metric.group_name);
-                params.append('group_value', metric.group_value);
+            // Direct analysis view - replace the main content area
+            // Hide the metrics table and filters
+            const metricsTable = document.getElementById('metrics-table');
+            const filtersContainer = document.querySelector('.filters-container');
+            if (metricsTable) {
+                metricsTable.style.display = 'none';
+            }
+            if (filtersContainer) {
+                filtersContainer.style.display = 'none';
             }
             
-            // Log the parameters being sent
-            console.log('WebChat parameters:', params.toString());
-            
-            // Set chat initialization parameters
-            webchatIframe.src = `/webchat?${params.toString()}`;
-            
-            // On iframe load
-            webchatIframe.onload = function() {
-                modalLoader.style.display = 'none';
-                webchatIframe.style.display = 'block';
+            // Get the main container and clear it
+            const mainContainer = document.querySelector('.container-fluid');
+            if (mainContainer) {
+                // Clear existing content
+                mainContainer.innerHTML = '';
                 
-                // Ensure the iframe takes up the full available space
-                webchatIframe.style.width = '100%';
-                webchatIframe.style.height = '600px';
+                // Create header for the analysis
+                const analysisHeader = document.createElement('div');
+                analysisHeader.className = 'analysis-header';
+                analysisHeader.style.cssText = 'margin-bottom: 20px; padding: 20px; background: var(--background); border-radius: 8px; box-shadow: var(--shadow);';
+                analysisHeader.innerHTML = `
+                    <h2>Analyzing: ${metricData.name || 'Metric Change'}</h2>
+                    <p>District: ${metricData.district === '0' ? 'Citywide' : `District ${metricData.district}`}</p>
+                    <p>Change: ${metricData.delta} (${metricData.percentChange}%) from ${metricData.previousValue} to ${metricData.recentValue}</p>
+                `;
+                mainContainer.appendChild(analysisHeader);
                 
-                // Add a small delay to ensure the iframe is fully rendered
-                setTimeout(() => {
-                    webchatIframe.focus();
-                }, 100);
-            };
-            
-            // Handle iframe load errors
-            webchatIframe.onerror = function() {
-                modalLoader.style.display = 'none';
-                modalContent.innerHTML = '<div class="error-message">Failed to load analysis. Please try again.</div>';
-            };
-            
-            // Add a timeout to handle server errors
-            setTimeout(() => {
-                if (modalLoader.style.display !== 'none') {
-                    modalLoader.style.display = 'none';
-                    modalContent.innerHTML = '<div class="error-message">Analysis is taking longer than expected. The server might be busy. Please try again later.</div>';
+                // Create a back button
+                const backButton = document.createElement('button');
+                backButton.className = 'action-button';
+                backButton.style.cssText = 'margin-bottom: 20px; padding: 10px 20px; background: var(--primary); color: white; border: none; border-radius: 4px; cursor: pointer;';
+                backButton.innerHTML = '<i class="fas fa-arrow-left"></i> Back to Metrics';
+                backButton.onclick = function() {
+                    // Reload the page to restore the original view
+                    window.location.reload();
+                };
+                mainContainer.appendChild(backButton);
+                
+                // Create container for the webchat
+                const webchatContainer = document.createElement('div');
+                webchatContainer.style.cssText = 'width: 100%; height: 600px; border: 1px solid var(--neutral-gray-light); border-radius: 8px; overflow: hidden;';
+                
+                // Create and append the webchat iframe
+                const webchatIframe = document.createElement('iframe');
+                webchatIframe.style.cssText = 'width: 100%; height: 100%; border: none; display: block;';
+                
+                // Build query parameters with structured data
+                const params = new URLSearchParams({
+                    initialize: 'true',
+                    analyze: 'true',
+                    metric_id: metricData.id || '',
+                    metric_name: metricData.name,
+                    district: metricData.district,
+                    previous_value: metricData.previousValue,
+                    recent_value: metricData.recentValue,
+                    delta: metricData.delta,
+                    previous_period: metricData.previousPeriod,
+                    recent_period: metricData.recentPeriod,
+                    direction: metricData.direction,
+                    percent_change: metricData.percentChange,
+                    magnitude: metricData.magnitude,
+                    prompt: promptMessage
+                });
+
+                // Add anomaly-specific parameters if this is an anomaly
+                if (metric.anomaly_id) {
+                    params.append('anomaly_id', metric.anomaly_id);
+                    params.append('group_name', metric.group_name);
+                    params.append('group_value', metric.group_value);
                 }
-            }, 10000); // 10 second timeout
+                
+                // Log the parameters being sent
+                console.log('WebChat parameters:', params.toString());
+                
+                // Set chat initialization parameters
+                webchatIframe.src = `/webchat?${params.toString()}`;
+                
+                // Append iframe to container
+                webchatContainer.appendChild(webchatIframe);
+                mainContainer.appendChild(webchatContainer);
+                
+                // Handle iframe load errors
+                webchatIframe.onerror = function() {
+                    webchatContainer.innerHTML = '<div class="error-message">Failed to load analysis. Please try again.</div>';
+                };
+            }
+            
+
+
+            
+
+            
+
+            
+
+            
+
+            
+
         }
         
         // Function to add/remove items from monthly report
@@ -2693,10 +2613,13 @@ Can you help me understand:
                 const requestData = {
                     item_data: itemData,
                     report_title: reportTitle,
-                    period_type: itemData.period_type || 'month'
+                    period_type: itemData.period_type || 'month',
+                    report_id: currentReportId  // Pass the currently selected report ID
                 };
                 
                 console.log('Sending request data:', requestData);
+                console.log('Current report ID:', currentReportId);
+                console.log('Current report select value:', currentReportSelect.value);
                 
                 // Make API call to add item to monthly report
                 const response = await fetch('/anomaly-analyzer/api/add-to-monthly-report', {
@@ -2869,6 +2792,7 @@ Can you help me understand:
                     // Clear all checkmarks and localStorage
                     localStorage.removeItem('addedToMonthlyReport');
                     currentReportId = result.report_id;
+                    console.log('Set currentReportId to new report:', currentReportId);
                     
                     // Close the modal
                     closeNewReportModal();
@@ -2878,6 +2802,7 @@ Can you help me understand:
                     
                     // Select the new report
                     currentReportSelect.value = result.report_id;
+                    console.log('Set dropdown value to new report:', result.report_id);
                     
                     // Refresh the table to reset all checkmarks and refetch data
                     fetchAllData();
@@ -3046,6 +2971,10 @@ Can you help me understand:
                 // Load the selected report
                 const reportId = parseInt(selectedValue);
                 
+                // Update currentReportId
+                currentReportId = reportId;
+                console.log('Updated currentReportId to:', currentReportId);
+                
                 // Fetch the report details
                 try {
                     const response = await fetch('/api/monthly-reports/list');
@@ -3070,6 +2999,9 @@ Can you help me understand:
                 const data = await response.json();
                 
                 if (data.status === 'success' && data.reports.length > 0) {
+                    // Store current selection
+                    const currentSelection = currentReportSelect.value;
+                    
                     // Clear existing options except "Create New Report"
                     currentReportSelect.innerHTML = '<option value="new">Create New Report</option>';
                     
@@ -3080,6 +3012,13 @@ Can you help me understand:
                         option.textContent = `${report.original_filename} (${report.item_count} items)`;
                         currentReportSelect.appendChild(option);
                     });
+                    
+                    // Restore current selection if it was valid
+                    if (currentSelection && currentSelection !== 'new') {
+                        currentReportSelect.value = currentSelection;
+                        currentReportId = parseInt(currentSelection);
+                        console.log('Restored selection in populateReportDropdown:', currentSelection);
+                    }
                 }
             } catch (error) {
                 console.error('Error populating report dropdown:', error);
@@ -3096,6 +3035,14 @@ Can you help me understand:
                     confirmCreateNewReport();
                 }
             });
+            
+            // Restore currentReportId from dropdown selection if available
+            setTimeout(() => {
+                if (currentReportSelect.value && currentReportSelect.value !== 'new') {
+                    currentReportId = parseInt(currentReportSelect.value);
+                    console.log('Restored currentReportId from dropdown:', currentReportId);
+                }
+            }, 100);
         });
 
     </script>

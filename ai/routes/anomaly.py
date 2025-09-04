@@ -3,7 +3,7 @@ import json
 import qdrant_client
 from openai import OpenAI
 import openai
-from swarm import Swarm, Agent
+# Swarm imports removed - no longer using Swarm-based agents
 from tools.anomaly_detection import anomaly_detection
 import pandas as pd
 from dotenv import load_dotenv
@@ -36,8 +36,7 @@ import traceback
 from tools.store_anomalies import get_anomaly_details as get_anomaly_details_from_db, get_anomalies
 from chart_message import generate_chart_message, generate_anomaly_chart_html
 import re
-from agents.explainer_agent import ExplainerAgent, create_explainer_agent, PROMPT_SECTIONS
-from agents.explainer_prompts import get_complete_instructions
+# Old explainer agent imports removed - using LangChain agent instead
 import importlib
 
 # ------------------------------

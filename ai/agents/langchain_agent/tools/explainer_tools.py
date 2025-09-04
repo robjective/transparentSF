@@ -269,8 +269,8 @@ def get_dataset_columns_tool(endpoint: str) -> Dict[str, Any]:
     logger.info(f"Endpoint: {endpoint}")
     
     try:
-        # Import the database version that queries Firebase/database
-        from webChat import get_dataset_columns
+        # Import the function from anomalyAnalyzer
+        from anomalyAnalyzer import get_dataset_columns
         
         # Call the database version with empty context
         result = get_dataset_columns({}, endpoint=endpoint)
