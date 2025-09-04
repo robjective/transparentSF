@@ -23,7 +23,7 @@ from .explainer_metrics_tools import (
 )
 
 # Import visualization tools
-from .map_generation_tools import generate_map_tool, get_map_by_id_tool, get_recent_maps_tool
+from .map_generation_tools import generate_map_tool, get_map_by_id_tool, get_recent_maps_tool, generate_map_with_query_tool
 
 # Import new clean tools
 from .explainer_tools import (
@@ -73,6 +73,7 @@ class ToolFactory:
             
             # Visualization tools
             "generate_map": generate_map_tool,
+            "generate_map_with_query": generate_map_with_query_tool,
         }
     
     def create_tools_for_groups(self, groups: List[ToolGroup]) -> List[Tool]:

@@ -285,6 +285,17 @@ class ToolConfig:
                     "generate_map(context_variables, map_title='Crime by District', map_type='supervisor_district', map_metadata={'description': 'Crime incidents by district'})",
                     "Use this to create maps showing geographic patterns in the data"
                 ]
+            ),
+            ToolDefinition(
+                name="generate_map_with_query",
+                function=None,
+                description="Generate a map by querying DataSF and creating a map visualization in one step",
+                group=ToolGroup.VISUALIZATION,
+                required_prompt_sections=["map_generation"],
+                examples=[
+                    "generate_map_with_query(endpoint='wg3w-h783', query='SELECT supervisor_district, COUNT(*) as value WHERE date_trunc_ym(report_datetime) = date_trunc_ym(CURRENT_DATE) GROUP BY supervisor_district', map_title='Crime by District', map_type='supervisor_district')",
+                    "Use this to query data and create maps in one step, preferred over separate set_dataset + generate_map calls"
+                ]
             )
         ]
     

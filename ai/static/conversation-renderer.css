@@ -156,6 +156,18 @@
     opacity: 0.8;
 }
 
+.conversation-tool-call .tool-display {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.conversation-tool-call .tool-display .tool-status {
+    font-size: 10px;
+    font-weight: 500;
+    opacity: 0.7;
+}
+
 .conversation-tool-call .tool-query-url {
     margin-top: 4px;
 }

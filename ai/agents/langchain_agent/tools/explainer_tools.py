@@ -23,6 +23,9 @@ def set_dataset_tool(endpoint: str, query: str) -> Dict[str, Any]:
     """
     Set dataset for analysis by querying DataSF.
     
+    NOTE: Due to LangChain tool limitations, this tool cannot store data in context_variables
+    for other tools to access. Use generate_map_with_query instead for map generation.
+    
     Args:
         endpoint: The dataset identifier WITHOUT the .json extension (e.g., 'ubvf-ztfx')
         query: The complete SoQL query string using standard SQL syntax
@@ -75,7 +78,8 @@ def set_dataset_tool(endpoint: str, query: str) -> Dict[str, Any]:
                     'data': df.to_dict('records'),
                     'shape': df.shape,
                     'columns': list(df.columns),
-                    'queryURL': result.get('queryURL')
+                    'queryURL': result.get('queryURL'),
+                    'message': 'Dataset loaded successfully. Use generate_map_with_query for map generation.'
                 }
             else:
                 logger.warning("API returned empty data")

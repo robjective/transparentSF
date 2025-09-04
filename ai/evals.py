@@ -154,7 +154,7 @@ def run_single_eval_langchain(query: str, model_key: str = None) -> dict:
     # Create a new LangChain agent with session logging enabled
     agent = create_explainer_agent(
         model_key=model_key, 
-        tool_groups=[ToolGroup.CORE, ToolGroup.ANALYSIS], 
+        tool_groups=[ToolGroup.CORE, ToolGroup.ANALYSIS, ToolGroup.METRICS, ToolGroup.VISUALIZATION], 
         enable_session_logging=True
     )
     

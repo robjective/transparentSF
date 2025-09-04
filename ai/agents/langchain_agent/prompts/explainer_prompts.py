@@ -41,7 +41,7 @@ WORKFLOW_INSTRUCTIONS = """MANDATORY WORKFLOW (follow this exact sequence):
 6. SIXTH, contextualize this change vs the historical data, you can use the data from get_dashboard_metric to do this. 
 7. SEVENTH, if an anomaly is explanatory, then be sure to include a link to the anomaly chart
 8. EIGHTH, if you still don't have enough information to understand the data, then use set_dataset to get exactly what you need from DataSF. You can use the queries that you see in the get_dashboard_metric tool data as a starting point, make sure to use the right fieldNames with the right case. Read more about that in the set_dataset() tool. 
-9. NINTH, if the data has a strong geographic component, create a map visualization to show spatial patterns using the generate_map function. If there are a small number of datapoints in the month (say 30 or fewer, it can be helpful to plot them out on a locator map. Use the location point, address or intersection, see below)
+9. NINTH, if the data has a strong geographic component, create a map visualization to show spatial patterns using generate_map_with_query (preferred) or generate_map. If there are a small number of datapoints in the month (say 30 or fewer), it can be helpful to plot them out on a locator map using point, address, or intersection map types.
 10. TENTH, when analyzing geographic patterns, examine the metric's map_query, map_filters, and map_config fields to understand how the system builds map queries and what geographic data is available."""
 
 # Category-specific best practices
@@ -181,95 +181,66 @@ For example: [CHART:map:123]"""
 
 
 # Map generation instructions
-MAP_GENERATION_INSTRUCTIONS = """- generate_map: Create a map visualization for geographic data using the TransparentSF map generation system
-  USAGE: generate_map(context_variables, map_title="Title", map_type="supervisor_district", map_metadata={{"description": "Description"}}, series_field=None, color_palette=None)
+MAP_GENERATION_INSTRUCTIONS = """
+MAP GENERATION TOOLS (Mapbox Only - Enhanced Geographic Visualizations):
+
+PREFERRED TOOL - generate_map_with_query: Query DataSF and create map in one step
+  USAGE: generate_map_with_query(endpoint="dataset-id", query="your-soql-query", map_title="Title", map_type="supervisor_district", map_metadata={{"description": "Description"}}, series_field=None, color_palette=None)
   
   RETURNS: {{"status": "success", "map_id": 123, "message": "Map created successfully"}}
-  The map_id is an integer that you use to reference the map in your explanations as [CHART:map:123].  Don't link to the URLS, show the reference.
+  The map_id is an integer that you use to reference the map in your explanations as [CHART:map:123].
   
   Parameter guidelines:
+  - endpoint: Dataset identifier WITHOUT .json extension (e.g., 'wg3w-h783')
+  - query: Complete SoQL query using standard SQL syntax (no FROM clause needed)
   - map_title: Descriptive title for the map
-  - map_type: Type of map to create. Must be one of:
-     * "supervisor_district" - Map showing data by San Francisco supervisor district (1-11)
-     * "police_district" - Map showing data by San Francisco police district
-     * "intersection" - Map showing points at specific street intersections
-     * "point" - Map showing points at specific lat/long coordinates
-     * "address" - Map showing points at specific addresses (will be geocoded automatically)
-     * "symbol"  - Scaled-symbol map for points. Use this **whenever you want marker size to represent a value** (e.g.
-       number of units, dollar amounts). Point/address/intersection maps do NOT support scaling — choose
-       "symbol" instead.
-  - map_metadata: Dictionary with additional information about the map
-     * For change/delta maps, use: {{"map_type": "delta", "description": "Change from previous period"}}
-     * For basic density maps, use: {{"description": "Current values by district"}}
-     * For point/address/intersection maps, you can specify view settings:
-       {{"description": "Description", "center_lat": 37.7749, "center_lon": -122.4194, "zoom": 12}}
-  - series_field: Optional field name for grouping markers into different colored series (only for point/address/intersection maps)
-     * Use "series" if your data has a "series" field for categorization
-     * Use "category", "type", "status", "priority", or any other field name that contains categorical data
-     * When specified, markers will be automatically colored by category and a legend will be generated
-  - color_palette: Optional color palette for series (only used when series_field is specified)
-     * "categorical" - 12 distinct colors for general categorization (default) - BEST for mixed categories
-     * "status" - 5 colors for status indication (Green=Active, Amber=Pending, Red=Inactive, Blue=Processing, Purple=Special)
-     * "priority" - 4 colors for priority levels (Red=High, Orange=Medium, Green=Low, Grey=None)
-     * "sequential" - 9 colors for graduated/sequential data (light to dark progression)
-     * Custom array: ["#FF0000", "#00FF00", "#0000FF"] - provide your own hex colors in order
+  - map_type: Type of Mapbox map to create:
+     * "supervisor_district" - District-level aggregation map (1-11)
+     * "police_district" - Police district aggregation map
+     * "point" - Point locations with lat/long coordinates
+     * "address" - Address-based locations (geocoded automatically)
+     * "intersection" - Street intersection locations
+     * "symbol" - Scaled-symbol map where marker size represents values
+  - map_metadata: Additional map configuration
+     * For change/delta maps: {{"map_type": "delta", "description": "Change from previous period"}}
+     * For density maps: {{"description": "Current values by district"}}
+     * For locator maps: {{"description": "Description", "center_lat": 37.7749, "center_lon": -122.4194, "zoom": 12}}
+  - series_field: Field name for colored series grouping (point/address/intersection maps only)
+  - color_palette: Series color scheme: "categorical", "status", "priority", "sequential", or custom hex colors
 
-  DATA REQUIREMENTS:
-  Before calling generate_map, you MUST use set_dataset to query the data in the correct format:
+  QUERY REQUIREMENTS:
+  1. District Maps: Include district field and value field
+     Example: SELECT supervisor_district, COUNT(*) as value WHERE date_trunc_ym(report_datetime) = date_trunc_ym(CURRENT_DATE) GROUP BY supervisor_district
 
-  1. For District Maps (supervisor_district, police_district):
-     - For density maps: Query must include district and value fields
-       Example: set_dataset(context_variables, endpoint="wg3w-h783", 
-                query="SELECT supervisor_district, COUNT(*) as value 
-                      WHERE date_trunc_ym(report_datetime) = date_trunc_ym(CURRENT_DATE) 
-                      GROUP BY supervisor_district")
-     - For change maps: Query must include district, current_value, previous_value, delta, and percent_change
-       Example: set_dataset(context_variables, endpoint="wg3w-h783",
-                query="SELECT supervisor_district, 
-                      COUNT(*) as current_value,
-                      LAG(COUNT(*)) OVER (PARTITION BY supervisor_district ORDER BY date_trunc_ym(report_datetime)) as previous_value,
-                      COUNT(*) - LAG(COUNT(*)) OVER (PARTITION BY supervisor_district ORDER BY date_trunc_ym(report_datetime)) as delta,
-                      (COUNT(*) - LAG(COUNT(*)) OVER (PARTITION BY supervisor_district ORDER BY date_trunc_ym(report_datetime)))::float / 
-                      NULLIF(LAG(COUNT(*)) OVER (PARTITION BY supervisor_district ORDER BY date_trunc_ym(report_datetime)), 0) as percent_change
-                      WHERE date_trunc_ym(report_datetime) >= date_trunc_ym(CURRENT_DATE - INTERVAL '1 month')
-                      GROUP BY supervisor_district, date_trunc_ym(report_datetime)")
+  2. Point Maps: Include latitude, longitude, title, and description fields  
+     Example: SELECT latitude, longitude, incident_description as title, incident_category as description WHERE report_datetime >= CURRENT_DATE - INTERVAL '30 days'
 
-  2. For Point/Address/Intersection Maps:
-     - Must include location information:
-       * For point maps: latitude and longitude fields
-       * For address maps: address field
-       * For intersection maps: intersection field
-     - Must include title field (or dba_name, business_name, name)
-     - Must include description/tooltip field
-     - For series maps, include the series_field column
-     Example: set_dataset(context_variables, endpoint="g8m3-pdis",
-              query="SELECT  
-                    location, 
-                    dba_name || ' - ' || naic_code_description as description,
-                    business_type as series
-                    WHERE dba_start_date >= CURRENT_DATE - INTERVAL '30 days'
-                    ORDER BY dba_start_date DESC")
+  3. Address Maps: Include address, title, and description fields
+     Example: SELECT location as address, dba_name as title, naic_code_description as description WHERE dba_start_date >= CURRENT_DATE - INTERVAL '30 days'
 
-  3. For Symbol Maps:
-     - Must include all point/address/intersection requirements
-     - Must include a value field for symbol sizing
-     Example: set_dataset(context_variables, endpoint="g8m3-pdis",
-              query="SELECT building_permit_application as title,
-                    building_address as address,
-                    document_type as description,
-                    number_of_units_certified as value
-                    WHERE date_issued >= CURRENT_DATE - INTERVAL '30 days'
-                    ORDER BY date_issued DESC")
+  4. Symbol Maps: Include all locator requirements PLUS value field for sizing
+     Example: SELECT building_address as address, building_permit_application as title, permit_type as description, number_of_units_certified as value WHERE date_issued >= CURRENT_DATE - INTERVAL '30 days'
 
-  IMPORTANT NOTES:
-  1. The dataset from set_dataset will be automatically used by generate_map
-  2. For district maps, ensure district values are strings containing ONLY the district number (e.g., "1", "2", "3")
-  3. For point maps, coordinates must be within San Francisco bounds (37.6-37.9 lat, -122.6 to -122.2 lon)
-  4. For address maps, include "San Francisco, CA" in addresses for better geocoding
-  5. For series maps, ensure all points have values for the series_field
-  6. For symbol maps, ensure all points have numeric values for sizing
-  7. Remember to use proper SOQL syntax:
-     - No FROM clause needed
+LEGACY TOOL - generate_map: For use only when data already loaded via set_dataset
+  USAGE: generate_map(context_variables, map_title="Title", map_type="supervisor_district", map_metadata={{"description": "Description"}})
+  NOTE: Due to LangChain limitations, this tool cannot reliably access data from set_dataset. Use generate_map_with_query instead.
+
+MAPBOX MAP FEATURES:
+- Interactive zoom, pan, and marker clustering
+- Automatic legend generation for series data
+- Responsive design for all screen sizes
+- High-quality geographic rendering
+- Support for complex geographic boundaries
+- Real-time data visualization capabilities
+
+IMPORTANT NOTES:
+1. **ALWAYS use generate_map_with_query for new maps** - it's more reliable
+2. District values must be strings with only the number (e.g., "1", "2", "3")
+3. Coordinates must be within SF bounds (37.6-37.9 lat, -122.6 to -122.2 lon)
+4. Include "San Francisco, CA" in addresses for better geocoding
+5. Use "symbol" map type when marker size should represent data values
+6. Use proper SOQL syntax - no FROM clause needed, endpoint provides the table
+7. All generated maps are Mapbox-powered for enhanced interactivity and performance
 """
 
 # Map field system instructions

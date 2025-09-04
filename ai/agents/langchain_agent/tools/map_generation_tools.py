@@ -191,3 +191,166 @@ def get_recent_maps_tool(context_variables: Dict[str, Any], limit: int = 10,
             'status': 'error',
             'error': f'Failed to retrieve recent maps: {str(e)}'
         }
+
+def generate_map_with_query_tool(endpoint: str, query: str, map_title: str, map_type: str, 
+                                 map_metadata: Optional[Dict[str, Any]] = None, 
+                                 series_field: Optional[str] = None, 
+                                 color_palette: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Generate a map by querying DataSF and creating a map visualization in one step.
+    
+    This tool combines data fetching and map generation to work around LangChain tool
+    limitations where tools cannot share state through context_variables.
+    
+    Args:
+        endpoint: The dataset identifier WITHOUT the .json extension (e.g., 'ubvf-ztfx')
+        query: The complete SoQL query string using standard SQL syntax
+        map_title: Descriptive title for the map
+        map_type: Type of map to create. Must be one of:
+            * "supervisor_district" - Map showing data by San Francisco supervisor district (1-11)
+            * "police_district" - Map showing data by San Francisco police district
+            * "intersection" - Map showing points at specific street intersections
+            * "point" - Map showing points at specific lat/long coordinates
+            * "address" - Map showing points at specific addresses (will be geocoded automatically)
+            * "symbol" - Scaled-symbol map for points. Use this when you want marker size to represent a value
+        map_metadata: Dictionary with additional information about the map
+            * For change/delta maps, use: {"map_type": "delta", "description": "Change from previous period"}
+            * For basic density maps, use: {"description": "Current values by district"}
+            * For point/address/intersection maps, you can specify view settings:
+              {"description": "Description", "zoom_level": 12, "center_lat": 37.7749, "center_lon": -122.4194}
+        series_field: Optional field name for grouping markers into different colored series (only for point/address/intersection maps)
+        color_palette: Optional color palette for series maps. Options:
+            * "categorical" - Different colors for each series (default)
+            * "status" - Green, Amber, Red, Blue, Purple for status data
+            * "priority" - Red, Orange, Yellow, Green, Blue for priority levels
+            * "sequential" - Graduated colors for sequential data
+            * Custom list of hex colors: ["#FF0000", "#00FF00", "#0000FF"]
+    
+    Returns:
+        Dictionary with map_id and URLs for editing and viewing the map
+        
+    Example:
+        generate_map_with_query_tool(
+            endpoint="wg3w-h783",
+            query="SELECT supervisor_district, COUNT(*) as value WHERE date_trunc_ym(report_datetime) = date_trunc_ym(CURRENT_DATE) GROUP BY supervisor_district",
+            map_title="Crime Incidents by District",
+            map_type="supervisor_district",
+            map_metadata={"description": "Monthly crime incidents by supervisor district"}
+        )
+    """
+    logger.info("=== Starting generate_map_with_query_tool ===")
+    logger.info(f"Endpoint: {endpoint}")
+    logger.info(f"Query: {query}")
+    logger.info(f"Map title: {map_title}")
+    logger.info(f"Map type: {map_type}")
+    
+    try:
+        # Step 1: Validate parameters
+        if not endpoint:
+            return {
+                'status': 'error',
+                'error': 'Endpoint is required'
+            }
+        if not query:
+            return {
+                'status': 'error',
+                'error': 'Query is required'
+            }
+        if not map_title:
+            return {
+                'status': 'error',
+                'error': 'Map title is required'
+            }
+        if not map_type:
+            return {
+                'status': 'error',
+                'error': 'Map type is required'
+            }
+            
+        # Step 2: Fetch data from DataSF
+        from ai.tools.data_fetcher import fetch_data_from_api
+        import pandas as pd
+        
+        # Clean up endpoint - ensure it ends with .json
+        if not endpoint.endswith('.json'):
+            endpoint = f"{endpoint}.json"
+            logger.info(f"Added .json to endpoint: {endpoint}")
+            
+        query_object = {'endpoint': endpoint, 'query': query}
+        result = fetch_data_from_api(query_object)
+        logger.info(f"API result status: {'success' if result and 'data' in result else 'error'}")
+        
+        if not result or 'data' not in result:
+            error_msg = result.get('error', 'Unknown error') if result else 'No result returned'
+            return {
+                'status': 'error',
+                'error': f'Failed to fetch data: {error_msg}',
+                'queryURL': result.get('queryURL') if result else None
+            }
+            
+        data = result['data']
+        if not data:
+            return {
+                'status': 'error',
+                'error': 'No data returned from the API',
+                'queryURL': result.get('queryURL')
+            }
+            
+        # Convert to DataFrame
+        df = pd.DataFrame(data)
+        logger.info(f"Dataset loaded with shape: {df.shape}")
+        
+        # Step 3: Create context_variables with the dataset
+        context_variables = {
+            'dataset': df,
+            'queryURL': result.get('queryURL')
+        }
+        
+        # Step 4: Generate the map using mapbox (only mapbox supported)
+        from ai.tools.generate_map import generate_mapbox_map
+        
+        map_result = generate_mapbox_map(
+            context_variables=context_variables,
+            map_title=map_title,
+            map_type=map_type,
+            location_data="from_context",  # Use dataset from context
+            map_metadata=map_metadata or {},
+            series_field=series_field,
+            color_palette=color_palette,
+            preview_mode=False
+        )
+        
+        if map_result and "map_id" in map_result:
+            logger.info(f"Map generated successfully with ID: {map_result['map_id']}")
+            return {
+                'status': 'success',
+                'map_id': map_result['map_id'],
+                'edit_url': map_result.get('edit_url'),
+                'publish_url': map_result.get('publish_url'),
+                'view_url': map_result.get('view_url'),
+                'message': f'Map "{map_title}" created successfully with data from {endpoint}',
+                'queryURL': result.get('queryURL'),
+                'data_shape': df.shape,
+                'data_points': map_result.get('data_points', 0)
+            }
+        elif map_result and "error" in map_result:
+            logger.error(f"Map generation failed: {map_result['error']}")
+            return {
+                'status': 'error',
+                'error': f'Map generation failed: {map_result["error"]}',
+                'queryURL': result.get('queryURL')
+            }
+        else:
+            logger.error("Map generation failed - unexpected result format")
+            return {
+                'status': 'error',
+                'error': 'Map generation failed - unexpected result format',
+                'result': map_result
+            }
+            
+    except Exception as e:
+        logger.exception(f"Error in generate_map_with_query_tool: {str(e)}")
+        return {
+            'status': 'error',
+            'error': f'Failed to generate map: {str(e)}'
+        }

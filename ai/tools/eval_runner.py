@@ -163,10 +163,10 @@ class EvalRunner:
                     "success_details": {"error": "Agent not available"}
                 }
             
-            # Create a fresh LangChain agent instance for this eval with core, analysis, and metrics tools
+            # Create a fresh LangChain agent instance for this eval with core, analysis, metrics, and visualization tools
             agent = create_explainer_agent(
                 model_key=model_name,
-                tool_groups=[ToolGroup.CORE, ToolGroup.ANALYSIS, ToolGroup.METRICS],
+                tool_groups=[ToolGroup.CORE, ToolGroup.ANALYSIS, ToolGroup.METRICS, ToolGroup.VISUALIZATION],
                 enable_session_logging=True
             )
             

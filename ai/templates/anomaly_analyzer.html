@@ -2256,7 +2256,7 @@
                 if (type === 'metric') {
                     analyzeMetricChange(data);
                 } else {
-                    // For anomalies, create a metric-like object
+                    // For anomalies, create a metric-like object with anomaly-specific fields
                     const metricData = {
                         id: data.object_id,
                         object_name: data.metric_name,
@@ -2267,7 +2267,11 @@
                         percent_change: data.percent_change,
                         previous_period: data.period_date,
                         recent_period: data.period_date,
-                        period_type: data.period_type
+                        period_type: data.period_type,
+                        // Include anomaly-specific fields
+                        anomaly_id: data.id,  // The anomaly ID
+                        group_name: data.group_name,
+                        group_value: data.group_value
                     };
                     analyzeMetricChange(metricData);
                 }
@@ -2324,12 +2328,13 @@
             // Create the prompt message based on whether this is an anomaly or regular metric
             let promptMessage;
             if (metric.anomaly_id) {
-                // This is an anomaly analysis - use anomaly_id format like in monthly_report.py
-                promptMessage = `Please explain this anomaly (anomaly_id: ${metric.anomaly_id}) for the anomaly "${metricData.name}" (anomaly_id: ${metric.anomaly_id}) for ${districtDisplay} in ${metric.group_name} "${metric.group_value}" which has ${metricData.direction} from ${metricData.previousValue} in ${metricData.previousPeriod} to ${metricData.recentValue} in ${metricData.recentPeriod}, an absolute change of ${metricData.delta} and a percentage change of ${metricData.percentChange}%.
+                // This is an anomaly analysis - use anomaly-specific language
+                promptMessage = `Please analyze this anomaly (ID: ${metric.anomaly_id}) for "${metricData.name}" in ${districtDisplay}. This anomaly was detected in the ${metric.group_name} group "${metric.group_value}" where the value ${metricData.direction} from ${metricData.previousValue} (baseline) to ${metricData.recentValue} (detected period: ${metricData.recentPeriod}), representing an absolute difference of ${metricData.delta} and a ${metricData.percentChange}% deviation from normal.
 
 Can you help me understand:
-1. What might have caused this change?
-2. Is this part of a broader trend?`;
+1. What factors might have caused this anomalous behavior?
+2. Is this anomaly part of a broader pattern or trend?
+3. What are the potential implications of this anomaly?`;
             } else {
                 // This is a regular metric analysis
                 promptMessage = `The metric "${metricData.name}" (ID: ${metricData.id}) for ${districtDisplay} has ${metricData.direction} from ${metricData.previousValue} in ${metricData.previousPeriod} to ${metricData.recentValue} in ${metricData.recentPeriod}, an absolute change of ${metricData.delta} and a percentage change of ${metricData.percentChange}%.

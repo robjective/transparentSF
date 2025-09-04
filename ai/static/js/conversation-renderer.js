@@ -64,23 +64,19 @@ class ConversationRenderer {
         const events = this.buildEventTimeline(sessionData);
         
         // Process events in chronological order
-        console.log('Processing events:', events.length, 'events');
+        // console.log('Processing events:', events.length, 'events');
         events.forEach((event, index) => {
-            console.log(`Event ${index}:`, event.type, event);
+            // console.log(`Event ${index}:`, event.type, event);
             switch (event.type) {
                 case 'message':
                     this.addMessage(event.content, event.sender, this.options.enableMarkdown, event.timestamp);
                     break;
                 case 'tool_call_start':
-                    console.log('Adding tool call:', event.tool_name, event.tool_id);
-                    this.addToolCall(event.tool_name, event.tool_id, event.response);
-                    if (event.arguments) {
-                        this.updateToolCallArguments(event.tool_id, event.arguments);
-                    }
+                    // For session replay, we'll wait for the end event to show the completed state
                     break;
                 case 'tool_call_end':
-                    console.log('Completing tool call:', event.tool_id, event.success);
-                    this.completeToolCall(event.tool_id, event.success, event.response, event.execution_time_ms);
+                    // Show completed tool call with details
+                    this.addCompletedToolCall(event.tool_name, event.success, event.execution_time_ms, event.response, event.arguments);
                     break;
             }
         });
@@ -92,52 +88,100 @@ class ConversationRenderer {
     buildEventTimeline(sessionData) {
         const events = [];
         
-        // Process conversation messages and tool calls in chronological order
-        if (sessionData.conversation && Array.isArray(sessionData.conversation)) {
-            let toolCallIndex = 0; // Track the current tool call index
+        // Choose between conversation array approach or intermediate_responses approach
+        // If we have intermediate_responses, use those for a cleaner streaming replay
+        // This avoids duplication issues with final_response and conversation array
+        const useIntermediateResponses = sessionData.intermediate_responses && 
+            Array.isArray(sessionData.intermediate_responses) && 
+            sessionData.intermediate_responses.length > 0;
+        
+        // Debug: Session data analysis (uncomment for debugging)
+        // console.log('Session data analysis:', {
+        //     hasIntermediateResponses: !!sessionData.intermediate_responses,
+        //     intermediateResponsesCount: sessionData.intermediate_responses?.length || 0,
+        //     hasConversation: !!sessionData.conversation,
+        //     conversationCount: sessionData.conversation?.length || 0,
+        //     hasToolCalls: !!sessionData.tool_calls,
+        //     toolCallsCount: sessionData.tool_calls?.length || 0,
+        //     useIntermediateResponses: useIntermediateResponses
+        // });
+        
+        if (useIntermediateResponses) {
+            // Use intermediate responses approach - properly interleaved with tool calls
             
-            sessionData.conversation.forEach((msg, index) => {
-                if (msg.role === 'tool_call') {
-                    // Handle tool call messages from the conversation array
-                    // Extract tool name from content (format: "Tool: tool_name")
-                    const toolName = msg.content.replace('Tool: ', '');
+            // First add user message if present
+            if (sessionData.user_input) {
+                events.push({
+                    type: 'message',
+                    content: sessionData.user_input,
+                    sender: 'user',
+                    timestamp: sessionData.start_time || sessionData.timestamp
+                });
+            }
+            
+            // Add each intermediate response as a separate message (to preserve interleaving)
+            sessionData.intermediate_responses.forEach((response, index) => {
+                events.push({
+                    type: 'message',
+                    content: response.content,
+                    sender: 'assistant',
+                    timestamp: response.timestamp
+                });
+            });
+            
+            // Add tool calls - will be properly sorted with responses by timestamp
+            if (sessionData.tool_calls && Array.isArray(sessionData.tool_calls)) {
+                sessionData.tool_calls.forEach((toolCall, index) => {
+                    // Use start_time if available (Unix timestamp), convert to ISO
+                    const timestamp = toolCall.start_time ? 
+                        new Date(toolCall.start_time * 1000).toISOString() : 
+                        sessionData.start_time || new Date().toISOString();
                     
-                    // Find the corresponding tool call details from tool_calls array by chronological order
-                    let toolCallDetails = sessionData.tool_calls && toolCallIndex < sessionData.tool_calls.length ? 
-                        sessionData.tool_calls[toolCallIndex] : null;
-                    
-                    // Verify that the tool name matches (safety check)
-                    if (toolCallDetails && toolCallDetails.tool_name === toolName) {
-                        toolCallIndex++; // Move to next tool call for next iteration
-                    } else {
-                        // Fallback: try to find by name if chronological matching fails
-                        toolCallDetails = sessionData.tool_calls ? 
-                            sessionData.tool_calls.find(tc => tc.tool_name === toolName) : null;
-                    }
-                    
-                    if (toolCallDetails) {
-                        // Add tool call start event
-                        events.push({
-                            type: 'tool_call_start',
-                            tool_name: toolCallDetails.tool_name,
-                            tool_id: `tool_${toolCallDetails.tool_name}_${index}`,
-                            arguments: toolCallDetails.arguments,
-                            timestamp: msg.timestamp,
-                            response: null
-                        });
+                    events.push({
+                        type: 'tool_call_end',  // Show completed tool calls
+                        tool_name: toolCall.tool_name,
+                        tool_id: `tool_${toolCall.tool_name}_${index}`,
+                        success: toolCall.success,
+                        response: toolCall.result,
+                        arguments: toolCall.arguments,
+                        execution_time_ms: toolCall.execution_time_ms,
+                        timestamp: timestamp
+                    });
+                });
+            }
+        } else {
+            // Fallback to conversation array approach (for sessions without intermediate_responses)
+            if (sessionData.conversation && Array.isArray(sessionData.conversation)) {
+                let toolCallIndex = 0;
+                
+                sessionData.conversation.forEach((msg, index) => {
+                    if (msg.role === 'tool_call') {
+                        // Handle tool call messages
+                        const toolName = msg.content.replace('Tool: ', '');
+                        let toolCallDetails = sessionData.tool_calls && toolCallIndex < sessionData.tool_calls.length ? 
+                            sessionData.tool_calls[toolCallIndex] : null;
                         
-                        // Add tool call end event
-                        events.push({
-                            type: 'tool_call_end',
-                            tool_name: toolCallDetails.tool_name,
-                            tool_id: `tool_${toolCallDetails.tool_name}_${index}`,
-                            success: toolCallDetails.success,
-                            response: toolCallDetails.result,
-                            execution_time_ms: toolCallDetails.execution_time_ms,
-                            timestamp: msg.timestamp
-                        });
+                        if (toolCallDetails && toolCallDetails.tool_name === toolName) {
+                            toolCallIndex++;
+                        } else {
+                            toolCallDetails = sessionData.tool_calls ? 
+                                sessionData.tool_calls.find(tc => tc.tool_name === toolName) : null;
+                        }
+                        
+                        if (toolCallDetails) {
+                            events.push({
+                                type: 'tool_call_end',
+                                tool_name: toolCallDetails.tool_name,
+                                tool_id: `tool_${toolCallDetails.tool_name}_${index}`,
+                                success: toolCallDetails.success,
+                                response: toolCallDetails.result,
+                                arguments: toolCallDetails.arguments,
+                                execution_time_ms: toolCallDetails.execution_time_ms,
+                                timestamp: msg.timestamp
+                            });
+                        }
                     } else {
-                        // Fallback: treat as simple tool call message
+                        // Handle regular messages (user, assistant)
                         events.push({
                             type: 'message',
                             content: msg.content,
@@ -145,76 +189,25 @@ class ConversationRenderer {
                             timestamp: msg.timestamp
                         });
                     }
-                } else {
-                    // Handle regular messages (user, assistant)
-                    events.push({
-                        type: 'message',
-                        content: msg.content,
-                        sender: msg.role,
-                        timestamp: msg.timestamp
-                    });
-                }
-            });
-        }
-        
-        // Process intermediate responses if they exist (for sessions with streaming responses)
-        if (sessionData.intermediate_responses && Array.isArray(sessionData.intermediate_responses)) {
-            sessionData.intermediate_responses.forEach((response, index) => {
-                // Determine the sender based on the response type or content
-                let sender = 'assistant';
-                if (response.type === 'intermediate_response') {
-                    sender = 'assistant';
-                } else if (response.role) {
-                    sender = response.role;
-                }
-                
+                });
+            }
+            
+            // If no conversation array either, try final_response as last resort
+            if ((!sessionData.conversation || sessionData.conversation.length === 0) && 
+                sessionData.final_response && typeof sessionData.final_response === 'string' && 
+                sessionData.final_response.trim()) {
                 events.push({
                     type: 'message',
-                    content: response.content,
-                    sender: sender,
-                    timestamp: response.timestamp
+                    content: sessionData.final_response.trim(),
+                    sender: 'assistant',
+                    timestamp: sessionData.end_time || sessionData.timestamp || new Date().toISOString()
                 });
-            });
-        }
-        
-        // Process tool calls if they exist but aren't in the conversation array
-        // Only process tool calls if there are no tool_call entries in the conversation array
-        const hasToolCallsInConversation = sessionData.conversation && 
-            sessionData.conversation.some(msg => msg.role === 'tool_call');
-            
-        if (sessionData.tool_calls && Array.isArray(sessionData.tool_calls) && !hasToolCallsInConversation) {
-            sessionData.tool_calls.forEach((toolCall, index) => {
-                // Create a timestamp for the tool call if it doesn't exist
-                const timestamp = toolCall.start_time ? new Date(toolCall.start_time * 1000).toISOString() : 
-                                sessionData.start_time || new Date().toISOString();
-                
-                // Add tool call start event
-                events.push({
-                    type: 'tool_call_start',
-                    tool_name: toolCall.tool_name,
-                    tool_id: `tool_${toolCall.tool_name}_${index}`,
-                    arguments: toolCall.arguments,
-                    timestamp: timestamp,
-                    response: null
-                });
-                
-                // Add tool call end event
-                events.push({
-                    type: 'tool_call_end',
-                    tool_name: toolCall.tool_name,
-                    tool_id: `tool_${toolCall.tool_name}_${index}`,
-                    success: toolCall.success,
-                    response: toolCall.result,
-                    execution_time_ms: toolCall.execution_time_ms,
-                    timestamp: timestamp
-                });
-            });
+            }
         }
         
         // Sort events by timestamp if available
         events.sort((a, b) => {
             if (a.timestamp && b.timestamp) {
-                // Handle both ISO strings and Unix timestamps
                 const timeA = typeof a.timestamp === 'number' ? a.timestamp * 1000 : new Date(a.timestamp).getTime();
                 const timeB = typeof b.timestamp === 'number' ? b.timestamp * 1000 : new Date(b.timestamp).getTime();
                 return timeA - timeB;
@@ -306,6 +299,76 @@ class ConversationRenderer {
         }
     }
     
+    /**
+     * Add a completed tool call with details (for session replay)
+     */
+    addCompletedToolCall(toolName, success = true, executionTimeMs = null, response = null, args = null) {
+        const toolId = `tool-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+        const toolCallDiv = document.createElement('div');
+        toolCallDiv.id = toolId;
+        toolCallDiv.className = `conversation-tool-call ${success ? 'completed' : 'error'}`;
+        
+        // Create content container
+        const contentDiv = document.createElement('div');
+        contentDiv.className = 'conversation-tool-call-content';
+        
+        const toolNameDiv = document.createElement('div');
+        toolNameDiv.className = 'tool-name';
+        toolNameDiv.textContent = `🔧 ${toolName}`;
+        
+        const toolStatusDiv = document.createElement('div');
+        toolStatusDiv.className = 'tool-status';
+        let statusText = success ? 'Success' : 'Failed';
+        if (executionTimeMs) {
+            statusText += ` (${executionTimeMs}ms)`;
+        }
+        toolStatusDiv.textContent = statusText;
+        
+        // Add queryURL link if available
+        if (response && response.queryURL) {
+            const queryUrlDiv = document.createElement('div');
+            queryUrlDiv.className = 'tool-query-url';
+            const link = document.createElement('a');
+            link.href = response.queryURL;
+            link.target = '_blank';
+            link.textContent = '🔗 View Query';
+            link.title = 'Click to view the actual API query in a new tab';
+            queryUrlDiv.appendChild(link);
+            contentDiv.appendChild(queryUrlDiv);
+        }
+        
+        contentDiv.appendChild(toolNameDiv);
+        contentDiv.appendChild(toolStatusDiv);
+        toolCallDiv.appendChild(contentDiv);
+        
+        // Create details container if enabled
+        if (this.options.enableToolCallDetails) {
+            const detailsDiv = document.createElement('div');
+            detailsDiv.className = 'conversation-tool-call-details';
+            detailsDiv.innerHTML = `
+                <h4>Tool Call Details</h4>
+                <div><strong>Function:</strong> ${toolName}</div>
+                <div><strong>Status:</strong> ${statusText}</div>
+                <div><strong>Arguments:</strong> <pre>${args ? JSON.stringify(args, null, 2) : 'N/A'}</pre></div>
+                <div><strong>Response:</strong> <pre>${response ? JSON.stringify(response, null, 2) : (success ? 'Success' : 'Failed')}</pre></div>
+            `;
+            toolCallDiv.appendChild(detailsDiv);
+            
+            // Add click handler to toggle details
+            contentDiv.addEventListener('click', function() {
+                detailsDiv.classList.toggle('show');
+            });
+        }
+        
+        this.container.appendChild(toolCallDiv);
+        
+        if (this.options.autoScroll) {
+            this.scrollToBottom();
+        }
+        
+        return toolCallDiv;
+    }
+
     /**
      * Add a tool call to the conversation
      */

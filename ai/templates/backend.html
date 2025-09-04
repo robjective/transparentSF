@@ -2792,12 +2792,32 @@
                     const recentPeriod = metric.recent_period || 'recent period';
                     const direction = parseFloat(metric.delta || 0) > 0 ? 'increased' : 'decreased';
                     
-                    // Create a concise prompt asking for an explanation
+                    // Create a prompt based on whether this is an anomaly or regular metric
                     let prompt;
-                    if (metric.group_value) {
-                        prompt = `The metric "${metricName}" (ID: ${metricId}) for ${district} in ${metric.group_name} "${metric.group_value}" ${direction} from ${previousValue} in ${previousPeriod} to ${recentValue} in ${recentPeriod} (Δ ${delta}, ${percentChange}%). Please explain this change.`;
+                    if (metric.anomaly_id) {
+                        // This is an anomaly analysis - use anomaly-specific language
+                        if (metric.group_value) {
+                            prompt = `Please analyze this anomaly (ID: ${metric.anomaly_id}) for "${metricName}" in ${district}. This anomaly was detected in the ${metric.group_name} group "${metric.group_value}" where the value ${direction} from ${previousValue} (baseline) to ${recentValue} (detected period: ${recentPeriod}), representing an absolute difference of ${delta} and a ${percentChange}% deviation from normal.
+
+Can you help me understand:
+1. What factors might have caused this anomalous behavior?
+2. Is this anomaly part of a broader pattern or trend?
+3. What are the potential implications of this anomaly?`;
+                        } else {
+                            prompt = `Please analyze this anomaly (ID: ${metric.anomaly_id}) for "${metricName}" in ${district}. This anomaly was detected where the value ${direction} from ${previousValue} (baseline) to ${recentValue} (detected period: ${recentPeriod}), representing an absolute difference of ${delta} and a ${percentChange}% deviation from normal.
+
+Can you help me understand:
+1. What factors might have caused this anomalous behavior?
+2. Is this anomaly part of a broader pattern or trend?
+3. What are the potential implications of this anomaly?`;
+                        }
                     } else {
-                        prompt = `The metric "${metricName}" (ID: ${metricId}) for ${district} ${direction} from ${previousValue} in ${previousPeriod} to ${recentValue} in ${recentPeriod} (Δ ${delta}, ${percentChange}%). Please explain this change.`;
+                        // This is a regular metric analysis
+                        if (metric.group_value) {
+                            prompt = `The metric "${metricName}" (ID: ${metricId}) for ${district} in ${metric.group_name} "${metric.group_value}" ${direction} from ${previousValue} in ${previousPeriod} to ${recentValue} in ${recentPeriod} (Δ ${delta}, ${percentChange}%). Please explain this change.`;
+                        } else {
+                            prompt = `The metric "${metricName}" (ID: ${metricId}) for ${district} ${direction} from ${previousValue} in ${previousPeriod} to ${recentValue} in ${recentPeriod} (Δ ${delta}, ${percentChange}%). Please explain this change.`;
+                        }
                     }
 
                     // Send the prompt to Seymour after a brief delay to ensure the panel is open

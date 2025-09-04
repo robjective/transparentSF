@@ -249,16 +249,26 @@ class EnhancedExecutionTraceCallback(BaseCallbackHandler):
             if not token or not token.strip():
                 return
             
-            # Filter out object code and internal data patterns
-            if (any(pattern in token.lower() for pattern in ['agent_scratchpad', 'intermediate_steps', 'chat_history', 'log=']) or
-                token.strip().startswith('{') and token.strip().endswith('}') or
-                'tool_use' in token.lower() or
-                'type' in token.lower() and 'input' in token.lower() or
-                'partial_json' in token.lower() or
-                'index' in token.lower() and ('toolu_' in token or 'call_' in token) or
-                any(pattern in token for pattern in ['toolu_', 'call_', 'input_json_delta', 'tool_use'])):
+            # Filter out object code and internal data patterns, but preserve thinking traces
+            # Check for strict internal agent patterns (these should always be filtered)
+            strict_patterns = ['agent_scratchpad', 'intermediate_steps', 'chat_history', 'log=']
+            tool_patterns = ['toolu_', 'call_', 'input_json_delta', 'tool_use']
+            
+            # Skip tokens that are clearly internal agent data
+            if (any(pattern in token.lower() for pattern in strict_patterns) or
+                any(pattern in token for pattern in tool_patterns)):
                 # Skip this token entirely - don't add it to current_response_content
                 return
+            
+            # For JSON-like tokens, be more selective - only skip if they look like tool calls or internal data
+            if token.strip().startswith('{') and token.strip().endswith('}'):
+                # Check if this looks like a tool call or internal data structure
+                if ('tool_use' in token.lower() or 
+                    ('type' in token.lower() and 'input' in token.lower()) or
+                    'partial_json' in token.lower() or
+                    ('index' in token.lower() and ('toolu_' in token or 'call_' in token))):
+                    return
+                # Otherwise, allow JSON-like content through (might be thinking traces)
                 
             self.current_response_content += token
             
@@ -1057,7 +1067,9 @@ class LangChainExplainerAgent:
                             token = event.get('data', {}).get('token', '')
                             if token:
                                 # Check if this token contains internal agent data patterns
-                                if any(pattern in token.lower() for pattern in ['agent_scratchpad', 'intermediate_steps', 'chat_history', 'log=']):
+                                # Be more selective to preserve thinking traces
+                                strict_patterns = ['agent_scratchpad', 'intermediate_steps', 'chat_history', 'log=']
+                                if any(pattern in token.lower() for pattern in strict_patterns):
                                     self.logger.info(f"Skipping token with internal data: {token}")
                                     continue
                                 
@@ -1394,16 +1406,27 @@ class LangChainExplainerAgent:
                     try:
                         token = event.get('data', {}).get('token', '')
                         if token:
-                            # Check if this token contains internal agent data patterns or raw JSON
-                            if (any(pattern in token.lower() for pattern in ['agent_scratchpad', 'intermediate_steps', 'chat_history', 'log=']) or
-                                token.strip().startswith('{') and token.strip().endswith('}') or
-                                'tool_use' in token.lower() or
-                                'type' in token.lower() and 'input' in token.lower() or
-                                'partial_json' in token.lower() or
-                                'index' in token.lower() and ('toolu_' in token or 'call_' in token) or
-                                any(pattern in token for pattern in ['toolu_', 'call_', 'input_json_delta', 'tool_use'])):
-                                self.logger.info(f"Skipping token with internal data or JSON: {token}")
+                            # Check if this token contains internal agent data patterns, but preserve thinking traces
+                            strict_patterns = ['agent_scratchpad', 'intermediate_steps', 'chat_history', 'log=']
+                            tool_patterns = ['toolu_', 'call_', 'input_json_delta', 'tool_use']
+                            
+                            # Skip tokens that are clearly internal agent data
+                            if (any(pattern in token.lower() for pattern in strict_patterns) or
+                                any(pattern in token for pattern in tool_patterns)):
+                                self.logger.info(f"Skipping token with internal data: {token}")
                                 continue
+                            
+                            # For JSON-like tokens, be more selective
+                            if token.strip().startswith('{') and token.strip().endswith('}'):
+                                # Check if this looks like a tool call or internal data structure
+                                if ('tool_use' in token.lower() or 
+                                    ('type' in token.lower() and 'input' in token.lower()) or
+                                    'partial_json' in token.lower() or
+                                    ('index' in token.lower() and ('toolu_' in token or 'call_' in token))):
+                                    self.logger.info(f"Skipping JSON token with tool data: {token}")
+                                    continue
+                                # Otherwise, allow JSON-like content through (might be thinking traces)
+                                self.logger.info(f"Allowing potential thinking trace JSON: {token[:100]}...")
                             
                             self.logger.info(f"Yielding token: {token}")
                             yield f"data: {json.dumps({'content': token})}\n\n"
@@ -1432,16 +1455,27 @@ class LangChainExplainerAgent:
                             token = str(chunk)
                         
                         if token:
-                            # Check if this token contains internal agent data patterns or raw JSON
-                            if (any(pattern in token.lower() for pattern in ['agent_scratchpad', 'intermediate_steps', 'chat_history', 'log=']) or
-                                token.strip().startswith('{') and token.strip().endswith('}') or
-                                'tool_use' in token.lower() or
-                                'type' in token.lower() and 'input' in token.lower() or
-                                'partial_json' in token.lower() or
-                                'index' in token.lower() and ('toolu_' in token or 'call_' in token) or
-                                any(pattern in token for pattern in ['toolu_', 'call_', 'input_json_delta', 'tool_use'])):
-                                self.logger.info(f"Skipping token with internal data or JSON: {token}")
+                            # Check if this token contains internal agent data patterns, but preserve thinking traces
+                            strict_patterns = ['agent_scratchpad', 'intermediate_steps', 'chat_history', 'log=']
+                            tool_patterns = ['toolu_', 'call_', 'input_json_delta', 'tool_use']
+                            
+                            # Skip tokens that are clearly internal agent data
+                            if (any(pattern in token.lower() for pattern in strict_patterns) or
+                                any(pattern in token for pattern in tool_patterns)):
+                                self.logger.info(f"Skipping token with internal data: {token}")
                                 continue
+                            
+                            # For JSON-like tokens, be more selective
+                            if token.strip().startswith('{') and token.strip().endswith('}'):
+                                # Check if this looks like a tool call or internal data structure
+                                if ('tool_use' in token.lower() or 
+                                    ('type' in token.lower() and 'input' in token.lower()) or
+                                    'partial_json' in token.lower() or
+                                    ('index' in token.lower() and ('toolu_' in token or 'call_' in token))):
+                                    self.logger.info(f"Skipping JSON token with tool data: {token}")
+                                    continue
+                                # Otherwise, allow JSON-like content through (might be thinking traces)
+                                self.logger.info(f"Allowing potential thinking trace JSON: {token[:100]}...")
                             
                             self.logger.info(f"Yielding token from chat model: {token}")
                             yield f"data: {json.dumps({'content': token})}\n\n"
@@ -2028,3 +2062,4 @@ def validate_tool_configuration(tool_groups: List[ToolGroup]) -> Dict[str, Any]:
         Validation results including available and missing tools
     """
     return tool_factory.validate_tool_availability(tool_groups)
+

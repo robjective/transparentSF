@@ -458,44 +458,43 @@ def process_metric_analysis(metric_info, period_type='month', process_districts=
     
     # If we have category fields, we need to modify the query to include them
     if category_fields and len(category_fields) > 0:
-        # Check if this is a fiscal year query
-        is_fiscal_year_query = 'fiscal_year' in original_query.lower()
+        # Extract category field names
+        category_field_names = []
+        for field in category_fields:
+            if isinstance(field, dict):
+                field_name = field.get('fieldName', '')
+                if field_name:
+                    category_field_names.append(field_name)
         
-        if is_fiscal_year_query:
-            # For fiscal year queries, we need to add category fields to the SELECT and GROUP BY
-            # The current query is: SELECT fiscal_year as date, SUM(amount) as value WHERE...
-            # We need to add category fields to both SELECT and GROUP BY
+        if category_field_names:
+            # Add category fields to SELECT clause for all query types
+            select_parts = transformed_query.split('SELECT ')[1].split(' WHERE')[0].strip()
             
-            # Extract category field names
-            category_field_names = []
-            for field in category_fields:
-                if isinstance(field, dict):
-                    field_name = field.get('fieldName', '')
-                    if field_name:
-                        category_field_names.append(field_name)
+            # Check if query has aggregation functions (SUM, COUNT, AVG, etc.)
+            has_aggregation = any(func in select_parts.upper() for func in ['SUM(', 'COUNT(', 'AVG(', 'MAX(', 'MIN('])
             
-            if category_field_names:
-                # Add category fields to SELECT clause
-                select_parts = transformed_query.split('SELECT ')[1].split(' WHERE')[0]
-                if 'SUM(' in select_parts:
-                    # Insert category fields after the date field but before the SUM
-                    parts = select_parts.split(',')
-                    if len(parts) >= 2:
-                        # Add category fields after the date field
-                        category_select = ', '.join(category_field_names)
-                        new_select = f"{parts[0]}, {category_select}, {parts[1]}"
-                        transformed_query = transformed_query.replace(select_parts, new_select)
-                        
-                        # Add category fields to GROUP BY
-                        if 'GROUP BY' in transformed_query:
-                            group_by_part = transformed_query.split('GROUP BY ')[1].split(' ORDER BY')[0]
-                            new_group_by = f"{group_by_part}, {category_select}"
-                            transformed_query = transformed_query.replace(f"GROUP BY {group_by_part}", f"GROUP BY {new_group_by}")
+            if has_aggregation:
+                # Insert category fields after the date field but before the aggregation
+                parts = select_parts.split(',')
+                if len(parts) >= 2:
+                    # Add category fields after the date field
+                    category_select = ', '.join(category_field_names)
+                    new_select = f"{parts[0]}, {category_select}, {parts[1]}"
+                    transformed_query = transformed_query.replace(select_parts, new_select)
+                    
+                    # Add category fields to GROUP BY
+                    if 'GROUP BY' in transformed_query:
+                        group_by_part = transformed_query.split('GROUP BY ')[1].split(' ORDER BY')[0].strip()
+                        new_group_by = f"{group_by_part}, {category_select}"
+                        transformed_query = transformed_query.replace(f"GROUP BY {group_by_part}", f"GROUP BY {new_group_by}")
+                    else:
+                        # Add GROUP BY if it doesn't exist
+                        if 'ORDER BY' in transformed_query:
+                            order_by_part = transformed_query.split('ORDER BY')[0].strip()
+                            order_by_clause = transformed_query.split('ORDER BY ')[1]
+                            transformed_query = f"{order_by_part} GROUP BY {category_select} ORDER BY {order_by_clause}"
                         else:
-                            # Add GROUP BY if it doesn't exist
-                            order_by_part = transformed_query.split('ORDER BY')[0]
-                            category_select = ', '.join(category_field_names)
-                            transformed_query = f"{order_by_part} GROUP BY {category_select} ORDER BY {transformed_query.split('ORDER BY ')[1]}"
+                            transformed_query = f"{transformed_query} GROUP BY {category_select}"
     
     logging.info(f"Transformed query: {transformed_query}")
     
@@ -1439,12 +1438,13 @@ def extract_aggregation_function(query):
     """Extract the aggregation function (COUNT(*), SUM(count), etc.) from a query."""
     # Look for common aggregation patterns - be more specific to avoid false matches
     aggregation_patterns = [
-        r'(SUM\s*\(\s*count\s*\))',  # SUM(count) - most specific first
-        r'(COUNT\s*\(\s*\*\s*\))',   # COUNT(*)
-        r'(SUM\s*\([^)]+\))',        # SUM(field)
-        r'(AVG\s*\([^)]+\))',        # AVG(field)
-        r'(MAX\s*\([^)]+\))',        # MAX(field)
-        r'(MIN\s*\([^)]+\))',        # MIN(field)
+        r'(SUM\s*\(\s*count\s*\))',          # SUM(count) - most specific first
+        r'(COUNT\s*\(\s*DISTINCT\s+[^)]+\))', # COUNT(DISTINCT field)
+        r'(COUNT\s*\(\s*\*\s*\))',            # COUNT(*)
+        r'(SUM\s*\([^)]+\))',                 # SUM(field)
+        r'(AVG\s*\([^)]+\))',                 # AVG(field)
+        r'(MAX\s*\([^)]+\))',                 # MAX(field)
+        r'(MIN\s*\([^)]+\))',                 # MIN(field)
     ]
     
     for pattern in aggregation_patterns:

@@ -166,7 +166,7 @@ async def run_eval_streaming_endpoint(request: Request):
         
         agent = create_explainer_agent(
             model_key=model_key, 
-            tool_groups=[ToolGroup.CORE, ToolGroup.ANALYSIS], 
+            tool_groups=[ToolGroup.CORE, ToolGroup.ANALYSIS, ToolGroup.METRICS, ToolGroup.VISUALIZATION], 
             enable_session_logging=True
         )
         
