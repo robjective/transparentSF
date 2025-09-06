@@ -458,44 +458,43 @@ def process_metric_analysis(metric_info, period_type='month', process_districts=
     
     # If we have category fields, we need to modify the query to include them
     if category_fields and len(category_fields) > 0:
-        # Check if this is a fiscal year query
-        is_fiscal_year_query = 'fiscal_year' in original_query.lower()
+        # Extract category field names
+        category_field_names = []
+        for field in category_fields:
+            if isinstance(field, dict):
+                field_name = field.get('fieldName', '')
+                if field_name:
+                    category_field_names.append(field_name)
         
-        if is_fiscal_year_query:
-            # For fiscal year queries, we need to add category fields to the SELECT and GROUP BY
-            # The current query is: SELECT fiscal_year as date, SUM(amount) as value WHERE...
-            # We need to add category fields to both SELECT and GROUP BY
+        if category_field_names:
+            # Add category fields to SELECT clause for all query types
+            select_parts = transformed_query.split('SELECT ')[1].split(' WHERE')[0].strip()
             
-            # Extract category field names
-            category_field_names = []
-            for field in category_fields:
-                if isinstance(field, dict):
-                    field_name = field.get('fieldName', '')
-                    if field_name:
-                        category_field_names.append(field_name)
+            # Check if query has aggregation functions (SUM, COUNT, AVG, etc.)
+            has_aggregation = any(func in select_parts.upper() for func in ['SUM(', 'COUNT(', 'AVG(', 'MAX(', 'MIN('])
             
-            if category_field_names:
-                # Add category fields to SELECT clause
-                select_parts = transformed_query.split('SELECT ')[1].split(' WHERE')[0]
-                if 'SUM(' in select_parts:
-                    # Insert category fields after the date field but before the SUM
-                    parts = select_parts.split(',')
-                    if len(parts) >= 2:
-                        # Add category fields after the date field
-                        category_select = ', '.join(category_field_names)
-                        new_select = f"{parts[0]}, {category_select}, {parts[1]}"
-                        transformed_query = transformed_query.replace(select_parts, new_select)
-                        
-                        # Add category fields to GROUP BY
-                        if 'GROUP BY' in transformed_query:
-                            group_by_part = transformed_query.split('GROUP BY ')[1].split(' ORDER BY')[0]
-                            new_group_by = f"{group_by_part}, {category_select}"
-                            transformed_query = transformed_query.replace(f"GROUP BY {group_by_part}", f"GROUP BY {new_group_by}")
+            if has_aggregation:
+                # Insert category fields after the date field but before the aggregation
+                parts = select_parts.split(',')
+                if len(parts) >= 2:
+                    # Add category fields after the date field
+                    category_select = ', '.join(category_field_names)
+                    new_select = f"{parts[0]}, {category_select}, {parts[1]}"
+                    transformed_query = transformed_query.replace(select_parts, new_select)
+                    
+                    # Add category fields to GROUP BY
+                    if 'GROUP BY' in transformed_query:
+                        group_by_part = transformed_query.split('GROUP BY ')[1].split(' ORDER BY')[0].strip()
+                        new_group_by = f"{group_by_part}, {category_select}"
+                        transformed_query = transformed_query.replace(f"GROUP BY {group_by_part}", f"GROUP BY {new_group_by}")
+                    else:
+                        # Add GROUP BY if it doesn't exist
+                        if 'ORDER BY' in transformed_query:
+                            order_by_part = transformed_query.split('ORDER BY')[0].strip()
+                            order_by_clause = transformed_query.split('ORDER BY ')[1]
+                            transformed_query = f"{order_by_part} GROUP BY {category_select} ORDER BY {order_by_clause}"
                         else:
-                            # Add GROUP BY if it doesn't exist
-                            order_by_part = transformed_query.split('ORDER BY')[0]
-                            category_select = ', '.join(category_field_names)
-                            transformed_query = f"{order_by_part} GROUP BY {category_select} ORDER BY {transformed_query.split('ORDER BY ')[1]}"
+                            transformed_query = f"{transformed_query} GROUP BY {category_select}"
     
     logging.info(f"Transformed query: {transformed_query}")
     
@@ -761,8 +760,14 @@ def process_metric_analysis(metric_info, period_type='month', process_districts=
         try:
             # Get the most recent month's data
             if 'month_period' in dataset.columns:
-                # Get the most recent month from the 'recent' period
-                recent_months = dataset[dataset['period_type'] == 'recent']['month_period'].unique()
+                # Check if period_type column exists, if not, use all data as recent
+                if 'period_type' in dataset.columns:
+                    # Get the most recent month from the 'recent' period
+                    recent_months = dataset[dataset['period_type'] == 'recent']['month_period'].unique()
+                else:
+                    # If period_type column is missing, use all available months
+                    logging.warning("period_type column is missing from dataset. Using all available data.")
+                    recent_months = dataset['month_period'].unique()
                 if len(recent_months) > 0:
                     last_month = sorted(recent_months)[-1]
                     
@@ -820,8 +825,12 @@ def process_metric_analysis(metric_info, period_type='month', process_districts=
                         logging.warning(f"Error formatting date values: {e}")
                     
                     # Filter dataset for last month
-                    last_month_data = dataset[(dataset['month_period'] == last_month) & 
-                                            (dataset['period_type'] == 'recent')]
+                    if 'period_type' in dataset.columns:
+                        last_month_data = dataset[(dataset['month_period'] == last_month) & 
+                                                (dataset['period_type'] == 'recent')]
+                    else:
+                        # If period_type column is missing, just filter by month_period
+                        last_month_data = dataset[dataset['month_period'] == last_month]
                     
                     # Prepare data for density map
                     if not last_month_data.empty:
@@ -932,13 +941,18 @@ def process_metric_analysis(metric_info, period_type='month', process_districts=
                     # Generate delta map showing percent change if we have two months
                     if second_last_month and not last_month_data.empty:
                         # Determine which period to look for second_last_month data
-                        # If second_last_month is in recent_months, look in recent period, otherwise look in comparison
-                        if second_last_month in recent_months:
-                            second_last_month_data = dataset[(dataset['month_period'] == second_last_month) & 
-                                                          (dataset['period_type'] == 'recent')]
+                        # If period_type column exists, use it for filtering, otherwise filter by month_period only
+                        if 'period_type' in dataset.columns:
+                            # If second_last_month is in recent_months, look in recent period, otherwise look in comparison
+                            if second_last_month in recent_months:
+                                second_last_month_data = dataset[(dataset['month_period'] == second_last_month) & 
+                                                               (dataset['period_type'] == 'recent')]
+                            else:
+                                second_last_month_data = dataset[(dataset['month_period'] == second_last_month) & 
+                                                               (dataset['period_type'] == 'comparison')]
                         else:
-                            second_last_month_data = dataset[(dataset['month_period'] == second_last_month) & 
-                                                          (dataset['period_type'] == 'comparison')]
+                            # If period_type column is missing, just filter by month_period
+                            second_last_month_data = dataset[dataset['month_period'] == second_last_month]
                         
                         if not second_last_month_data.empty:
                             # Log data for debugging
@@ -1400,16 +1414,15 @@ def process_single_analysis(context_variables, category_fields, period_type, per
     return result
 
 def extract_date_field_from_query(query):
-    """Extract the date field from a query."""
-    date_fields_to_check = [
-        'date', 'incident_date', 'report_date', 'arrest_date', 'received_datetime', 
-        'Report_Datetime', 'disposition_date', 'dba_start_date'
-    ]
+    """Extract the date field from a query using a more generic approach."""
     
-    for field in date_fields_to_check:
-        if field in query:
-            logging.info(f"Found date field in query: {field}")
-            return field
+    # First, look for any field being aliased as 'date' - this is the most generic approach
+    # Pattern: "<field_name> as date" or "<field_name> AS date"
+    date_alias_match = re.search(r'(\w+)\s+as\s+date\b', query, re.IGNORECASE)
+    if date_alias_match:
+        field = date_alias_match.group(1).strip()
+        logging.info(f"Found date field from alias: {field} as date")
+        return field
     
     # Try to find date_trunc patterns
     date_trunc_match = re.search(r'date_trunc_[ymd]+ *\( *([^\)]+) *\)', query)
@@ -1418,6 +1431,18 @@ def extract_date_field_from_query(query):
         logging.info(f"Found date field from date_trunc: {field}")
         return field
     
+    # Fallback to checking common date field names (for backwards compatibility)
+    date_fields_to_check = [
+        'date', 'incident_date', 'report_date', 'arrest_date', 'received_datetime', 
+        'Report_Datetime', 'disposition_date', 'dba_start_date'
+    ]
+    
+    for field in date_fields_to_check:
+        if field in query:
+            logging.info(f"Found date field in query (fallback): {field}")
+            return field
+    
+    logging.warning("No date field found in query")
     return None
 
 def determine_date_field_name(query, date_field, period_type):
@@ -1439,12 +1464,13 @@ def extract_aggregation_function(query):
     """Extract the aggregation function (COUNT(*), SUM(count), etc.) from a query."""
     # Look for common aggregation patterns - be more specific to avoid false matches
     aggregation_patterns = [
-        r'(SUM\s*\(\s*count\s*\))',  # SUM(count) - most specific first
-        r'(COUNT\s*\(\s*\*\s*\))',   # COUNT(*)
-        r'(SUM\s*\([^)]+\))',        # SUM(field)
-        r'(AVG\s*\([^)]+\))',        # AVG(field)
-        r'(MAX\s*\([^)]+\))',        # MAX(field)
-        r'(MIN\s*\([^)]+\))',        # MIN(field)
+        r'(SUM\s*\(\s*count\s*\))',          # SUM(count) - most specific first
+        r'(COUNT\s*\(\s*DISTINCT\s+[^)]+\))', # COUNT(DISTINCT field)
+        r'(COUNT\s*\(\s*\*\s*\))',            # COUNT(*)
+        r'(SUM\s*\([^)]+\))',                 # SUM(field)
+        r'(AVG\s*\([^)]+\))',                 # AVG(field)
+        r'(MAX\s*\([^)]+\))',                 # MAX(field)
+        r'(MIN\s*\([^)]+\))',                 # MIN(field)
     ]
     
     for pattern in aggregation_patterns:
@@ -1641,7 +1667,9 @@ def transform_query_for_period(original_query, date_field, category_fields, peri
             period_type_select = f", CASE WHEN {date_field_match} >= '{recent_start}' AND {date_field_match} <= '{recent_end}' THEN 'recent' ELSE 'comparison' END as period_type"
             
             # Build the complete transformed query
-            group_by_clause = f"GROUP BY {period_field}, period_type"
+            # Note: Don't include period_type in GROUP BY since it's a calculated field
+            # that the SF Open Data API doesn't recognize
+            group_by_clause = f"GROUP BY {period_field}"
             if group_by_fields:
                 group_by_clause += ", " + ", ".join(group_by_fields)
                 
@@ -1917,9 +1945,11 @@ def transform_query_for_period(original_query, date_field, category_fields, peri
         period_type_select = f", CASE WHEN {date_field} >= '{recent_start}' AND {date_field} <= '{recent_end}' THEN 'recent' ELSE 'comparison' END as period_type"
         
         # Log the GROUP BY clause
-        logging.info(f"GROUP BY clause: {group_by}, period_type")
+        logging.info(f"GROUP BY clause: {group_by}")
         
         # Build the complete transformed query - use the original aggregation function
+        # Note: Don't include period_type in GROUP BY since it's a calculated field
+        # that the SF Open Data API doesn't recognize
         transformed_query = f"""
         SELECT 
             {date_transform},
@@ -1928,7 +1958,7 @@ def transform_query_for_period(original_query, date_field, category_fields, peri
             {category_select}
         FROM {from_clause}
         {where_clause}
-        {group_by}, period_type
+        {group_by}
         ORDER BY {period_type}_period
         """
         

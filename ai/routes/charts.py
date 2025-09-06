@@ -15,6 +15,9 @@ from fastapi.responses import JSONResponse, HTMLResponse
 from fastapi.templating import Jinja2Templates
 from dotenv import load_dotenv
 
+# Import centralized database utilities
+from ai.tools.db_utils import get_postgres_connection, execute_with_connection
+
 # Load environment variables
 load_dotenv()
 
@@ -95,59 +98,59 @@ async def get_charts_for_review_api(
 async def get_chart_data(chart_id: str):
     """Get a specific chart by ID."""
     try:
-        import psycopg2
         import psycopg2.extras
         
-        # Connect to PostgreSQL
-        conn = psycopg2.connect(
-            host=os.environ.get("POSTGRES_HOST", "localhost"),
-            database=os.environ.get("POSTGRES_DB", "transparentsf"),
-            user=os.environ.get("POSTGRES_USER", "postgres"),
-            password=os.environ.get("POSTGRES_PASSWORD", "postgres")
-        )
-        
-        cursor = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
-        
-        # Query to get chart metadata
-        cursor.execute("""
-            SELECT 
-                chart_id, 
-                chart_title, 
-                y_axis_label, 
-                period_type, 
-                object_type, 
-                object_id, 
-                object_name, 
-                field_name, 
-                district, 
-                group_field,
-                executed_query_url
-            FROM time_series_metadata 
-            WHERE chart_id = %s
-        """, (chart_id,))
-        
-        metadata_result = cursor.fetchone()
-        
-        if not metadata_result:
+        def get_chart_data_operation(conn):
+            """Database operation to get chart metadata and data."""
+            cursor = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+            
+            # Query to get chart metadata
+            cursor.execute("""
+                SELECT 
+                    chart_id, 
+                    chart_title, 
+                    y_axis_label, 
+                    period_type, 
+                    object_type, 
+                    object_id, 
+                    object_name, 
+                    field_name, 
+                    district, 
+                    group_field,
+                    executed_query_url
+                FROM time_series_metadata 
+                WHERE chart_id = %s
+            """, (chart_id,))
+            
+            metadata_result = cursor.fetchone()
+            
+            if not metadata_result:
+                cursor.close()
+                raise HTTPException(status_code=404, detail=f"Chart with ID {chart_id} not found")
+            
+            # Query to get chart data points
+            cursor.execute("""
+                SELECT 
+                    time_period, 
+                    group_value, 
+                    numeric_value
+                FROM time_series_data 
+                WHERE chart_id = %s
+                ORDER BY time_period
+            """, (chart_id,))
+            
+            data_results = cursor.fetchall()
             cursor.close()
-            conn.close()
-            raise HTTPException(status_code=404, detail=f"Chart with ID {chart_id} not found")
+            
+            return metadata_result, data_results
         
-        # Query to get chart data points
-        cursor.execute("""
-            SELECT 
-                time_period, 
-                group_value, 
-                numeric_value
-            FROM time_series_data 
-            WHERE chart_id = %s
-            ORDER BY time_period
-        """, (chart_id,))
+        # Execute database operation using centralized connection handling
+        db_result = execute_with_connection(get_chart_data_operation)
         
-        data_results = cursor.fetchall()
+        if db_result["status"] == "error":
+            raise HTTPException(status_code=500, detail=f"Database error: {db_result['message']}")
         
-        cursor.close()
-        conn.close()
+        metadata_result, data_results = db_result["result"]
         
         # Map database period type to frontend period type for the response
         frontend_period_type_map = {
@@ -319,70 +322,69 @@ async def get_recent_charts_summary(
             }
         )
 
-@router.get("/api/chart/{chart_id}")
 @router.get("/backend/api/chart/{chart_id}")
-async def get_chart_data(chart_id: int):
+async def get_chart_data_legacy(chart_id: int):
     """
     Get chart data for a specific chart_id.
-    Accessible via both /api/chart/{chart_id} and /backend/api/chart/{chart_id}
+    Legacy endpoint for backward compatibility.
     
     Returns:
         ChartResponse with metadata and data points
     """
     try:
-        import psycopg2
         import psycopg2.extras
         
-        # Connect to PostgreSQL
-        conn = psycopg2.connect(
-            host=os.environ.get("POSTGRES_HOST", "localhost"),
-            database=os.environ.get("POSTGRES_DB", "transparentsf"),
-            user=os.environ.get("POSTGRES_USER", "postgres"),
-            password=os.environ.get("POSTGRES_PASSWORD", "postgres")
-        )
-        
-        cursor = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
-        
-        # Query to get chart metadata
-        cursor.execute("""
-            SELECT 
-                chart_id, 
-                chart_title, 
-                y_axis_label, 
-                period_type, 
-                object_type, 
-                object_id, 
-                object_name, 
-                field_name, 
-                district, 
-                group_field,
-                executed_query_url
-            FROM time_series_metadata 
-            WHERE chart_id = %s
-        """, (chart_id,))
-        
-        metadata_result = cursor.fetchone()
-        
-        if not metadata_result:
+        def get_chart_data_operation(conn):
+            """Database operation to get chart metadata and data."""
+            cursor = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+            
+            # Query to get chart metadata
+            cursor.execute("""
+                SELECT 
+                    chart_id, 
+                    chart_title, 
+                    y_axis_label, 
+                    period_type, 
+                    object_type, 
+                    object_id, 
+                    object_name, 
+                    field_name, 
+                    district, 
+                    group_field,
+                    executed_query_url
+                FROM time_series_metadata 
+                WHERE chart_id = %s
+            """, (chart_id,))
+            
+            metadata_result = cursor.fetchone()
+            
+            if not metadata_result:
+                cursor.close()
+                raise HTTPException(status_code=404, detail=f"Chart with ID {chart_id} not found")
+            
+            # Query to get chart data points
+            cursor.execute("""
+                SELECT 
+                    time_period, 
+                    group_value, 
+                    numeric_value
+                FROM time_series_data 
+                WHERE chart_id = %s
+                ORDER BY time_period
+            """, (chart_id,))
+            
+            data_results = cursor.fetchall()
             cursor.close()
-            conn.close()
-            raise HTTPException(status_code=404, detail=f"Chart with ID {chart_id} not found")
+            
+            return metadata_result, data_results
         
-        # Query to get chart data points
-        cursor.execute("""
-            SELECT 
-                time_period, 
-                group_value, 
-                numeric_value
-            FROM time_series_data 
-            WHERE chart_id = %s
-            ORDER BY time_period
-        """, (chart_id,))
+        # Execute database operation using centralized connection handling
+        db_result = execute_with_connection(get_chart_data_operation)
         
-        data_results = cursor.fetchall()
+        if db_result["status"] == "error":
+            raise HTTPException(status_code=500, detail=f"Database error: {db_result['message']}")
         
-        cursor.close()
-        conn.close()
+        metadata_result, data_results = db_result["result"]
         
         # Map database period type to frontend period type for the response
         frontend_period_type_map = {
@@ -459,56 +461,62 @@ async def get_active_charts_legacy(metric_id: str, district: str = "0", period_t
         JSON with a list of active charts including their IDs and metadata
     """
     try:
-        import psycopg2
         import psycopg2.extras
         
         logger.info(f"Getting active charts for metric_id={metric_id}, district={district}, period_type={period_type}")
         
-        # Connect to PostgreSQL
-        conn = psycopg2.connect(
-            host=os.getenv("POSTGRES_HOST", "localhost"),
-            port=int(os.getenv("POSTGRES_PORT", "5432")),
-            dbname=os.getenv("POSTGRES_DB", "transparentsf"),
-            user=os.getenv("POSTGRES_USER", "postgres"),
-            password=os.getenv("POSTGRES_PASSWORD", "postgres")
-        )
+        def get_active_charts_operation(conn):
+            """Database operation to get active charts."""
+            # Create cursor with dictionary-like results
+            cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            
+            # Query to get all active charts for the specified metric, district, and period type
+            query = """
+            SELECT 
+                chart_id, 
+                object_name, 
+                group_field, 
+                object_id,
+                district,
+                period_type,
+                is_active
+            FROM time_series_metadata
+            WHERE object_id = %s 
+            AND district = %s 
+            AND period_type = %s
+            AND is_active = TRUE
+            ORDER BY 
+                CASE WHEN group_field IS NULL THEN 0 ELSE 1 END,
+                group_field ASC
+            """
+            
+            cursor.execute(query, [metric_id, district, period_type])
+            charts = cursor.fetchall()
+            
+            # Convert any date objects to ISO format strings for JSON serialization
+            for chart in charts:
+                for key, value in chart.items():
+                    if hasattr(value, 'isoformat'):
+                        chart[key] = value.isoformat()
+            
+            cursor.close()
+            return charts
         
-        # Create cursor with dictionary-like results
-        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        # Execute database operation using centralized connection handling
+        db_result = execute_with_connection(get_active_charts_operation)
         
-        # Query to get all active charts for the specified metric, district, and period type
-        query = """
-        SELECT 
-            chart_id, 
-            object_name, 
-            group_field, 
-            object_id,
-            district,
-            period_type,
-            is_active
-        FROM time_series_metadata
-        WHERE object_id = %s 
-        AND district = %s 
-        AND period_type = %s
-        AND is_active = TRUE
-        ORDER BY 
-            CASE WHEN group_field IS NULL THEN 0 ELSE 1 END,
-            group_field ASC
-        """
+        if db_result["status"] == "error":
+            logger.error(f"Database error getting active charts: {db_result['message']}")
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "status": "error",
+                    "error": db_result['message']
+                }
+            )
         
-        cursor.execute(query, [metric_id, district, period_type])
-        charts = cursor.fetchall()
-        
-        # Convert any date objects to ISO format strings for JSON serialization
-        for chart in charts:
-            for key, value in chart.items():
-                if hasattr(value, 'isoformat'):
-                    chart[key] = value.isoformat()
-        
+        charts = db_result["result"]
         logger.info(f"Found {len(charts)} active charts for metric_id={metric_id}")
-        
-        cursor.close()
-        conn.close()
         
         return JSONResponse(
             content={
@@ -583,84 +591,85 @@ async def get_chart_by_metric_legacy(
         
         logger.info(f"Looking for chart with object_id={metric_id}, district={district}, period_type={db_period_type}, group_field={group_field}, groups={groups}")
         
-        # Connect to PostgreSQL
-        conn = psycopg2.connect(
-            host=os.environ.get("POSTGRES_HOST", "localhost"),
-            database=os.environ.get("POSTGRES_DB", "transparentsf"),
-            user=os.environ.get("POSTGRES_USER", "postgres"),
-            password=os.environ.get("POSTGRES_PASSWORD", "postgres")
-        )
-        
-        cursor = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
-        
-        # Build the query with proper handling of group_field NULL vs value
-        if group_field is None:
-            group_field_condition = "AND group_field IS NULL"
-            params = (metric_id, district, db_period_type)
-        else:
-            group_field_condition = "AND group_field = %s"
-            params = (metric_id, district, db_period_type, group_field)
-        
-        # Query to find the chart
-        query = f"""
-            SELECT 
-                chart_id, 
-                period_type, 
-                object_type, 
-                object_id, 
-                object_name, 
-                field_name, 
-                district, 
-                group_field,
-                executed_query_url,
-                caption,
-                metadata
-            FROM time_series_metadata 
-            WHERE object_id = %s AND district = %s 
-            AND period_type = %s {group_field_condition}
-            AND is_active = TRUE
-        """
-        
-        cursor.execute(query, params)
-        chart_metadata = cursor.fetchone()
-        
-        if not chart_metadata:
-            cursor.close()
-            conn.close()
-            raise HTTPException(status_code=404, detail=f"No active chart found for metric_id={metric_id}, district={district}, period_type={db_period_type}, group_field={group_field}")
-        
-        # Get the chart data
-        chart_id = chart_metadata["chart_id"]
-        
-        # Query to get chart data points
-        data_query = """
-            SELECT 
-                time_period, 
-                group_value, 
-                numeric_value
-            FROM time_series_data 
-            WHERE chart_id = %s
-        """
-        
-        data_params = [chart_id]
-        
-        # Add group filtering if specified
-        if group_values is not None:
-            if len(group_values) == 0:
-                # Empty list means no groups should be shown
-                data_query += " AND group_value IS NULL"
+        def get_chart_by_metric_operation(conn):
+            """Database operation to get chart metadata and data by metric."""
+            cursor = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+            
+            # Build the query with proper handling of group_field NULL vs value
+            if group_field is None:
+                group_field_condition = "AND group_field IS NULL"
+                params = (metric_id, district, db_period_type)
             else:
-                placeholders = ','.join(['%s'] * len(group_values))
-                data_query += f" AND group_value IN ({placeholders})"
-                data_params.extend(group_values)
+                group_field_condition = "AND group_field = %s"
+                params = (metric_id, district, db_period_type, group_field)
+            
+            # Query to find the chart
+            query = f"""
+                SELECT 
+                    chart_id, 
+                    period_type, 
+                    object_type, 
+                    object_id, 
+                    object_name, 
+                    field_name, 
+                    district, 
+                    group_field,
+                    executed_query_url,
+                    caption,
+                    metadata
+                FROM time_series_metadata 
+                WHERE object_id = %s AND district = %s 
+                AND period_type = %s {group_field_condition}
+                AND is_active = TRUE
+            """
+            
+            cursor.execute(query, params)
+            chart_metadata = cursor.fetchone()
+            
+            if not chart_metadata:
+                cursor.close()
+                raise HTTPException(status_code=404, detail=f"No active chart found for metric_id={metric_id}, district={district}, period_type={db_period_type}, group_field={group_field}")
+            
+            # Get the chart data
+            chart_id = chart_metadata["chart_id"]
+            
+            # Query to get chart data points
+            data_query = """
+                SELECT 
+                    time_period, 
+                    group_value, 
+                    numeric_value
+                FROM time_series_data 
+                WHERE chart_id = %s
+            """
+            
+            data_params = [chart_id]
+            
+            # Add group filtering if specified
+            if group_values is not None:
+                if len(group_values) == 0:
+                    # Empty list means no groups should be shown
+                    data_query += " AND group_value IS NULL"
+                else:
+                    placeholders = ','.join(['%s'] * len(group_values))
+                    data_query += f" AND group_value IN ({placeholders})"
+                    data_params.extend(group_values)
+            
+            data_query += " ORDER BY time_period"
+            
+            cursor.execute(data_query, data_params)
+            data_results = cursor.fetchall()
+            
+            cursor.close()
+            return chart_metadata, data_results
         
-        data_query += " ORDER BY time_period"
+        # Execute database operation using centralized connection handling
+        db_result = execute_with_connection(get_chart_by_metric_operation)
         
-        cursor.execute(data_query, data_params)
-        data_results = cursor.fetchall()
+        if db_result["status"] == "error":
+            raise HTTPException(status_code=500, detail=f"Database error: {db_result['message']}")
         
-        cursor.close()
-        conn.close()
+        chart_metadata, data_results = db_result["result"]
         
         # Map database period type to frontend period type for the response
         frontend_period_type_map = {

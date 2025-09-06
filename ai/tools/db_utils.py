@@ -42,6 +42,17 @@ def get_postgres_connection(
     Returns:
         connection: PostgreSQL database connection or None if connection fails
     """
+    # Check if DATABASE_URL is provided (common for managed services like Replit PostgreSQL)
+    database_url = os.getenv("DATABASE_URL")
+    if database_url:
+        try:
+            connection = psycopg2.connect(database_url)
+            logging.info("Successfully connected to PostgreSQL database using DATABASE_URL")
+            return connection
+        except Exception as e:
+            logging.error(f"Error connecting with DATABASE_URL: {e}")
+            # Fall through to individual parameter connection
+    
     # Use environment variables if parameters are not provided
     host = host or os.getenv("POSTGRES_HOST", "localhost")
     port = port or int(os.getenv("POSTGRES_PORT", "5432"))
@@ -57,7 +68,7 @@ def get_postgres_connection(
             user=user,
             password=password
         )
-        logging.info("Successfully connected to PostgreSQL database")
+        logging.info("Successfully connected to PostgreSQL database using individual parameters")
         return connection
     except Exception as e:
         logging.error(f"Error connecting to PostgreSQL database: {e}")

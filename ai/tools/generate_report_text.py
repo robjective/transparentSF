@@ -15,7 +15,7 @@ if project_root not in sys.path:
 
 from ai.anomalyAnalyzer import get_anomaly_details
 
-def generate_report_text(report_ids, execute_with_connection, load_prompts, AGENT_MODEL, client, logger=None):
+def generate_report_text(report_ids, execute_with_connection, load_prompts, AGENT_MODEL, langchain_agent=None, logger=None):
     """
     Step 3.5: Generate the final report_text for each prioritized item using the LLM.
     Updates the monthly_reporting table with the final narrative for each item.
@@ -23,8 +23,8 @@ def generate_report_text(report_ids, execute_with_connection, load_prompts, AGEN
         report_ids: List of report IDs to process
         execute_with_connection: Function to execute DB operations
         load_prompts: Function to load prompt templates
-        AGENT_MODEL: Model name for the LLM
-        client: LLM client
+        AGENT_MODEL: Model name for the LLM (deprecated, using langchain_agent instead)
+        langchain_agent: LangChain agent for generating text with session logging
         logger: Optional logger
     Returns:
         Status dictionary
@@ -34,6 +34,19 @@ def generate_report_text(report_ids, execute_with_connection, load_prompts, AGEN
         logger = logging.getLogger(__name__)
         # Ensure we're using the root logger's configuration
         logger.propagate = True
+    
+    # Create LangChain agent if not provided
+    if langchain_agent is None:
+        from agents.langchain_agent.explainer_agent import create_explainer_agent
+        from agents.langchain_agent.config.tool_config import ToolGroup
+        from agents.config.models import get_default_model
+        default_model = get_default_model()
+        logger.info(f"Creating LangChain agent for report text generation with session logging using model: {AGENT_MODEL if AGENT_MODEL else default_model}")
+        langchain_agent = create_explainer_agent(
+            model_key=AGENT_MODEL if AGENT_MODEL else default_model,
+            tool_groups=[ToolGroup.CORE, ToolGroup.ANALYSIS, ToolGroup.METRICS, ToolGroup.VISUALIZATION],
+            enable_session_logging=True
+        )
     
     logger.info(f"Generating report_text for {len(report_ids)} items")
 
@@ -199,12 +212,26 @@ def generate_report_text(report_ids, execute_with_connection, load_prompts, AGEN
             except Exception as e:
                 logger.error(f"Failed to write prompt to report_prompt file: {e}")
 
-            response = client.chat.completions.create(
-                model=AGENT_MODEL,
-                messages=[{"role": "system", "content": system_message},
-                         {"role": "user", "content": prompt}],
+            # Use LangChain agent instead of direct OpenAI call for session logging
+            full_prompt = f"SYSTEM: {system_message}\n\nUSER: {prompt}"
+            logger.info(f"Using LangChain agent to generate report text for report ID {report_id}")
+            
+            agent_result = langchain_agent.explain_change_sync(
+                prompt=full_prompt,
+                metric_details={
+                    "report_id": report_id,
+                    "metric_name": item.get('metric_name', '') if isinstance(item, dict) else item['metric_name'],
+                    "task": "generate_report_text"
+                }
             )
-            report_text = response.choices[0].message.content
+            
+            if agent_result.get("success"):
+                report_text = agent_result.get("explanation", "")
+                session_id = agent_result.get("session_id")
+                logger.info(f"Successfully generated report text using LangChain agent (session: {session_id})")
+            else:
+                logger.error(f"LangChain agent failed to generate report text: {agent_result.get('error')}")
+                report_text = f"Error generating report text: {agent_result.get('error')}"
             # Log prompt and response to file
             try:
                 with open(log_file, 'a', encoding='utf-8') as f:

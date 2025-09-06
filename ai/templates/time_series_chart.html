@@ -273,6 +273,60 @@
             }
         }
         
+        /* Embedded mode optimizations - much more aggressive spacing reduction */
+        body.embedded-mode #time-series-chart {
+            padding-bottom: 30% !important; /* Much more aggressive for embedded */
+        }
+        
+        /* When embedded in fixed-height iframe, adjust body to fit better */
+        body.embedded-mode {
+            margin: 0 !important;
+            padding: 2px !important;
+            overflow: hidden;
+        }
+        
+        body.embedded-mode .chart-container {
+            margin: 0 !important;
+            padding: 2px !important;
+        }
+        
+        body.embedded-mode #chart-section {
+            margin: 0 !important;
+        }
+        
+        body.embedded-mode #datasf-link {
+            text-align: left !important;
+        }
+        
+        /* Force left alignment for all centering elements in embedded mode */
+        body.embedded-mode .loading {
+            justify-content: flex-start !important;
+        }
+        
+        body.embedded-mode .js-plotly-plot,
+        body.embedded-mode .plot-container {
+            justify-content: flex-start !important;
+        }
+        
+        /* For very large fixed-height iframes (like 600px), still be aggressive */
+        @media (min-height: 500px) {
+            body.embedded-mode #time-series-chart {
+                padding-bottom: 35% !important; /* Still aggressive even for tall iframes */
+            }
+        }
+        
+        @media (max-width: 576px) {
+            body.embedded-mode #time-series-chart {
+                padding-bottom: 28% !important; /* More aggressive for small embedded */
+            }
+        }
+        
+        @media (max-width: 450px) and (max-height: 450px) {
+            body.embedded-mode #time-series-chart {
+                padding-bottom: 25% !important; /* Very aggressive for tiny embedded */
+            }
+        }
+        
         /* Ensure framing elements scale properly with container size */
         .chart-container {
             position: relative;
@@ -634,6 +688,37 @@
         
         // Apply chart-section-mode by default unless full_view=true is specified
         document.body.classList.toggle('chart-section-mode', !fullView);
+        
+        // Detect and apply embedded-mode class for CSS optimizations
+        const isEmbedded = window.location !== window.parent.location;
+        if (isEmbedded) {
+            document.body.classList.add('embedded-mode');
+            console.log('Embedded mode detected and class added');
+            
+            // Comprehensive scroll prevention for embedded mode
+            window.scrollTo(0, 0);
+            document.documentElement.scrollTop = 0;
+            document.body.scrollTop = 0;
+            
+            // Prevent any future scrolling attempts
+            setTimeout(() => {
+                window.scrollTo(0, 0);
+                document.documentElement.scrollTop = 0;
+                document.body.scrollTop = 0;
+            }, 50);
+            
+            setTimeout(() => {
+                window.scrollTo(0, 0);
+                document.documentElement.scrollTop = 0;
+                document.body.scrollTop = 0;
+            }, 200);
+            
+            setTimeout(() => {
+                window.scrollTo(0, 0);
+                document.documentElement.scrollTop = 0;
+                document.body.scrollTop = 0;
+            }, 500);
+        }
         
         // Elements
         const loadingEl = document.getElementById('loading');
@@ -1288,6 +1373,9 @@
                 xAxisYearLabels = yearDates.map(d => d.getFullYear().toString());
             }
 
+            // Check if we're in embedded mode
+            const isEmbedded = window.location !== window.parent.location;
+            
             // Configuration for the plot
             let layout;
             
@@ -1384,7 +1472,7 @@
                         itemsizing: 'constant',
                         itemwidth: 20
                     },
-                    margin: { t: 55, b: 80, l: 50, r: 30 },
+                    margin: { t: 55, b: isEmbedded ? 50 : 80, l: 50, r: 45 }, // Reduced bottom margin for embedded mode
                     height: null,
                     width: null,
                     autosize: true,
@@ -1534,7 +1622,7 @@
                         },
                         bgcolor: 'rgba(246, 241, 234, 0.7)' // Soft Sand with transparency
                     },
-                    margin: { t: 55, b: 100, l: 50, r: 30 }, // Increased top margin for subtitle space
+                    margin: { t: 55, b: isEmbedded ? 60 : 100, l: 50, r: 45 }, // Reduced bottom margin for embedded mode
                     height: null, // Remove fixed height
                     width: null, // Remove fixed width
                     autosize: true, // Enable autosize
@@ -1786,7 +1874,7 @@
                                         textArea.style.left = '-999999px';
                                         textArea.style.top = '-999999px';
                                         document.body.appendChild(textArea);
-                                        textArea.focus();
+                                        if (window.location === window.parent.location) textArea.focus();
                                         textArea.select();
                                         try {
                                             const result = document.execCommand('copy');
@@ -1849,7 +1937,7 @@
                                     textArea.style.left = '-999999px';
                                     textArea.style.top = '-999999px';
                                     document.body.appendChild(textArea);
-                                    textArea.focus();
+                                    if (window.location === window.parent.location) textArea.focus();
                                     textArea.select();
                                     try {
                                         const result = document.execCommand('copy');
@@ -1948,6 +2036,7 @@
                 // Get the current dimensions
                 const chartWidth = plotElement.clientWidth;
                 const chartHeight = plotElement.clientHeight;
+                const isEmbedded = window.location !== window.parent.location;
                 
                 // Adjust title font size based on chart width (subtitle is part of title)
                 let update = {
@@ -1959,20 +2048,20 @@
                 if (chartWidth < 400) {
                     update['title.y'] = 0.98;
                     update['legend.y'] = -0.12;        // Move legend up more for shorter charts
-                    update['margin.b'] = 80;          // Increase bottom margin for x-axis labels
+                    update['margin.b'] = isEmbedded ? 50 : 80;  // Reduced bottom margin for embedded mode
                     update['margin.t'] = 50;          // Maintain space for subtitle
                     update['margin.l'] = 45;          // Reduce left margin
-                    update['margin.r'] = 25;          // Reduce right margin
+                    update['margin.r'] = isEmbedded ? 50 : 35;  // Increase right margin for embedded mode to prevent clipping
                 }
                 
                 // For extremely small windows (like 437x437)
                 if (chartWidth < 300) {
                     update['title.font.size'] = Math.max(12, chartWidth / 30);
                     update['legend.font.size'] = Math.max(6, chartWidth / 60);
-                    update['margin.b'] = 70;
+                    update['margin.b'] = isEmbedded ? 40 : 70;  // Reduced bottom margin for embedded mode
                     update['margin.t'] = 45;
                     update['margin.l'] = 40;
-                    update['margin.r'] = 20;
+                    update['margin.r'] = isEmbedded ? 45 : 30;  // Increase right margin for embedded mode to prevent clipping
                 }
                 
                 // Apply the updates
@@ -2424,11 +2513,29 @@
         }
         
         // Load data when the page loads
-        document.addEventListener('DOMContentLoaded', fetchTimeSeriesData);
+        document.addEventListener('DOMContentLoaded', function() {
+            // Handle embedded mode hash removal before anything else
+            const isEmbedded = window.location !== window.parent.location;
+            if (isEmbedded && window.location.hash) {
+                // Remove hash immediately to prevent auto-scrolling
+                history.replaceState(null, null, window.location.pathname + window.location.search);
+                window.scrollTo(0, 0);
+            }
+            
+            fetchTimeSeriesData();
+        });
 
         // Function to handle chart section visibility - MODIFIED TO USE fullView PARAMETER
         function handleChartSection() {
+            const isEmbedded = window.location !== window.parent.location;
             const isChartSection = !fullView || window.location.hash === '#chart-section';
+            
+            // In embedded mode, always prevent hash-based scrolling
+            if (isEmbedded && window.location.hash) {
+                // Remove hash without page reload to prevent scrolling
+                history.replaceState(null, null, window.location.pathname + window.location.search);
+                window.scrollTo(0, 0);
+            }
             const header = document.querySelector('.header');
             const metadata = document.getElementById('metadata');
             const buttons = document.querySelector('.mt-3');
@@ -2552,7 +2659,7 @@
                         textArea.style.left = '-999999px';
                         textArea.style.top = '-999999px';
                         document.body.appendChild(textArea);
-                        textArea.focus();
+                        if (window.location === window.parent.location) textArea.focus();
                         textArea.select();
                         try {
                             const result = document.execCommand('copy');
@@ -2726,7 +2833,7 @@
                         textArea.style.left = '-999999px';
                         textArea.style.top = '-999999px';
                         document.body.appendChild(textArea);
-                        textArea.focus();
+                        if (window.location === window.parent.location) textArea.focus();
                         textArea.select();
                         try {
                             const result = document.execCommand('copy');

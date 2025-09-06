@@ -972,7 +972,7 @@ def prioritize_deltas(deltas, max_items=10, model_key=None):
             logger.info(f"Using LangChain agent with model: {model_to_use}")
             
             # Create the agent with additional tool groups for better analysis
-            from ai.agents.langchain_agent.config.tool_config import ToolGroup
+            from agents.langchain_agent.config.tool_config import ToolGroup
             agent = LangChainExplainerAgent(
                 model_key=model_to_use,
                 enable_session_logging=True,
@@ -1376,7 +1376,20 @@ def generate_explanations(report_ids, model_key=None):
     Returns:
         Status dictionary
     """
-    logger.info(f"Generating explanations for {len(report_ids)} items")
+    logger.info(f"Generating explanations for {len(report_ids)} items using model: {model_key}")
+    
+    # Create single LangChain agent instance outside the loop to reuse for all items
+    from agents.langchain_agent.explainer_agent import create_explainer_agent
+    from agents.langchain_agent.config.tool_config import ToolGroup
+    
+    model_to_use = model_key or get_default_model()
+    logger.info(f"Creating single LangChain agent with model: {model_to_use} for {len(report_ids)} items")
+    
+    agent = create_explainer_agent(
+        model_key=model_to_use,
+        tool_groups=[ToolGroup.CORE, ToolGroup.ANALYSIS, ToolGroup.METRICS, ToolGroup.VISUALIZATION],
+        enable_session_logging=True
+    )
     
     def generate_explanations_operation(connection):
         cursor = connection.cursor(cursor_factory=psycopg2.extras.DictCursor)
@@ -1431,17 +1444,8 @@ def generate_explanations(report_ids, model_key=None):
             logger.info(f"  Values: recent={recent_mean}, comparison={comparison_mean}, diff={difference}, percent_change={percent_change}")
             logger.info(f"  Period: {period_type}, District: {district}")
             
-            # Create LangChain explainer agent instance
-            model_to_use = model_key or get_default_model()
-            logger.info(f"Using LangChain agent with model: {model_to_use} for report_id {report_id}")
-            
-            # Create the agent with additional tool groups for better analysis
-            from ai.agents.langchain_agent.config.tool_config import ToolGroup
-            agent = LangChainExplainerAgent(
-                model_key=model_to_use,
-                enable_session_logging=True,
-                tool_groups=[ToolGroup.CORE, ToolGroup.ANALYSIS, ToolGroup.METRICS]
-            )
+            # Use the shared agent instance (no longer creating a new agent for each item)
+            logger.info(f"Using shared LangChain agent with model: {model_to_use} for report_id {report_id}")
             
             # Generate a unique session ID for this explanation
             session_id = f"explain_{report_id}_{int(time.time())}"
@@ -1792,7 +1796,7 @@ DO NOT include any additional content, headers, or formatting outside of this JS
     else:
         return {"status": "error", "message": result["message"]}
 
-def generate_monthly_report(report_date=None, district="0", original_filename=None):
+def generate_monthly_report(report_date=None, district="0", original_filename=None, model_key=None):
     """
     Step 4: Generate the final monthly report with charts and annotations
     
@@ -1804,9 +1808,29 @@ def generate_monthly_report(report_date=None, district="0", original_filename=No
     Returns:
         Path to the generated report file
     """
-    from openai import OpenAI
-    client = OpenAI()
-    AGENT_MODEL = "gpt-4o"  # Default model for newsletter generation
+    from agents.config.models import get_model_config
+    from agents.langchain_agent.explainer_agent import LangChainExplainerAgent
+    from agents.langchain_agent.config.tool_config import ToolGroup
+    
+    # Use selected model or default to gpt-4o
+    if model_key:
+        try:
+            model_config = get_model_config(model_key)
+            AGENT_MODEL = model_key  # Use the key, not the model_name
+            logger.info(f"Using selected model: {AGENT_MODEL}")
+        except Exception as e:
+            logger.warning(f"Error getting model config for {model_key}: {e}. Using default.")
+            AGENT_MODEL = get_default_model()
+    else:
+        AGENT_MODEL = get_default_model()
+    
+    # Create LangChain agent for session logging
+    langchain_agent = LangChainExplainerAgent(
+        model_key=AGENT_MODEL,
+        tool_groups=[ToolGroup.CORE, ToolGroup.ANALYSIS, ToolGroup.METRICS, ToolGroup.VISUALIZATION],
+        enable_session_logging=True
+    )
+    logger.info("Created LangChain agent for main newsletter generation with session logging")
     
     logger.info(f"Generating monthly report for district {district}")
     
@@ -2226,16 +2250,40 @@ def generate_monthly_report(report_date=None, district="0", original_filename=No
             logger.error(f"Error loading prompts from JSON: {e}")
             raise
 
-        # Make API call to generate the report
-        logger.info("Making API call to generate report content")
-        response = client.chat.completions.create(
-            model=AGENT_MODEL,
-            messages=[{"role": "system", "content": system_message},
-                     {"role": "user", "content": prompt}],
+        # Use LangChain agent instead of direct OpenAI call for session logging
+        logger.info("Using LangChain agent to generate main newsletter content")
+        full_prompt = f"SYSTEM: {system_message}\n\nUSER: {prompt}"
+        
+        agent_result = langchain_agent.explain_change_sync(
+            prompt=full_prompt,
+            metric_details={
+                "district": district,
+                "report_date": report_date,
+                "task": "generate_monthly_newsletter"
+            }
         )
-
-        report_text = response.choices[0].message.content
-        logger.info(f"Received report content (length: {len(report_text)})")
+        
+        if agent_result.get("success"):
+            raw_response = agent_result.get("explanation", "")
+            session_id = agent_result.get("session_id")
+            logger.info(f"Successfully generated newsletter using LangChain agent (session: {session_id}, length: {len(raw_response)})")
+            logger.info(f"Raw AI response preview (first 300 chars): {raw_response[:300] if raw_response else 'EMPTY OR NONE'}")
+            
+            # Clean the response by removing markdown code block formatting
+            report_text = clean_html_response(raw_response)
+            logger.info(f"After cleaning - report_text length: {len(report_text) if report_text else 0}")
+            logger.info(f"Cleaned report_text preview (first 300 chars): {report_text[:300] if report_text else 'EMPTY OR NONE'}")
+            
+            if len(report_text) != len(raw_response):
+                logger.info(f"Cleaned markdown formatting from response (original: {len(raw_response)} chars, cleaned: {len(report_text)} chars)")
+            
+            # Extra safety check
+            if not report_text or report_text.strip() == "":
+                logger.error("WARNING: Cleaned report_text is empty! Using raw response instead.")
+                report_text = raw_response
+        else:
+            logger.error(f"LangChain agent failed to generate newsletter: {agent_result.get('error')}")
+            report_text = f"Error generating newsletter: {agent_result.get('error')}"
         
         # Log the generated report content to a file
         try:
@@ -2381,11 +2429,30 @@ def generate_monthly_report(report_date=None, district="0", original_filename=No
         report_path = reports_dir / report_filename
         
         # Write the report directly without adding HTML structure
-        with open(report_path, 'w', encoding='utf-8') as f:
-            f.write(report_text)
-        
-        logger.info(f"Monthly newsletter saved to {report_path}")
-        return str(report_path)
+        try:
+            logger.info(f"Attempting to write report to {report_path}")
+            logger.info(f"Report text length: {len(report_text)} characters")
+            logger.info(f"Report text preview (first 200 chars): {report_text[:200] if report_text else 'EMPTY OR NONE'}")
+            
+            if not report_text or report_text.strip() == "":
+                logger.error("Report text is empty! Cannot write empty content to file.")
+                return None
+                
+            with open(report_path, 'w', encoding='utf-8') as f:
+                f.write(report_text)
+            
+            # Verify the file was written successfully
+            if report_path.exists() and report_path.stat().st_size > 0:
+                logger.info(f"Monthly newsletter saved successfully to {report_path} (size: {report_path.stat().st_size} bytes)")
+            else:
+                logger.error(f"File write failed! File exists: {report_path.exists()}, Size: {report_path.stat().st_size if report_path.exists() else 'N/A'}")
+                return None
+                
+            return str(report_path)
+            
+        except Exception as write_error:
+            logger.error(f"Error writing newsletter to file: {write_error}", exc_info=True)
+            return None
     
     # Execute the operation with proper connection handling
     result = execute_with_connection(
@@ -2404,7 +2471,7 @@ def generate_monthly_report(report_date=None, district="0", original_filename=No
     else:
         return {"status": "error", "message": result["message"]}
 
-def proofread_and_revise_report(report_path):
+def proofread_and_revise_report(report_path, model_key=None):
     """
     Step 5: Proofread and revise the monthly newsletter
     
@@ -2415,8 +2482,30 @@ def proofread_and_revise_report(report_path):
         Path to the revised newsletter file
     """
     from openai import OpenAI
+    from agents.config.models import get_model_config
+    from agents.langchain_agent.explainer_agent import LangChainExplainerAgent
+    from agents.langchain_agent.config.tool_config import ToolGroup
     client = OpenAI()
-    AGENT_MODEL = "gpt-4o"  # Default model for newsletter generation
+    
+    # Use selected model or default to gpt-4o
+    if model_key:
+        try:
+            model_config = get_model_config(model_key)
+            AGENT_MODEL = model_key  # Use the key, not the model_name
+            logger.info(f"Using selected model: {AGENT_MODEL}")
+        except Exception as e:
+            logger.warning(f"Error getting model config for {model_key}: {e}. Using default.")
+            AGENT_MODEL = get_default_model()
+    else:
+        AGENT_MODEL = get_default_model()
+    
+    # Create LangChain agent for session logging
+    langchain_agent = LangChainExplainerAgent(
+        model_key=AGENT_MODEL,
+        tool_groups=[ToolGroup.CORE, ToolGroup.ANALYSIS, ToolGroup.METRICS, ToolGroup.VISUALIZATION],
+        enable_session_logging=True
+    )
+    logger.info("Created LangChain agent for proofreading with session logging")
     
     logger.info(f"Proofreading and revising newsletter at {report_path}")
     
@@ -2440,18 +2529,27 @@ def proofread_and_revise_report(report_path):
 
         prompt += json_instruction
 
-        # Use the AGENT_MODEL directly with much higher max_tokens to handle large newsletters
-        logger.info("Using AGENT_MODEL for proofreading with increased token limit")
-        response = client.chat.completions.create(
-            model=AGENT_MODEL,
-            messages=[
-                {"role": "system", "content": system_message},
-                {"role": "user", "content": prompt}
-            ],
-            max_completion_tokens=16000,  # Significantly increased to handle large newsletters
-            response_format={"type": "json_object"}  # Expect JSON response
+        # Use LangChain agent instead of direct OpenAI call for session logging
+        logger.info("Using LangChain agent for proofreading")
+        full_prompt = f"SYSTEM: {system_message}\n\nUSER: {prompt}"
+        
+        agent_result = langchain_agent.explain_change_sync(
+            prompt=full_prompt,
+            metric_details={
+                "report_path": str(report_path),
+                "task": "proofread_and_revise_newsletter"
+            }
         )
-        response_content = response.choices[0].message.content
+        
+        if not agent_result.get("success"):
+            logger.error(f"LangChain agent failed to proofread newsletter: {agent_result.get('error')}")
+            return {"status": "error", "message": f"Error during proofreading: {agent_result.get('error')}"}
+        
+        response_content = agent_result.get("explanation", "")
+        session_id = agent_result.get("session_id")
+        logger.info(f"Successfully generated proofreading response using LangChain agent (session: {session_id})")
+        
+        revised_content = response_content
         
         # Save the raw response for debugging
         debug_path = Path(report_path).parent / f"{Path(report_path).stem}_raw_response.txt"
@@ -2461,7 +2559,9 @@ def proofread_and_revise_report(report_path):
         
         # Parse the JSON response
         try:
-            proofread_data = json.loads(response_content)
+            # Clean the response first in case it's wrapped in markdown code blocks
+            cleaned_response = clean_html_response(response_content)
+            proofread_data = json.loads(cleaned_response)
             revised_newsletter_content = proofread_data.get("newsletter")
             proofread_feedback = proofread_data.get("proofread_feedback")
             headlines = proofread_data.get("headlines") # Extract headlines
@@ -2553,11 +2653,12 @@ def proofread_and_revise_report(report_path):
         with open(revised_path, 'w', encoding='utf-8') as f:
             f.write(revised_newsletter_content)
         
-        # Expand chart references in the revised report
-        logger.info(f"Expanding chart references in revised report: {revised_path}")
-        expand_result = expand_chart_references(revised_path)
+        # Expand chart references in the revised report (use DataWrapper for email compatibility)
+        logger.info(f"Expanding chart references to DataWrapper charts in revised report: {revised_path}")
+        from tools.chart_expansion import expand_chart_references_dw
+        expand_result = expand_chart_references_dw(revised_path)
         if not expand_result:
-            logger.warning("Failed to expand chart references in the revised report")
+            logger.warning("Failed to expand chart references to DataWrapper charts in the revised report")
 
         # Update the reports table with the revised filename and proofread_feedback
         def update_report_record_operation(connection):
@@ -2777,8 +2878,20 @@ def run_monthly_report_process(district="0", period_type="month", max_report_ite
         Status dictionary with newsletter path
     """
     from openai import OpenAI
+    from agents.config.models import get_model_config
     client = OpenAI()
-    AGENT_MODEL = "gpt-4o"  # Default model for newsletter generation
+    
+    # Use selected model or default to gpt-4o
+    if model_key:
+        try:
+            model_config = get_model_config(model_key)
+            AGENT_MODEL = model_key  # Use the key, not the model_name
+            logger.info(f"Using selected model: {AGENT_MODEL}")
+        except Exception as e:
+            logger.warning(f"Error getting model config for {model_key}: {e}. Using default.")
+            AGENT_MODEL = get_default_model()
+    else:
+        AGENT_MODEL = get_default_model()
     
     logger.info(f"Starting monthly newsletter process for district {district}")
     
@@ -3038,13 +3151,24 @@ def run_monthly_report_process(district="0", period_type="month", max_report_ite
         logger.info("Step 6: Generating final report_text for each item")
         report_item_ids = [item['id'] for item in report_items if 'id' in item]
         if report_item_ids:
+            # Import ToolGroup for agent creation
+            from agents.langchain_agent.config.tool_config import ToolGroup
+            
+            # Create LangChain agent for session logging
+            langchain_agent = LangChainExplainerAgent(
+                model_key=AGENT_MODEL,
+                tool_groups=[ToolGroup.CORE, ToolGroup.ANALYSIS, ToolGroup.METRICS, ToolGroup.VISUALIZATION],
+                enable_session_logging=True
+            )
+            logger.info("Created LangChain agent for report text generation with session logging")
+            
             report_text_result = generate_report_text(
                 report_item_ids,
                 execute_with_connection,
                 load_prompts,
                 AGENT_MODEL,
-                client,
-                logger
+                langchain_agent=langchain_agent,
+                logger=logger
             )
             if report_text_result.get("status") != "success":
                 logger.warning(f"Failed to generate report_text: {report_text_result.get('message')}")
@@ -3086,23 +3210,24 @@ def run_monthly_report_process(district="0", period_type="month", max_report_ite
         else:
             logger.info("No original filename found, will generate new filename")
         
-        newsletter_result = generate_monthly_report(district=district, original_filename=original_filename)
+        newsletter_result = generate_monthly_report(district=district, original_filename=original_filename, model_key=model_key)
         if newsletter_result.get("status") != "success":
             return newsletter_result
             
         # Step 8: Proofreading and revising the newsletter
         logger.info("Step 8: Proofreading and revising newsletter")
-        revised_result = proofread_and_revise_report(newsletter_result.get("report_path"))
+        revised_result = proofread_and_revise_report(newsletter_result.get("report_path"), model_key=model_key)
         if revised_result.get("status") != "success":
             return revised_result
         
         # Use the revised newsletter path
         revised_newsletter_path = revised_result.get("revised_report_path")
-        # Step 9: Expand chart references in the revised newsletter
-        logger.info("Step 9: Expanding chart references in the revised newsletter")
-        expand_result = expand_chart_references(revised_newsletter_path)
+        # Step 9: Expand chart references in the revised newsletter (use DataWrapper for email compatibility)
+        logger.info("Step 9: Expanding chart references to DataWrapper charts in the revised newsletter")
+        from tools.chart_expansion import expand_chart_references_dw
+        expand_result = expand_chart_references_dw(revised_newsletter_path)
         if not expand_result:
-            logger.warning("Failed to expand chart references in the revised newsletter")
+            logger.warning("Failed to expand chart references to DataWrapper charts in the revised newsletter")
         
         # Step 10: Generate an email-compatible version of the newsletter
         logger.info("Step 10: Generating email-compatible version of newsletter")
@@ -3573,11 +3698,12 @@ def generate_inline_report(report_path, output_path=None):
         with open(report_path, 'r', encoding='utf-8') as f:
             report_html = f.read()
             
-        # Expand chart references in the report
-        logger.info(f"Expanding chart references in report for inline version: {report_path}")
-        expand_result = expand_chart_references(report_path)
+        # Expand chart references in the report (use local charts for web sharing)
+        logger.info(f"Expanding chart references to local charts in report for inline version: {report_path}")
+        from tools.chart_expansion import expand_chart_references_local
+        expand_result = expand_chart_references_local(report_path)
         if not expand_result:
-            logger.warning("Failed to expand chart references in the report for inline version")
+            logger.warning("Failed to expand chart references to local charts in the report for inline version")
             
         # Read the report again after expanding chart references
         with open(report_path, 'r', encoding='utf-8') as f:
@@ -3808,10 +3934,10 @@ def expand_chart_references(report_path):
             report_html = f.read()
         
         # Define patterns for simplified chart references
-        time_series_pattern = r'\[CHART:time_series:(\d+):(\d+):(\w+)\]'
-        time_series_id_pattern = r'\[CHART:time_series_id:(\d+)\]'  # New pattern for time_series_id
-        anomaly_pattern = r'\[CHART:anomaly:([a-zA-Z0-9]+)\]'  # Changed to support alphanumeric IDs
-        map_pattern = r'\[CHART:map:([a-zA-Z0-9\-]+)\]'  # Add pattern for map references
+        time_series_pattern = r'\[CHART:time_series:(\d+):(\d+):(\w+)\]\s*[.,;:]*\s*'
+        time_series_id_pattern = r'\[CHART:time_series_id:(\d+)\]\s*[.,;:]*\s*'  # New pattern for time_series_id
+        anomaly_pattern = r'\[CHART:anomaly:([a-zA-Z0-9]+)\]\s*[.,;:]*\s*'  # Changed to support alphanumeric IDs
+        map_pattern = r'\[CHART:map:([a-zA-Z0-9\-]+)\]\s*[.,;:]*\s*'  # Add pattern for map references
         
         # Define pattern for direct image references
         image_pattern_with_alt = r'<img[^>]*src="([^"]+)"[^>]*alt="([^"]+)"[^>]*>'
@@ -3831,7 +3957,7 @@ def expand_chart_references(report_path):
                 f'    <iframe src="/backend/time-series-chart?metric_id={metric_id}&district={district}&period_type={period_type}"\n'
                 f'            style="width: 100%; height: 600px; border: none;" \n'
                 f'            frameborder="0" \n'
-                f'            scrolling="no"\n'
+                f'            scrolling="yes"\n'
                 f'            title="Time Series Chart - Metric {metric_id}">\n'
                 f'    </iframe>\n'
                 f'</div>'
@@ -3850,7 +3976,7 @@ def expand_chart_references(report_path):
                 f'    <iframe src="/anomaly-analyzer/anomaly-chart?id={anomaly_id}#chart-section"\n'
                 f'            style="width: 100%; height: 600px; border: none;" \n'
                 f'            frameborder="0" \n'
-                f'            scrolling="no"\n'
+                f'            scrolling="yes"\n'
                 f'            title="Anomaly Analysis - ID {anomaly_id}">\n'
                 f'    </iframe>\n'
                 f'</div>'
@@ -3887,7 +4013,7 @@ def expand_chart_references(report_path):
                                 f'        <iframe src="{chart_url}"\n'
                                 f'                title="Anomaly {anomaly_id}: {img_alt}"\n'
                                 f'                style="width: 100%; border: none;" \n'
-                                f'                height="600"\n'
+                                f'                height="400"\n'
                                 f'                frameborder="0" \n'
                                 f'                scrolling="no"\n'
                                 f'                aria-label="Anomaly {anomaly_id}: {img_alt}"\n'
@@ -3944,7 +4070,7 @@ def expand_chart_references(report_path):
                                 f'        <iframe src="{chart_url}"\n'
                                 f'                title="Anomaly {anomaly_id}: Trend Analysis"\n'
                                 f'                style="width: 100%; border: none;" \n'
-                                f'                height="600"\n'
+                                f'                height="400"\n'
                                 f'                frameborder="0" \n'
                                 f'                scrolling="no"\n'
                                 f'                aria-label="Anomaly {anomaly_id}: Trend Analysis"\n'
@@ -3992,7 +4118,7 @@ def expand_chart_references(report_path):
                         f'        <iframe src="{map_url}"\n'
                         f'                title="Map {map_id}"\n'
                         f'                style="width: 100%; border: none;" \n'
-                        f'                height="600"\n'
+                        f'                height="400"\n'
                         f'                frameborder="0" \n'
                         f'                scrolling="no"\n'
                         f'                aria-label="Map {map_id}"\n'
@@ -4018,7 +4144,7 @@ def expand_chart_references(report_path):
                                 f'        <iframe src="{map_url}"\n'
                                 f'                title="Map {map_id}"\n'
                                 f'                style="width: 100%; border: none;" \n'
-                                f'                height="600"\n'
+                                f'                height="400"\n'
                                 f'                frameborder="0" \n'
                                 f'                scrolling="no"\n'
                                 f'                aria-label="Map {map_id}"\n'
@@ -4058,7 +4184,7 @@ def expand_chart_references(report_path):
                 f'    <iframe src="/backend/time-series-chart?chart_id={chart_id}"\n'
                 f'            style="width: 100%; height: 600px; border: none;" \n'
                 f'            frameborder="0" \n'
-                f'            scrolling="no"\n'
+                f'            scrolling="yes"\n'
                 f'            title="Time Series Chart - ID {chart_id}">\n'
                 f'    </iframe>\n'
                 f'</div>'
@@ -4201,6 +4327,50 @@ def request_chart_image(chart_type, params, output_path=None):
         logger.error(f"Error getting chart URL: {e}", exc_info=True)
         return None
 
+def clean_html_response(response_text):
+    """
+    Clean AI response by removing markdown code block formatting that wraps content.
+    Handles HTML, JSON, or other content wrapped in code blocks.
+    
+    Args:
+        response_text: The raw AI response text
+        
+    Returns:
+        Cleaned content
+    """
+    import re
+    
+    if not response_text:
+        logger.warning("clean_html_response: Input response_text is empty or None")
+        return response_text
+    
+    original_length = len(response_text)
+    logger.debug(f"clean_html_response: Processing text of length {original_length}")
+    
+    # First try to find JSON code blocks anywhere in the response (not just at the beginning)
+    # Pattern matches: ```json\n<content>\n``` or ```\n<content>\n``` anywhere in the text
+    json_pattern = r'```(?:json)?\s*\n(.*?)\n```'
+    json_match = re.search(json_pattern, response_text, re.DOTALL)
+    
+    if json_match:
+        cleaned = json_match.group(1).strip()
+        logger.debug(f"clean_html_response: Found JSON code block (original: {original_length} chars, cleaned: {len(cleaned)} chars)")
+        return cleaned
+    
+    # Fallback: try to match from the beginning (original behavior)
+    pattern = r'^```(?:html|json)?\s*\n(.*?)\n```\s*$'
+    match = re.match(pattern, response_text.strip(), re.DOTALL)
+    
+    if match:
+        cleaned = match.group(1).strip()
+        logger.debug(f"clean_html_response: Found and removed markdown code blocks from beginning (original: {original_length} chars, cleaned: {len(cleaned)} chars)")
+        return cleaned
+    else:
+        # If no code blocks found, return as-is
+        stripped = response_text.strip()
+        logger.debug(f"clean_html_response: No markdown code blocks found, returning stripped content (original: {original_length} chars, stripped: {len(stripped)} chars)")
+        return stripped
+
 def safe_json_serialize(obj, default_msg="<not serializable>"):
     """
     Safely serialize an object to JSON, handling non-serializable objects.
@@ -4251,7 +4421,7 @@ def safe_json_serialize(obj, default_msg="<not serializable>"):
             # For other types, just return string representation
             return f'"{str(obj)[:100] + "..." if len(str(obj)) > 100 else str(obj)}"'
 
-def generate_narrated_report(report_path, output_path=None):
+def generate_narrated_report(report_path, output_path=None, model_key=None):
     """
     Generate a narrated audio version of the report using ElevenLabs API.
     
@@ -4262,9 +4432,29 @@ def generate_narrated_report(report_path, output_path=None):
     Returns:
         Dictionary containing paths to the generated audio file and script HTML file, or None if failed
     """
-    from openai import OpenAI
-    client = OpenAI()
-    AGENT_MODEL = "gpt-4o"  # Default model for newsletter generation
+    from agents.config.models import get_model_config
+    from agents.langchain_agent.explainer_agent import LangChainExplainerAgent
+    from agents.langchain_agent.config.tool_config import ToolGroup
+    
+    # Use selected model or default to gpt-4o
+    if model_key:
+        try:
+            model_config = get_model_config(model_key)
+            AGENT_MODEL = model_key  # Use the key, not the model_name
+            logger.info(f"Using selected model: {AGENT_MODEL}")
+        except Exception as e:
+            logger.warning(f"Error getting model config for {model_key}: {e}. Using default.")
+            AGENT_MODEL = get_default_model()
+    else:
+        AGENT_MODEL = get_default_model()
+    
+    # Create LangChain agent for session logging
+    langchain_agent = LangChainExplainerAgent(
+        model_key=AGENT_MODEL,
+        tool_groups=[ToolGroup.CORE, ToolGroup.ANALYSIS, ToolGroup.METRICS, ToolGroup.VISUALIZATION],
+        enable_session_logging=True
+    )
+    logger.info("Created LangChain agent for audio narration with session logging")
     
     logger.info(f"Generating narrated version of report: {report_path}")
     
@@ -4302,18 +4492,26 @@ def generate_narrated_report(report_path, output_path=None):
         # Format the prompt with the newsletter content
         prompt = prompt_template.format(newsletter_content=report_html)
         
-        logger.info("Using AI to transform newsletter content for audio narration")
+        logger.info("Using LangChain agent to transform newsletter content for audio narration")
         
-        # Use AI to transform the content for audio
-        response = client.chat.completions.create(
-            model=AGENT_MODEL,
-            messages=[
-                {"role": "system", "content": system_message},
-                {"role": "user", "content": prompt}
-            ]
+        # Use LangChain agent instead of direct OpenAI call for session logging
+        full_prompt = f"SYSTEM: {system_message}\n\nUSER: {prompt}"
+        
+        agent_result = langchain_agent.explain_change_sync(
+            prompt=full_prompt,
+            metric_details={
+                "task": "audio_transformation",
+                "content_length": len(report_html)
+            }
         )
         
-        audio_script = response.choices[0].message.content
+        if not agent_result.get("success"):
+            logger.error(f"LangChain agent failed to generate audio script: {agent_result.get('error')}")
+            return {"status": "error", "message": f"Error generating audio script: {agent_result.get('error')}"}
+        
+        audio_script = agent_result.get("explanation", "")
+        session_id = agent_result.get("session_id")
+        logger.info(f"Successfully generated audio script using LangChain agent (session: {session_id})")
         logger.info(f"Generated audio script: {len(audio_script)} characters")
         logger.info(f"Sample audio script: {audio_script[:200]}...")
         
@@ -4481,12 +4679,17 @@ def get_existing_map_url(map_id):
         logger.error(f"Error getting existing map URL: {result['message']}")
         return None
 
-def expand_chart_references(report_path):
+def reprioritize_deltas_for_report(filename, district="0", period_type="month", max_report_items=1):
     """
-    Process a report file and replace simplified chart references with full HTML.
+    Re-prioritize deltas for an existing newsletter by clearing the monthly_reporting data
+    and regenerating it from scratch. This function stops after storing the prioritized items
+    and does NOT generate explanations (use regenerate_explanations_for_report for that).
     
     Args:
-        report_path: Path to the report file to process
+        filename: The filename of the report to re-prioritize
+        district: District number (0 for citywide)
+        period_type: Time period type (month, quarter, year)
+        max_report_items: Maximum number of items to include in the newsletter
         
     Returns:
         Path to the processed report file
@@ -4499,10 +4702,10 @@ def expand_chart_references(report_path):
             report_html = f.read()
         
         # Define patterns for simplified chart references
-        time_series_pattern = r'\[CHART:time_series:(\d+):(\d+):(\w+)\]'
-        time_series_id_pattern = r'\[CHART:time_series_id:(\d+)\]'  # New pattern for time_series_id
-        anomaly_pattern = r'\[CHART:anomaly:([a-zA-Z0-9]+)\]'  # Changed to support alphanumeric IDs
-        map_pattern = r'\[CHART:map:([a-zA-Z0-9\-]+)\]'  # Add pattern for map references
+        time_series_pattern = r'\[CHART:time_series:(\d+):(\d+):(\w+)\]\s*[.,;:]*\s*'
+        time_series_id_pattern = r'\[CHART:time_series_id:(\d+)\]\s*[.,;:]*\s*'  # New pattern for time_series_id
+        anomaly_pattern = r'\[CHART:anomaly:([a-zA-Z0-9]+)\]\s*[.,;:]*\s*'  # Changed to support alphanumeric IDs
+        map_pattern = r'\[CHART:map:([a-zA-Z0-9\-]+)\]\s*[.,;:]*\s*'  # Add pattern for map references
         
         # Define pattern for direct image references
         image_pattern_with_alt = r'<img[^>]*src="([^"]+)"[^>]*alt="([^"]+)"[^>]*>'
@@ -4522,7 +4725,7 @@ def expand_chart_references(report_path):
                 f'    <iframe src="/backend/time-series-chart?metric_id={metric_id}&district={district}&period_type={period_type}"\n'
                 f'            style="width: 100%; height: 600px; border: none;" \n'
                 f'            frameborder="0" \n'
-                f'            scrolling="no"\n'
+                f'            scrolling="yes"\n'
                 f'            title="Time Series Chart - Metric {metric_id}">\n'
                 f'    </iframe>\n'
                 f'</div>'
@@ -4541,7 +4744,7 @@ def expand_chart_references(report_path):
                 f'    <iframe src="/anomaly-analyzer/anomaly-chart?id={anomaly_id}#chart-section"\n'
                 f'            style="width: 100%; height: 600px; border: none;" \n'
                 f'            frameborder="0" \n'
-                f'            scrolling="no"\n'
+                f'            scrolling="yes"\n'
                 f'            title="Anomaly Analysis - ID {anomaly_id}">\n'
                 f'    </iframe>\n'
                 f'</div>'
@@ -4578,7 +4781,7 @@ def expand_chart_references(report_path):
                                 f'        <iframe src="{chart_url}"\n'
                                 f'                title="Anomaly {anomaly_id}: {img_alt}"\n'
                                 f'                style="width: 100%; border: none;" \n'
-                                f'                height="600"\n'
+                                f'                height="400"\n'
                                 f'                frameborder="0" \n'
                                 f'                scrolling="no"\n'
                                 f'                aria-label="Anomaly {anomaly_id}: {img_alt}"\n'
@@ -4635,7 +4838,7 @@ def expand_chart_references(report_path):
                                 f'        <iframe src="{chart_url}"\n'
                                 f'                title="Anomaly {anomaly_id}: Trend Analysis"\n'
                                 f'                style="width: 100%; border: none;" \n'
-                                f'                height="600"\n'
+                                f'                height="400"\n'
                                 f'                frameborder="0" \n'
                                 f'                scrolling="no"\n'
                                 f'                aria-label="Anomaly {anomaly_id}: Trend Analysis"\n'
@@ -4676,7 +4879,7 @@ def expand_chart_references(report_path):
                 f'    <iframe src="/backend/map-chart?id={map_id}"\n'
                 f'            style="width: 100%; height: 600px; border: none;" \n'
                 f'            frameborder="0" \n'
-                f'            scrolling="no"\n'
+                f'            scrolling="yes"\n'
                 f'            title="Map - ID {map_id}">\n'
                 f'    </iframe>\n'
                 f'</div>'
@@ -4695,7 +4898,7 @@ def expand_chart_references(report_path):
                 f'    <iframe src="/backend/time-series-chart?chart_id={chart_id}"\n'
                 f'            style="width: 100%; height: 600px; border: none;" \n'
                 f'            frameborder="0" \n'
-                f'            scrolling="no"\n'
+                f'            scrolling="yes"\n'
                 f'            title="Time Series Chart - ID {chart_id}">\n'
                 f'    </iframe>\n'
                 f'</div>'
@@ -4936,7 +5139,7 @@ def reprioritize_deltas_for_report(filename, district="0", period_type="month", 
         logger.error(error_msg, exc_info=True)
         return {"status": "error", "message": error_msg}
 
-def regenerate_explanations_for_report(filename):
+def regenerate_explanations_for_report(filename, model_key=None):
     """
     Regenerate explanations for an existing newsletter's monthly_reporting items.
     This function finds the report by filename and regenerates explanations for all its items.
@@ -4944,10 +5147,12 @@ def regenerate_explanations_for_report(filename):
     
     Args:
         filename: The newsletter filename (e.g., "monthly_report_0_2024_01.html")
+        model_key: Model to use for the LangChain agent (defaults to claude-3-7-sonnet)
         
     Returns:
         Status dictionary with success/error information
     """
+    logger.warning(f"🔧 DEBUG: regenerate_explanations_for_report STARTED with filename='{filename}', model_key='{model_key}'")
     logger.info(f"Regenerating explanations for newsletter: {filename}")
     
     try:
@@ -4997,7 +5202,7 @@ def regenerate_explanations_for_report(filename):
         
         # Step 2: Generate explanations for all items
         logger.info(f"Generating explanations for {len(item_ids)} items")
-        explanation_result = generate_explanations(item_ids)
+        explanation_result = generate_explanations(item_ids, model_key=model_key)
         
         if explanation_result.get("status") != "success":
             return {"status": "error", "message": f"Failed to generate explanations: {explanation_result.get('message')}"}
@@ -5140,20 +5345,43 @@ def regenerate_explanations_for_report(filename):
         # Step 4: Generate newsletter text for all items
         logger.info(f"Generating newsletter text for {len(item_ids)} items")
         
-        # Import the generate_report_text function
+        # Import the generate_report_text function and create LangChain agent
         from tools.generate_report_text import generate_report_text
-        from openai import OpenAI
-        client = OpenAI()
-        AGENT_MODEL = "gpt-4o"  # Default model for newsletter generation
+        from agents.langchain_agent.explainer_agent import create_explainer_agent
+        from agents.langchain_agent.config.tool_config import ToolGroup
+        from agents.config.models import get_model_config
         
+        # Use selected model or default to gpt-4o
+        if model_key:
+            try:
+                model_config = get_model_config(model_key)
+                AGENT_MODEL = model_key  # Use the key, not the model_name
+                logger.info(f"Using selected model for report text generation: {AGENT_MODEL}")
+            except Exception as e:
+                logger.warning(f"Error getting model config for {model_key}: {e}. Using default.")
+                AGENT_MODEL = "gpt-4o"
+        else:
+            AGENT_MODEL = "gpt-4o"
+        
+        # Create LangChain agent for session logging
+        langchain_agent = create_explainer_agent(
+            model_key=AGENT_MODEL,
+            tool_groups=[ToolGroup.CORE, ToolGroup.ANALYSIS, ToolGroup.METRICS, ToolGroup.VISUALIZATION],
+            enable_session_logging=True
+        )
+        logger.info("Created LangChain agent for newsletter text generation with session logging")
+        
+        logger.info(f"About to call generate_report_text with {len(item_ids)} item IDs: {item_ids}")
         text_result = generate_report_text(
             item_ids, 
             execute_with_connection, 
             load_prompts, 
             AGENT_MODEL, 
-            client, 
-            logger
+            langchain_agent=langchain_agent, 
+            logger=logger
         )
+        
+        logger.info(f"generate_report_text returned: {text_result}")
         
         if text_result.get("status") != "success":
             logger.warning(f"Failed to generate newsletter text: {text_result.get('message')}")
@@ -5175,6 +5403,49 @@ def regenerate_explanations_for_report(filename):
         error_msg = f"Error in regenerate_explanations_for_report: {str(e)}"
         logger.error(error_msg, exc_info=True)
         return {"status": "error", "message": error_msg}
+
+
+def regenerate_newsletter_for_report(filename, model_key=None):
+    """
+    Regenerate only the final newsletter HTML file for an existing report.
+    This function takes the existing explanations and newsletter text from the database
+    and generates the final HTML newsletter file with charts embedded.
+    
+    Args:
+        filename: The filename of the report to regenerate newsletter for
+        model_key: Optional model to use (defaults to environment setting)
+    
+    Returns:
+        Dict with status and details of the operation
+    """
+    try:
+        logger.info(f"Starting newsletter regeneration for report: {filename}")
+        
+        # Generate the final newsletter HTML file from the existing database content
+        newsletter_result = generate_monthly_report(
+            original_filename=filename,
+            model_key=model_key
+        )
+        
+        if newsletter_result.get("status") == "success":
+            logger.info(f"Successfully regenerated newsletter file at {newsletter_result.get('report_path')}")
+            return {
+                "status": "success",
+                "message": f"Successfully regenerated newsletter HTML file for {filename}",
+                "newsletter_path": newsletter_result.get("report_path")
+            }
+        else:
+            logger.warning(f"Failed to regenerate newsletter file: {newsletter_result.get('message')}")
+            return {
+                "status": "error",
+                "message": f"Failed to regenerate newsletter file: {newsletter_result.get('message')}"
+            }
+        
+    except Exception as e:
+        error_msg = f"Error in regenerate_newsletter_for_report: {str(e)}"
+        logger.error(error_msg, exc_info=True)
+        return {"status": "error", "message": error_msg}
+
 
 if __name__ == "__main__":
     # Run the monthly report process

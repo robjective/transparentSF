@@ -169,6 +169,23 @@ LOGGING_CONFIG = {
         # Agents modules
         "agents": {"level": log_level_str, "propagate": True},
         "agents.explainer_agent": {"level": log_level_str, "propagate": True},
+        
+        # LangChain library loggers
+        "langchain": {"level": log_level_str, "propagate": True},
+        "langchain_core": {"level": log_level_str, "propagate": True},
+        "langchain.agents": {"level": log_level_str, "propagate": True},
+        "langchain.tools": {"level": log_level_str, "propagate": True},
+        "langchain.chains": {"level": log_level_str, "propagate": True},
+        "langchain.callbacks": {"level": log_level_str, "propagate": True},
+        "langchain_openai": {"level": log_level_str, "propagate": True},
+        "langchain_anthropic": {"level": log_level_str, "propagate": True},
+        
+        # AI LangChain agent modules
+        "ai.agents.langchain_agent": {"level": log_level_str, "propagate": True},
+        "ai.agents.langchain_agent.explainer_agent": {"level": log_level_str, "propagate": True},
+        "ai.agents.langchain_agent.config": {"level": log_level_str, "propagate": True},
+        "ai.agents.langchain_agent.tools": {"level": log_level_str, "propagate": True},
+        "ai.agents.langchain_agent.prompts": {"level": log_level_str, "propagate": True},
     },
 }
 # --- End Logging Configuration ---

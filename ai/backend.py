@@ -29,8 +29,10 @@ from qdrant_client import QdrantClient
 import time
 from tools.enhance_dashboard_queries import enhance_dashboard_queries  # Add this import
 import re
-import psycopg2
 import psycopg2.extras
+
+# Import centralized database utilities
+from tools.db_utils import get_postgres_connection, execute_with_connection
 import asyncio
 
 from monthly_report import expand_chart_references, generate_email_compatible_report
@@ -76,14 +78,7 @@ logger.info(f"Output directory: {output_dir}")
 def get_db_connection():
     """Helper function to create a database connection using environment variables."""
     try:
-        conn = psycopg2.connect(
-            host=os.environ.get("POSTGRES_HOST", "localhost"),
-            port=int(os.environ.get("POSTGRES_PORT", "5432")),
-            dbname=os.environ.get("POSTGRES_DB", "transparentsf"),
-            user=os.environ.get("POSTGRES_USER", "postgres"),
-            password=os.environ.get("POSTGRES_PASSWORD", "postgres")
-        )
-        return conn
+        return get_postgres_connection()
     except Exception as e:
         logger.error(f"Error connecting to database: {e}")
         return None
@@ -2164,12 +2159,7 @@ async def get_time_series_count():
     """Get the count of rows in the time_series_metadata table."""
     try:
         # Connect to PostgreSQL
-        conn = psycopg2.connect(
-            host=os.environ.get("POSTGRES_HOST", "localhost"),
-            database=os.environ.get("POSTGRES_DB", "transparentsf"),
-            user=os.environ.get("POSTGRES_USER", "postgres"),
-            password=os.environ.get("POSTGRES_PASSWORD", "postgres")
-        )
+        conn = get_postgres_connection()
             
         cursor = conn.cursor()
             
@@ -2205,12 +2195,7 @@ async def get_anomalies_count():
     """Get the count of rows in the anomalies table."""
     try:
         # Connect to PostgreSQL
-        conn = psycopg2.connect(
-            host=os.environ.get("POSTGRES_HOST", "localhost"),
-            database=os.environ.get("POSTGRES_DB", "transparentsf"),
-            user=os.environ.get("POSTGRES_USER", "postgres"),
-            password=os.environ.get("POSTGRES_PASSWORD", "postgres")
-        )
+        conn = get_postgres_connection()
             
         cursor = conn.cursor()
             
@@ -2248,12 +2233,7 @@ async def get_postgres_size():
         # Connect to PostgreSQL and get the database size
         # This requires the database connection to be set up
         try:
-            conn = psycopg2.connect(
-                host=os.environ.get("POSTGRES_HOST", "localhost"),
-                database=os.environ.get("POSTGRES_DB", "transparentsf"),
-                user=os.environ.get("POSTGRES_USER", "postgres"),
-                password=os.environ.get("POSTGRES_PASSWORD", "postgres")
-            )
+            conn = get_postgres_connection()
             
             cursor = conn.cursor()
             
@@ -2439,13 +2419,7 @@ async def get_system_status():
         postgres_status = "error"
         postgres_value = "Offline"
         try:
-            conn = psycopg2.connect(
-                host=os.environ.get("POSTGRES_HOST", "localhost"),
-                database=os.environ.get("POSTGRES_DB", "transparentsf"),
-                user=os.environ.get("POSTGRES_USER", "postgres"),
-                password=os.environ.get("POSTGRES_PASSWORD", "postgres"),
-                connect_timeout=3
-            )
+            conn = get_postgres_connection()
             cursor = conn.cursor()
             cursor.execute("SELECT version()")
             version = cursor.fetchone()[0]
@@ -2559,13 +2533,7 @@ async def get_time_series_data_count():
         # Connect to the database
         conn = None
         try:
-            conn = psycopg2.connect(
-                dbname=os.environ.get("POSTGRES_DB", "transparentsf"),
-                user=os.environ.get("POSTGRES_USER", "postgres"),
-                password=os.environ.get("POSTGRES_PASSWORD", "postgres"),
-                host=os.environ.get("POSTGRES_HOST", "localhost"),
-                port=os.environ.get("POSTGRES_PORT", "5432")
-            )
+            conn = get_postgres_connection()
             
             cursor = conn.cursor()
             
@@ -2751,12 +2719,7 @@ async def get_anomalies_count_by_status():
     """Get the count of anomalies grouped by out_of_bounds status."""
     try:
         # Connect to PostgreSQL
-        conn = psycopg2.connect(
-            host=os.environ.get("POSTGRES_HOST", "localhost"),
-            database=os.environ.get("POSTGRES_DB", "transparentsf"),
-            user=os.environ.get("POSTGRES_USER", "postgres"),
-            password=os.environ.get("POSTGRES_PASSWORD", "postgres")
-        )
+        conn = get_postgres_connection()
             
         cursor = conn.cursor()
             
@@ -2808,12 +2771,7 @@ async def get_monthly_report_by_id(report_id: int):
         logger.info(f"Requesting monthly report by ID: {report_id}")
         
         # Connect to database
-        conn = psycopg2.connect(
-            host=os.environ.get("POSTGRES_HOST", "localhost"),
-            database=os.environ.get("POSTGRES_DB", "transparentsf"),
-            user=os.environ.get("POSTGRES_USER", "postgres"),
-            password=os.environ.get("POSTGRES_PASSWORD", "postgres")
-        )
+        conn = get_postgres_connection()
         cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
         
         # Get the report details
@@ -3377,8 +3335,13 @@ async def regenerate_explanations_endpoint(request: Request):
         # Get request data
         data = await request.json()
         filename = data.get("filename")
+        model_key = data.get("model_key")  # Get the selected model key
+        
+        # Debug logging to see if endpoint is being called
+        logger.info(f"🔧 DEBUG: regenerate_explanations_endpoint called with filename='{filename}', model_key='{model_key}'")
         
         if not filename:
+            logger.error("🔧 DEBUG: No filename provided to regenerate_explanations_endpoint")
             return JSONResponse(
                 content={"status": "error", "message": "Filename is required"},
                 status_code=400
@@ -3391,14 +3354,19 @@ async def regenerate_explanations_endpoint(request: Request):
         import asyncio
         
         try:
+            logger.info(f"🔧 DEBUG: About to call regenerate_explanations_for_report(filename='{filename}', model_key='{model_key}')")
+            
             # Add a timeout to prevent hanging (10 minutes max for explanations)
             result = await asyncio.wait_for(
                 asyncio.to_thread(
                     regenerate_explanations_for_report,
-                    filename=filename
+                    filename=filename,
+                    model_key=model_key
                 ),
                 timeout=600.0  # 10 minutes
             )
+            
+            logger.info(f"🔧 DEBUG: regenerate_explanations_for_report returned: {result}")
             
             if result.get("status") == "success":
                 return JSONResponse(content=result)
@@ -3455,12 +3423,7 @@ async def update_chart_groups(chart_id: int, request: Request):
             )
         
         # Connect to PostgreSQL
-        conn = psycopg2.connect(
-            host=os.environ.get("POSTGRES_HOST", "localhost"),
-            database=os.environ.get("POSTGRES_DB", "transparentsf"),
-            user=os.environ.get("POSTGRES_USER", "postgres"),
-            password=os.environ.get("POSTGRES_PASSWORD", "postgres")
-        )
+        conn = get_postgres_connection()
         
         cursor = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
         
@@ -3641,12 +3604,7 @@ async def get_postgres_tables():
     """Get a list of all tables in the PostgreSQL database."""
     try:
         # Connect to PostgreSQL
-        conn = psycopg2.connect(
-            host=os.environ.get("POSTGRES_HOST", "localhost"),
-            database=os.environ.get("POSTGRES_DB", "transparentsf"),
-            user=os.environ.get("POSTGRES_USER", "postgres"),
-            password=os.environ.get("POSTGRES_PASSWORD", "postgres")
-        )
+        conn = get_postgres_connection()
         
         cursor = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
         
@@ -3978,6 +3936,120 @@ async def rerun_email_version(request: Request):
             }
         )
 
+@router.post("/expand_charts_local")
+async def expand_charts_local(request: Request):
+    """
+    Expand chart references to local/internal charts for web sharing
+    """
+    try:
+        from tools.chart_expansion import expand_chart_references_local
+        
+        # Get request data
+        data = await request.json()
+        report_path = data.get("report_path")
+        
+        if not report_path:
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "status": "error",
+                    "message": "Missing report_path parameter"
+                }
+            )
+        
+        logger.info(f"Expanding charts to local/internal for report at {report_path}")
+        
+        # Run the chart expansion process in a separate thread to prevent blocking
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(
+            None,
+            lambda: expand_chart_references_local(report_path)
+        )
+        
+        if result:
+            return JSONResponse(
+                content={
+                    "status": "success",
+                    "message": "Charts expanded to local/internal successfully",
+                    "report_path": result
+                }
+            )
+        else:
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "status": "error",
+                    "message": "Failed to expand charts to local/internal"
+                }
+            )
+            
+    except Exception as e:
+        logger.error(f"Error expanding charts to local/internal: {str(e)}", exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={
+                "status": "error",
+                "message": f"Error expanding charts to local/internal: {str(e)}"
+            }
+        )
+
+@router.post("/expand_charts_dw")
+async def expand_charts_dw(request: Request):
+    """
+    Expand chart references to DataWrapper charts for email/newsletter compatibility
+    """
+    try:
+        from tools.chart_expansion import expand_chart_references_dw
+        
+        # Get request data
+        data = await request.json()
+        report_path = data.get("report_path")
+        
+        if not report_path:
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "status": "error",
+                    "message": "Missing report_path parameter"
+                }
+            )
+        
+        logger.info(f"Expanding charts to DataWrapper for report at {report_path}")
+        
+        # Run the chart expansion process in a separate thread to prevent blocking
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(
+            None,
+            lambda: expand_chart_references_dw(report_path)
+        )
+        
+        if result:
+            return JSONResponse(
+                content={
+                    "status": "success",
+                    "message": "Charts expanded to DataWrapper successfully",
+                    "report_path": result
+                }
+            )
+        else:
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "status": "error",
+                    "message": "Failed to expand charts to DataWrapper"
+                }
+            )
+            
+    except Exception as e:
+        logger.error(f"Error expanding charts to DataWrapper: {str(e)}", exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={
+                "status": "error",
+                "message": f"Error expanding charts to DataWrapper: {str(e)}"
+            }
+        )
+
 @router.post("/generate_narrated_report")
 async def generate_narrated_report_endpoint(request: Request):
     """
@@ -4143,13 +4215,7 @@ async def get_active_charts(metric_id: str, district: str = "0", period_type: st
         logger.info(f"Getting active charts for metric_id={metric_id}, district={district}, period_type={period_type}")
         
         # Connect to PostgreSQL
-        conn = psycopg2.connect(
-            host=os.getenv("POSTGRES_HOST", "localhost"),
-            port=int(os.getenv("POSTGRES_PORT", "5432")),
-            dbname=os.getenv("POSTGRES_DB", "transparentsf"),
-            user=os.getenv("POSTGRES_USER", "postgres"),
-            password=os.getenv("POSTGRES_PASSWORD", "postgres")
-        )
+        conn = get_postgres_connection()
         
         # Create cursor with dictionary-like results
         cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -4378,13 +4444,7 @@ async def get_district_maps(metric_id: str = None):
         logger.info(f"Getting district maps for metric_id={metric_id}")
         
         # Connect to PostgreSQL
-        conn = psycopg2.connect(
-            host=os.getenv("POSTGRES_HOST", "localhost"),
-            port=int(os.getenv("POSTGRES_PORT", "5432")),
-            dbname=os.getenv("POSTGRES_DB", "transparentsf"),
-            user=os.getenv("POSTGRES_USER", "postgres"),
-            password=os.getenv("POSTGRES_PASSWORD", "postgres")
-        )
+        conn = get_postgres_connection()
         
         # Create cursor with dictionary-like results
         cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -4483,13 +4543,7 @@ async def get_all_maps(metric_id: str = None):
         logger.info(f"Getting all maps for metric_id={metric_id}")
         
         # Connect to PostgreSQL
-        conn = psycopg2.connect(
-            host=os.getenv("POSTGRES_HOST", "localhost"),
-            port=int(os.getenv("POSTGRES_PORT", "5432")),
-            dbname=os.getenv("POSTGRES_DB", "transparentsf"),
-            user=os.getenv("POSTGRES_USER", "postgres"),
-            password=os.getenv("POSTGRES_PASSWORD", "postgres")
-        )
+        conn = get_postgres_connection()
         
         # Create cursor with dictionary-like results
         cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -4591,13 +4645,7 @@ async def get_map_chart(request: Request, id: str):
         logger.info(f"Map chart request - id={id}, is_embedded={is_embedded}, query_params={dict(request.query_params)}")
         
         # Connect to PostgreSQL
-        conn = psycopg2.connect(
-            host=os.getenv("POSTGRES_HOST", "localhost"),
-            port=int(os.getenv("POSTGRES_PORT", "5432")),
-            dbname=os.getenv("POSTGRES_DB", "transparentsf"),
-            user=os.getenv("POSTGRES_USER", "postgres"),
-            password=os.getenv("POSTGRES_PASSWORD", "postgres")
-        )
+        conn = get_postgres_connection()
         
         # Create cursor with dictionary-like results
         cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -4723,13 +4771,7 @@ async def get_district_maps(metric_id: str = None):
         logger.info(f"Getting district maps for metric_id={metric_id}")
         
         # Connect to PostgreSQL
-        conn = psycopg2.connect(
-            host=os.getenv("POSTGRES_HOST", "localhost"),
-            port=int(os.getenv("POSTGRES_PORT", "5432")),
-            dbname=os.getenv("POSTGRES_DB", "transparentsf"),
-            user=os.getenv("POSTGRES_USER", "postgres"),
-            password=os.getenv("POSTGRES_PASSWORD", "postgres")
-        )
+        conn = get_postgres_connection()
         
         # Create cursor with dictionary-like results
         cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)

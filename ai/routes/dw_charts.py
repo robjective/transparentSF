@@ -3,6 +3,9 @@ from fastapi.responses import JSONResponse
 import logging
 from typing import Optional
 
+# Import centralized database utilities
+from ai.tools.db_utils import get_postgres_connection, execute_with_connection
+
 # Configure logging
 logger = logging.getLogger(__name__)
 
@@ -298,13 +301,7 @@ async def update_chart_metadata(request: Request):
         import json
         
         # Connect to PostgreSQL
-        conn = psycopg2.connect(
-            host=os.getenv("POSTGRES_HOST", "localhost"),
-            port=int(os.getenv("POSTGRES_PORT", "5432")),
-            dbname=os.getenv("POSTGRES_DB", "transparentsf"),
-            user=os.getenv("POSTGRES_USER", "postgres"),
-            password=os.getenv("POSTGRES_PASSWORD", "postgres")
-        )
+        conn = get_postgres_connection()
         
         cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         
@@ -374,13 +371,7 @@ async def update_anomaly_metadata(request: Request):
         import json
         
         # Connect to PostgreSQL
-        conn = psycopg2.connect(
-            host=os.getenv("POSTGRES_HOST", "localhost"),
-            port=int(os.getenv("POSTGRES_PORT", "5432")),
-            dbname=os.getenv("POSTGRES_DB", "transparentsf"),
-            user=os.getenv("POSTGRES_USER", "postgres"),
-            password=os.getenv("POSTGRES_PASSWORD", "postgres")
-        )
+        conn = get_postgres_connection()
         
         cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         
@@ -443,13 +434,7 @@ async def get_chart_metadata(chart_id: int):
         import json
         
         # Connect to PostgreSQL
-        conn = psycopg2.connect(
-            host=os.getenv("POSTGRES_HOST", "localhost"),
-            port=int(os.getenv("POSTGRES_PORT", "5432")),
-            dbname=os.getenv("POSTGRES_DB", "transparentsf"),
-            user=os.getenv("POSTGRES_USER", "postgres"),
-            password=os.getenv("POSTGRES_PASSWORD", "postgres")
-        )
+        conn = get_postgres_connection()
         
         cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         
@@ -505,13 +490,7 @@ async def get_anomaly_metadata(anomaly_id: int):
         import json
         
         # Connect to PostgreSQL
-        conn = psycopg2.connect(
-            host=os.getenv("POSTGRES_HOST", "localhost"),
-            port=int(os.getenv("POSTGRES_PORT", "5432")),
-            dbname=os.getenv("POSTGRES_DB", "transparentsf"),
-            user=os.getenv("POSTGRES_USER", "postgres"),
-            password=os.getenv("POSTGRES_PASSWORD", "postgres")
-        )
+        conn = get_postgres_connection()
         
         cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         

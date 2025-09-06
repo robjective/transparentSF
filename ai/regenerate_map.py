@@ -19,13 +19,8 @@ def regenerate_map(map_id):
     """Regenerate a map with the fixed data processing"""
     
     # Connect to database
-    conn = psycopg2.connect(
-        host=os.getenv("POSTGRES_HOST", "localhost"),
-        port=int(os.getenv("POSTGRES_PORT", "5432")),
-        dbname=os.getenv("POSTGRES_DB", "transparentsf"),
-        user=os.getenv("POSTGRES_USER", "postgres"),
-        password=os.getenv("POSTGRES_PASSWORD", "postgres")
-    )
+    from tools.db_utils import get_postgres_connection
+    conn = get_postgres_connection()
     
     cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     

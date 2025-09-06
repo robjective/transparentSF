@@ -28,6 +28,7 @@ import re
 # Import tools
 from tools.data_fetcher import set_dataset
 from tools.vector_query import query_docs
+from tools.db_utils import get_postgres_connection, execute_with_connection
 from tools.anomaly_detection import anomaly_detection
 from tools.generateAnomalyCharts import generate_anomalies_summary_with_charts
 from tools.genChart import generate_time_series_chart
@@ -532,7 +533,6 @@ def get_dataset_columns(context_variables, endpoint=None):
         
         # Get dataset metadata from database
         try:
-            from tools.db_utils import get_postgres_connection
             import psycopg2.extras
             
             connection = get_postgres_connection()
@@ -1087,8 +1087,7 @@ async def get_top_metric_changes(
         import psycopg2
         import psycopg2.extras
         from datetime import datetime, date
-        import calendar
-        
+        import calendar        
         logger.info(f"get_top_metric_changes called with: period_type={period_type}, limit={limit}, object_id={object_id}, district={district}, show_on_dash={show_on_dash}")
         
         # Calculate report date based on period_type
@@ -1116,13 +1115,7 @@ async def get_top_metric_changes(
             report_date = date(today.year - 1, 1, 1)
             
         # Connect to PostgreSQL
-        conn = psycopg2.connect(
-            host=os.getenv("POSTGRES_HOST", "localhost"),
-            port=int(os.getenv("POSTGRES_PORT", "5432")),
-            dbname=os.getenv("POSTGRES_DB", "transparentsf"),
-            user=os.getenv("POSTGRES_USER", "postgres"),
-            password=os.getenv("POSTGRES_PASSWORD", "postgres")
-        )
+        conn = get_postgres_connection()
         
         # Create cursor with dictionary-like results
         cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -2631,7 +2624,6 @@ async def add_to_monthly_report(request: Request):
             logger.info(f"Using provided report_id: {report_id}")
             # Get the report details to verify it exists and get its district
             try:
-                from tools.db_utils import execute_with_connection
                 import os
                 
                 def get_report_details_operation(connection):
@@ -2763,7 +2755,6 @@ async def add_to_monthly_report(request: Request):
                 logger.info(f"Using report district: {existing_report.get('district')}")
             
             # Import database utilities
-            from tools.db_utils import execute_with_connection
             import os
             
             def add_to_existing_report_operation(connection):
@@ -3026,7 +3017,6 @@ async def generate_map_endpoint(request: Request):
         def get_executed_query_url_from_metadata(metric_id, period_type, district):
             """Get executed_query_url from time_series_metadata table"""
             try:
-                from tools.db_utils import get_postgres_connection
                 connection = get_postgres_connection()
                 cursor = connection.cursor()
                 

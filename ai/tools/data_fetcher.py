@@ -245,13 +245,8 @@ def fetch_metric_data(metric_id, district="0", period_type="month", time_periods
         load_dotenv()
         
         # Connect to database to get metric details
-        conn = psycopg2.connect(
-            host=os.getenv("POSTGRES_HOST", "localhost"),
-            port=int(os.getenv("POSTGRES_PORT", "5432")),
-            dbname=os.getenv("POSTGRES_DB", "transparentsf"),
-            user=os.getenv("POSTGRES_USER", "postgres"),
-            password=os.getenv("POSTGRES_PASSWORD", "postgres")
-        )
+        from db_utils import get_postgres_connection
+        conn = get_postgres_connection()
         
         cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         

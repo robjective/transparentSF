@@ -10,7 +10,6 @@ import os
 import logging
 import json
 import random
-import psycopg2
 import psycopg2.extras
 from datetime import datetime
 from typing import Dict, Any, Optional, List
@@ -18,6 +17,9 @@ from fastapi import APIRouter, Request, HTTPException
 from fastapi.responses import JSONResponse, HTMLResponse
 from fastapi.templating import Jinja2Templates
 from dotenv import load_dotenv
+
+# Import centralized database utilities
+from ai.tools.db_utils import get_postgres_connection, execute_with_connection
 
 # Load environment variables
 load_dotenv()
@@ -52,30 +54,35 @@ async def map_generator_page(request: Request):
 async def get_metrics():
     """Get all available metrics for the map generator dropdown."""
     try:
-        # Connect to PostgreSQL
-        conn = psycopg2.connect(
-            host=os.getenv("POSTGRES_HOST", "localhost"),
-            port=int(os.getenv("POSTGRES_PORT", "5432")),
-            dbname=os.getenv("POSTGRES_DB", "transparentsf"),
-            user=os.getenv("POSTGRES_USER", "postgres"),
-            password=os.getenv("POSTGRES_PASSWORD", "postgres")
-        )
+        def get_metrics_operation(conn):
+            """Database operation to get all metrics."""
+            cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            
+            # Query to get all active metrics that have a map_query defined
+            query = """
+            SELECT id, metric_name, category, subcategory, endpoint,
+                   most_recent_data_date, display_order, map_query, map_filters, map_config
+            FROM metrics
+            WHERE is_active = TRUE
+              AND map_query IS NOT NULL
+              AND trim(map_query) <> ''
+            ORDER BY COALESCE(display_order, 999), id
+            """
+            
+            cursor.execute(query)
+            metrics = cursor.fetchall()
+            
+            cursor.close()
+            return metrics
         
-        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        # Execute database operation using centralized connection handling
+        db_result = execute_with_connection(get_metrics_operation)
         
-        # Query to get all active metrics that have a map_query defined
-        query = """
-        SELECT id, metric_name, category, subcategory, endpoint,
-               most_recent_data_date, display_order, map_query, map_filters, map_config
-        FROM metrics
-        WHERE is_active = TRUE
-          AND map_query IS NOT NULL
-          AND trim(map_query) <> ''
-        ORDER BY COALESCE(display_order, 999), id
-        """
+        if db_result["status"] == "error":
+            logger.error(f"Database error getting metrics: {db_result['message']}")
+            raise HTTPException(status_code=500, detail=f"Database error: {db_result['message']}")
         
-        cursor.execute(query)
-        metrics = cursor.fetchall()
+        metrics = db_result["result"]
         
         # Debug: Check specific jail metrics
         for metric in metrics:
@@ -94,9 +101,6 @@ async def get_metrics():
                 if hasattr(value, 'isoformat'):
                     metric[key] = value.isoformat()
         
-        cursor.close()
-        conn.close()
-        
         return JSONResponse(content={
             "status": "success",
             "metrics": metrics
@@ -113,78 +117,80 @@ async def get_metrics():
 async def get_anomalies_for_metric(metric_id: str, district: str = None, period_type: str = None, time_periods: str = None):
     """Get anomalies for a specific metric with optional filters."""
     try:
-        # Connect to PostgreSQL
-        conn = psycopg2.connect(
-            host=os.getenv("POSTGRES_HOST", "localhost"),
-            port=int(os.getenv("POSTGRES_PORT", "5432")),
-            dbname=os.getenv("POSTGRES_DB", "transparentsf"),
-            user=os.getenv("POSTGRES_USER", "postgres"),
-            password=os.getenv("POSTGRES_PASSWORD", "postgres")
-        )
+        def get_anomalies_operation(conn):
+            """Database operation to get anomalies."""
+            cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            
+            # Build the base query with filters
+            query = """
+            SELECT 
+                group_field_name, 
+                group_value, 
+                BOOL_OR(out_of_bounds) as out_of_bounds,
+                AVG(comparison_mean) as comparison_mean,
+                AVG(recent_mean) as recent_mean,
+                AVG(difference) as difference,
+                AVG(std_dev) as std_dev,
+                MAX(recent_date) as recent_date
+            FROM anomalies 
+            WHERE object_id = %s
+            """
+            
+            params = [metric_id]
+            
+            # Add district filter if specified and not "0" (citywide)
+            if district and district != "0":
+                query += " AND district = %s"
+                params.append(district)
+            
+            # Add period type filter if specified
+            if period_type:
+                query += " AND period_type = %s"
+                params.append(period_type)
+            
+            # Add time period filter if specified
+            if time_periods and time_periods != "since_2024":
+                try:
+                    time_periods_int = int(time_periods)
+                    # Filter by recent_date to match the time period
+                    # This ensures we only show anomalies from the selected time period
+                    query += " AND recent_date IS NOT NULL"
+                except ValueError:
+                    pass  # Ignore invalid time_periods values
+            
+            # Add active status filter - only show active anomalies
+            query += " AND is_active = TRUE"
+            
+            # Complete the query with grouping and ordering
+            query += """
+            GROUP BY group_field_name, group_value
+            ORDER BY BOOL_OR(out_of_bounds) DESC, group_field_name, group_value
+            LIMIT 300
+            """
+            
+            logger.info(f"Anomaly query: {query}")
+            logger.info(f"Anomaly query params: {params}")
+            
+            cursor.execute(query, params)
+            anomalies = cursor.fetchall()
+            
+            cursor.close()
+            return anomalies
         
-        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        # Execute database operation using centralized connection handling
+        db_result = execute_with_connection(get_anomalies_operation)
         
-        # Build the base query with filters
-        query = """
-        SELECT 
-            group_field_name, 
-            group_value, 
-            BOOL_OR(out_of_bounds) as out_of_bounds,
-            AVG(comparison_mean) as comparison_mean,
-            AVG(recent_mean) as recent_mean,
-            AVG(difference) as difference,
-            AVG(std_dev) as std_dev,
-            MAX(recent_date) as recent_date
-        FROM anomalies 
-        WHERE object_id = %s
-        """
+        if db_result["status"] == "error":
+            logger.error(f"Database error getting anomalies: {db_result['message']}")
+            raise HTTPException(status_code=500, detail=f"Database error: {db_result['message']}")
         
-        params = [metric_id]
-        
-        # Add district filter if specified and not "0" (citywide)
-        if district and district != "0":
-            query += " AND district = %s"
-            params.append(district)
-        
-        # Add period type filter if specified
-        if period_type:
-            query += " AND period_type = %s"
-            params.append(period_type)
-        
-        # Add time period filter if specified
-        if time_periods and time_periods != "since_2024":
-            try:
-                time_periods_int = int(time_periods)
-                # Filter by recent_date to match the time period
-                # This ensures we only show anomalies from the selected time period
-                query += " AND recent_date IS NOT NULL"
-            except ValueError:
-                pass  # Ignore invalid time_periods values
-        
-        # Add active status filter - only show active anomalies
-        query += " AND is_active = TRUE"
-        
-        # Complete the query with grouping and ordering
-        query += """
-        GROUP BY group_field_name, group_value
-        ORDER BY BOOL_OR(out_of_bounds) DESC, group_field_name, group_value
-        LIMIT 300
-        """
-        
-        logger.info(f"Anomaly query: {query}")
-        logger.info(f"Anomaly query params: {params}")
-        
-        cursor.execute(query, params)
-        anomalies = cursor.fetchall()
+        anomalies = db_result["result"]
         
         # Convert any date objects to ISO format strings
         for anomaly in anomalies:
             for key, value in anomaly.items():
                 if hasattr(value, 'isoformat'):
                     anomaly[key] = value.isoformat()
-        
-        cursor.close()
-        conn.close()
         
         return JSONResponse(content={
             "status": "success",
@@ -237,13 +243,7 @@ async def generate_map_endpoint(request: Request):
         from tools.generate_map import generate_map
         
         # Get metric details
-        conn = psycopg2.connect(
-            host=os.getenv("POSTGRES_HOST", "localhost"),
-            port=int(os.getenv("POSTGRES_PORT", "5432")),
-            dbname=os.getenv("POSTGRES_DB", "transparentsf"),
-            user=os.getenv("POSTGRES_USER", "postgres"),
-            password=os.getenv("POSTGRES_PASSWORD", "postgres")
-        )
+        conn = get_postgres_connection()
         
         cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         
@@ -453,13 +453,7 @@ async def view_map(map_id: str, request: Request):
     
     try:
         # Get map data from database
-        conn = psycopg2.connect(
-            host=os.getenv("POSTGRES_HOST", "localhost"),
-            port=int(os.getenv("POSTGRES_PORT", "5432")),
-            dbname=os.getenv("POSTGRES_DB", "transparentsf"),
-            user=os.getenv("POSTGRES_USER", "postgres"),
-            password=os.getenv("POSTGRES_PASSWORD", "postgres")
-        )
+        conn = get_postgres_connection()
         
         cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         
@@ -526,13 +520,7 @@ async def view_map(map_id: str, request: Request):
 async def get_recent_maps(metric_id: Optional[str] = None, limit: int = 10):
     """Get recent maps, optionally filtered by metric."""
     try:
-        conn = psycopg2.connect(
-            host=os.getenv("POSTGRES_HOST", "localhost"),
-            port=int(os.getenv("POSTGRES_PORT", "5432")),
-            dbname=os.getenv("POSTGRES_DB", "transparentsf"),
-            user=os.getenv("POSTGRES_USER", "postgres"),
-            password=os.getenv("POSTGRES_PASSWORD", "postgres")
-        )
+        conn = get_postgres_connection()
         
         cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         

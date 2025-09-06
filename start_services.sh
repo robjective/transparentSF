@@ -17,11 +17,21 @@ is_replit() {
     [ -n "$REPL_ID" ]
 }
 
+# Function to check if we should use managed database
+use_managed_db() {
+    [ -n "$DATABASE_URL" ]
+}
+
 # Set PostgreSQL environment variables based on environment
-if is_replit; then
-    # On Replit, use the 'runner' user which already exists
+if use_managed_db; then
+    echo "Using managed database with DATABASE_URL"
+    echo "Individual PostgreSQL environment variables will be ignored"
+    # Don't override individual variables if DATABASE_URL is set
+    # The db_utils.py will handle the connection using DATABASE_URL
+elif is_replit; then
+    # On Replit without managed DB, use local PostgreSQL
     CURRENT_USER=$(whoami)
-    echo "Running on Replit, using user: $CURRENT_USER"
+    echo "Running on Replit with local PostgreSQL, using user: $CURRENT_USER"
     
     export POSTGRES_USER="$CURRENT_USER"
     export POSTGRES_HOST="localhost"
@@ -47,17 +57,22 @@ else
     fi
 fi
 
-# Set standard PostgreSQL environment variables for CLI tools
-export PGUSER="$POSTGRES_USER"
-export PGHOST="$POSTGRES_HOST"
-export PGPORT="$POSTGRES_PORT"
-export PGDATABASE="$POSTGRES_DB"
-export PGPASSWORD="$POSTGRES_PASSWORD"
+# Set standard PostgreSQL environment variables for CLI tools (only if not using DATABASE_URL)
+if use_managed_db; then
+    echo "Database connection via DATABASE_URL (managed database)"
+    echo "  DATABASE_URL: [REDACTED for security]"
+else
+    export PGUSER="$POSTGRES_USER"
+    export PGHOST="$POSTGRES_HOST"
+    export PGPORT="$POSTGRES_PORT"
+    export PGDATABASE="$POSTGRES_DB"
+    export PGPASSWORD="$POSTGRES_PASSWORD"
 
-echo "PostgreSQL connection settings:"
-echo "  POSTGRES_USER: $POSTGRES_USER"
-echo "  POSTGRES_HOST: $POSTGRES_HOST"
-echo "  POSTGRES_DB: $POSTGRES_DB"
+    echo "PostgreSQL connection settings:"
+    echo "  POSTGRES_USER: $POSTGRES_USER"
+    echo "  POSTGRES_HOST: $POSTGRES_HOST"
+    echo "  POSTGRES_DB: $POSTGRES_DB"
+fi
 
 # Function to wait for a service to be ready
 wait_for_service() {
@@ -79,8 +94,13 @@ wait_for_service() {
     echo "$name is ready!"
 }
 
-# Function to create the database if it doesn't exist
+# Function to create the database if it doesn't exist (only for local PostgreSQL)
 create_database() {
+    if use_managed_db; then
+        echo "Using managed database - skipping database creation check"
+        return 1  # Assume database exists in managed environment
+    fi
+    
     echo "Checking if database '$POSTGRES_DB' exists..."
     if ! psql -h $POSTGRES_HOST -U $POSTGRES_USER -lqt | cut -d \| -f 1 | grep -qw $POSTGRES_DB; then
         echo "Creating database '$POSTGRES_DB'..."
@@ -313,20 +333,55 @@ init_database() {
     if [ -d "ai" ]; then
         cd ai
         
-        # Check if tables exist by directly using psql
+        # Check if tables exist using our centralized db_utils
         echo "Checking if database tables exist..."
-        TABLE_COUNT=$(psql -h $POSTGRES_HOST -U $POSTGRES_USER -d $POSTGRES_DB -t -c "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='public'")
         
-        # Trim whitespace
-        TABLE_COUNT=$(echo $TABLE_COUNT | tr -d ' ')
+        # Create a simple Python script to test database connection and table count
+        python3 -c "
+import sys
+sys.path.append('.')
+from tools.db_utils import get_postgres_connection
+import psycopg2.extras
+
+try:
+    conn = get_postgres_connection()
+    if conn is None:
+        print('ERROR: Could not connect to database')
+        sys.exit(1)
+    
+    cursor = conn.cursor()
+    cursor.execute(\"SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='public'\")
+    table_count = cursor.fetchone()[0]
+    print(f'TABLES: {table_count}')
+    
+    cursor.close()
+    conn.close()
+    sys.exit(0)
+except Exception as e:
+    print(f'ERROR: {e}')
+    sys.exit(1)
+" > /tmp/db_check_output.txt 2>&1
+
+        # Check the result
+        if grep -q "ERROR:" /tmp/db_check_output.txt; then
+            echo "Database connection failed:"
+            cat /tmp/db_check_output.txt
+            echo "Exiting due to database connection failure"
+            exit 1
+        fi
         
-        if [ "$TABLE_COUNT" -eq "0" ]; then
+        TABLE_COUNT=$(grep "TABLES:" /tmp/db_check_output.txt | cut -d' ' -f2)
+        
+        if [ "$TABLE_COUNT" -eq "0" ] 2>/dev/null; then
             echo "No tables found in database. Running initialization..."
             python tools/init_postgres_db.py
             echo "Database initialization completed."
         else
-            echo "Database tables already exist. Skipping initialization."
+            echo "Database tables already exist (found $TABLE_COUNT tables). Skipping initialization."
         fi
+        
+        # Clean up temp file
+        rm -f /tmp/db_check_output.txt
         
         cd ..
     else
@@ -354,9 +409,17 @@ pkill -f main.py || true
 # Create logs directory
 mkdir -p ai/logs
 
-# Start PostgreSQL and initialize DB
-start_postgres
-init_database
+# Start PostgreSQL and initialize DB (skip if using managed database)
+if use_managed_db; then
+    echo "Using managed PostgreSQL database (DATABASE_URL detected)"
+    echo "Skipping local PostgreSQL setup"
+    # Still run database initialization to create tables if needed
+    init_database
+else
+    echo "Using local PostgreSQL database"
+    start_postgres
+    init_database
+fi
 
 # Start backend
 echo "Starting Main..."

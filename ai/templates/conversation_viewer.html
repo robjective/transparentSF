@@ -330,10 +330,27 @@
                 
                 sessionData = await response.json();
                 
-                // Update page title and subtitle
-                document.title = `Conversation ${sessionId} - Transparent SF`;
+                // Extract first line from first user message for title
+                let conversationTitle = `Session ${sessionId}`;
+                if (sessionData.conversation && sessionData.conversation.length > 0) {
+                    // Find the first user message
+                    const firstUserMessage = sessionData.conversation.find(msg => msg.role === 'user');
+                    if (firstUserMessage && firstUserMessage.content) {
+                        // Get the first line of the user message
+                        const firstLine = firstUserMessage.content.split('\n')[0].trim();
+                        if (firstLine) {
+                            conversationTitle = firstLine.length > 60 ? firstLine.substring(0, 60) + '...' : firstLine;
+                        }
+                    }
+                }
+
+                // Update page title and subtitle with the extracted title
+                document.title = `${conversationTitle} - Transparent SF`;
                 document.getElementById('conversation-subtitle').textContent = 
-                    `Session ${sessionId} | ${new Date(sessionData.start_time || Date.now()).toLocaleDateString()}`;
+                    conversationTitle;
+                    
+                // Update header title as well
+                document.querySelector('.header-title').textContent = conversationTitle;
                 
                 // Initialize conversation renderer
                 conversationRenderer = new ConversationRenderer('conversation-renderer', {

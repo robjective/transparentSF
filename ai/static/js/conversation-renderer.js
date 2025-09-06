@@ -563,7 +563,7 @@ class ConversationRenderer {
             } else if (type === 'map') {
                 chartUrl = `/backend/map-chart?id=${id}`;
             } else if (type === 'anomaly') {
-                chartUrl = `/backend/anomaly-analyzer/anomaly-chart?id=${id}`;
+                chartUrl = `/anomaly-analyzer/anomaly-chart?id=${id}`;
             } else if (type === 'time_series') {
                 // Handle time_series with parameters (metric_id:district_id:period_type)
                 const params = id.split(':');

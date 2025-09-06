@@ -199,13 +199,13 @@
         /* Add media query for wider screens */
         @media (min-width: 768px) {
             #anomaly-chart {
-                padding-bottom: 75%; /* Maintain 4:3 aspect ratio on wider screens */
+                padding-bottom: 75%; /* Match time_series_chart behavior */
             }
         }
         
         @media (min-width: 1200px) {
             #anomaly-chart {
-                padding-bottom: 75%; /* Maintain 4:3 aspect ratio on very wide screens */
+                padding-bottom: 75%; /* Match time_series_chart behavior */
             }
         }
         
@@ -235,6 +235,72 @@
                 padding: 5px;
             }
         }
+        
+        /* Embedded mode optimizations - left justify and better spacing */
+        body.embedded-mode {
+            margin: 0 !important;
+            padding: 5px !important;
+            overflow: hidden;
+        }
+        
+        body.embedded-mode .container {
+            margin: 0 !important;
+            padding: 10px !important;
+        }
+        
+        body.embedded-mode .row {
+            justify-content: flex-start !important;
+            margin: 0 !important;
+        }
+        
+        body.embedded-mode .col-12 {
+            margin: 0 !important;
+        }
+        
+        body.embedded-mode .chart-container {
+            margin: 0 !important;
+            padding: 5px !important;
+        }
+        
+        body.embedded-mode #chart-section {
+            margin: 0 !important;
+        }
+        
+        body.embedded-mode #datasf-link {
+            text-align: left !important;
+        }
+        
+        /* Commented out aggressive embedded mode - let normal mode work first
+        body.embedded-mode #anomaly-chart {
+            padding-bottom: 30% !important; 
+        } */
+        
+        /* Fix the "swimming in white" issue - make plotly elements more efficient */
+        body.embedded-mode .js-plotly-plot,
+        body.embedded-mode .plot-container {
+            height: 100% !important;
+            padding: 2px !important; /* Reduce from 6px to eliminate white space */
+            justify-content: flex-start !important;
+        }
+        
+        /* Commented out all embedded mode overrides to fix normal viewing
+        @media (min-height: 500px) {
+            body.embedded-mode #anomaly-chart {
+                padding-bottom: 35% !important;
+            }
+        }
+        
+        @media (max-width: 576px) {
+            body.embedded-mode #anomaly-chart {
+                padding-bottom: 28% !important;
+            }
+        }
+        
+        @media (max-width: 450px) and (max-height: 450px) {
+            body.embedded-mode #anomaly-chart {
+                padding-bottom: 25% !important;
+            }
+        } */
         
         /* Ensure the container takes full height in chart section mode */
         body.chart-section-mode {
@@ -294,7 +360,7 @@
         .square-container:before {
             content: "";
             display: block;
-            padding-top: 75%; /* Changed from 100% to 75% for 4:3 aspect ratio */
+            padding-top: 60%; /* Better aspect ratio for chart viewing */
         }
         
         .square-content {
@@ -315,7 +381,7 @@
         #anomaly-chart {
             width: 100%;
             height: 0;
-            padding-bottom: 75%; /* Changed from 100% to 75% for better fit in 437x437 window */
+            padding-bottom: 75%; /* Use same as time_series_chart - works correctly */
             position: relative;
             overflow: visible;
             display: block;
@@ -332,7 +398,7 @@
     </style>
 
     <!-- Dark Mode CSS -->
-    <link rel="stylesheet" href="/static/css/darkmode.css">
+    <link rel="stylesheet" href="/static/darkmode.css">
 </head>
 <body>
     <div class="container">
@@ -482,6 +548,15 @@
 
         // Function to handle chart section visibility
         function handleChartSection() {
+            const isEmbedded = window.location !== window.parent.location;
+            
+            // In embedded mode, always prevent hash-based scrolling
+            if (isEmbedded && window.location.hash) {
+                // Remove hash without page reload to prevent scrolling
+                history.replaceState(null, null, window.location.pathname + window.location.search);
+                window.scrollTo(0, 0);
+            }
+            
             const isChartSection = !fullView || window.location.hash === '#chart-section';
             const header = document.querySelector('.header');
             const metadata = document.getElementById('metadata');
@@ -730,8 +805,8 @@
             embedCode += ` frameborder="0" scrolling="no"></iframe>`;
             
             if (isResponsive) {
-                // Use 4:3 aspect ratio (75%) for responsive charts
-                embedCode = `<div style="position: relative; width: 100%; height: 0; padding-bottom: 75%;">\n  <div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%;">\n    ${embedCode}\n  </div>\n</div>`;
+                // Use better aspect ratio (60%) for responsive charts
+                embedCode = `<div style="position: relative; width: 100%; height: 0; padding-bottom: 60%;">\n  <div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%;">\n    ${embedCode}\n  </div>\n</div>`;
             }
             
             document.getElementById('embedCode').value = embedCode;
@@ -988,6 +1063,9 @@
             // Combine title and subtitle - FLIPPED ORDER
             const combinedTitleText = `${changeText}<br><span style="font-size: 0.8em;">${objectName}</span>`;
 
+            // Check if we're in embedded mode for margin optimization
+            const isEmbedded = window.location !== window.parent.location;
+            
             // Configuration for the plot
             const layout = {
                 title: {
@@ -1095,7 +1173,7 @@
                     },
                     bgcolor: 'rgba(246, 241, 234, 0.7)'
                 },
-                margin: { t: 60, b: 30, l: 50, r: 30 },
+                margin: isEmbedded ? { t: 40, b: 50, l: 40, r: 25 } : { t: 55, b: 80, l: 50, r: 45 }, // Match time_series_chart margins
                 height: null,
                 width: null,
                 autosize: true,
@@ -1141,8 +1219,9 @@
                 const plotElement = document.getElementById('anomaly-plot');
                 if (!plotElement) return;
                 
-                // Get the current dimensions
+                // Get the current dimensions and check if embedded
                 const chartWidth = plotElement.clientWidth;
+                const isEmbedded = window.location !== window.parent.location;
                 
                 // Adjust title and annotation font sizes based on chart width
                 let update = {
@@ -1150,12 +1229,23 @@
                     'legend.font.size': Math.max(8, Math.min(9, chartWidth / 45))
                 };
                 
+                // Adjust margins based on screen size - match time_series_chart behavior
+                if (chartWidth < 400) {
+                    update['margin.t'] = 50;
+                    update['margin.b'] = isEmbedded ? 50 : 70;  // Larger bottom margins
+                    update['margin.l'] = 40;
+                    update['margin.r'] = isEmbedded ? 45 : 30;
+                } else if (chartWidth >= 400) {
+                    update['margin.t'] = 50;
+                    update['margin.b'] = isEmbedded ? 50 : 80;  // Larger bottom margins
+                    update['margin.l'] = 45;
+                    update['margin.r'] = isEmbedded ? 50 : 35;
+                }
+                
                 // For very small screens, adjust vertical positioning
                 if (chartWidth < 400) {
                     update['title.y'] = 0.98;
                     update['legend.y'] = -0.10;
-                    update['margin.b'] = 55;
-                    update['margin.t'] = 60;
                 }
                 
                 // Apply the updates
@@ -1215,7 +1305,39 @@
         }
         
         // Load data when the page loads
-        document.addEventListener('DOMContentLoaded', fetchAnomalyData);
+        document.addEventListener('DOMContentLoaded', function() {
+            // Handle embedded mode hash removal before anything else
+            const isEmbedded = window.location !== window.parent.location;
+            if (isEmbedded) {
+                // Remove hash immediately to prevent auto-scrolling
+                if (window.location.hash) {
+                    history.replaceState(null, null, window.location.pathname + window.location.search);
+                }
+                // Comprehensive scroll prevention
+                window.scrollTo(0, 0);
+                document.documentElement.scrollTop = 0;
+                document.body.scrollTop = 0;
+                
+                // Add embedded-mode class for CSS optimizations
+                document.body.classList.add('embedded-mode');
+                console.log('Anomaly chart: Embedded mode detected, hash removed, scrolling prevented');
+                
+                // Multiple scroll resets to ensure it sticks
+                setTimeout(() => {
+                    window.scrollTo(0, 0);
+                    document.documentElement.scrollTop = 0;
+                    document.body.scrollTop = 0;
+                }, 50);
+                
+                setTimeout(() => {
+                    window.scrollTo(0, 0);
+                    document.documentElement.scrollTop = 0;
+                    document.body.scrollTop = 0;
+                }, 200);
+            }
+            
+            fetchAnomalyData();
+        });
 
         // Function to apply theme colors to Plotly chart
         function applyThemeToPlot(theme) {

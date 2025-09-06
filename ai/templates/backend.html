@@ -250,6 +250,64 @@
             width: 80%;
         }
         
+        /* Collapsible Admin Section */
+        .nav-section-collapsible {
+            padding: 0 20px;
+            margin: 15px 0 8px 0;
+        }
+        
+        .nav-section-header {
+            display: flex;
+            align-items: center;
+            cursor: pointer;
+            padding: 8px 0;
+            border-radius: 4px;
+            transition: background-color 0.2s ease;
+        }
+        
+        .nav-section-header:hover {
+            background-color: var(--bg-secondary);
+        }
+        
+        .nav-section-header h3 {
+            font-family: 'Inter', sans-serif;
+            font-weight: 600;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--text-primary);
+            margin: 0;
+            flex: 1;
+        }
+        
+        .nav-collapse-icon {
+            font-size: 12px;
+            color: var(--text-primary);
+            transition: transform 0.2s ease;
+            margin-left: 8px;
+        }
+        
+        .nav-collapse-icon.expanded {
+            transform: rotate(90deg);
+        }
+        
+        .nav-subnav {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.3s ease;
+        }
+        
+        .nav-subnav.expanded {
+            max-height: 500px;
+        }
+        
+        .nav-subnav .sidebar button {
+            margin-left: 15px;
+            width: calc(90% - 15px);
+            font-size: 12px;
+            opacity: 0.9;
+        }
+        
         /* Disk space container */
         .disk-space {
             background: var(--bg-primary);
@@ -1447,42 +1505,49 @@
             <button data-href="/backend/monthly-reports" class="analysis-btn">Newsletter</button>
             <button data-href="/backend/metric-control" class="dashboard-btn">Metric Control</button>
             <button data-href="/map-generator" class="dashboard-btn">Map Generator</button>
-            <button data-href="/backend/query" class="dashboard-btn">Query Tool</button>
             <button data-href="/backend/evals-interface" class="dashboard-btn">Agent Evals</button>
 
-            <div class="nav-section">
-                <h3>Actions</h3>
-            </div>
-            <!-- Analysis Buttons - Main blue -->
-            <button id="analyze-ytd-btn" class="analysis-btn">Run Dashboard Metrics</button>
-            <button id="active-jobs-btn" class="management-btn" style="display: none;">See Active Jobs</button>
-                            <button id="reload-sfpublic-metadata-btn" class="management-btn">Reload SF Public Metadata (3-Step)</button>
-            
-            <div class="nav-section">
-                <h3>Management</h3>
-            </div>
-            <button data-href="/backend/database-admin" class="management-btn">Database Admin</button>
-            
             <div class="sidebar-divider"></div>
             
-            <div class="nav-section">
-                <h3>Logs & Notes</h3>
+            <!-- Collapsible Admin Section -->
+            <div class="nav-section-collapsible">
+                <div class="nav-section-header" onclick="toggleSettingsSection()">
+                    <h3>Admin</h3>
+                    <span class="nav-collapse-icon">▶</span>
+                </div>
+                <div class="nav-subnav" id="settings-subnav">
+                    <button data-href="/backend/query" class="dashboard-btn">Query Tool</button>
+                    
+                    <!-- Actions -->
+                    <button id="analyze-ytd-btn" class="analysis-btn">Run Dashboard Metrics</button>
+                    <button id="active-jobs-btn" class="management-btn" style="display: none;">See Active Jobs</button>
+                    <button id="reload-sfpublic-metadata-btn" class="management-btn">Reload SF Public Metadata (3-Step)</button>
+                    
+                    <div style="margin: 10px 0;"></div>
+                    
+                    <button data-href="/backend/database-admin" class="management-btn">Database Admin</button>
+                    
+                    <button id="view-notes-btn" class="management-btn" style="opacity: 1; background: #f0f0f0 !important; color: #000000; border-left: 3px solid #777777;" disabled>
+                        Note Viewer (<span id="notes-token-count">0</span>)
+                    </button>
+                    
+                    <div style="margin: 10px 0;"></div>
+                    
+                    <!-- Danger Zone -->
+                    <button id="delete-data-btn" class="danger-btn">Delete Data</button>
+                    
+                    <div style="margin: 10px 0;"></div>
+                    
+                    <!-- Log Viewer -->
+                    <div style="padding: 0 20px; margin: 10px 0;">
+                        <label style="font-size: 11px; color: var(--text-primary); margin-bottom: 5px; display: block;">Log Viewer</label>
+                        <select id="log-selector" class="version-select" style="width: 100%; background: #f0f0f0; color: #000000; border: 1px solid #e0e0e0; padding: 6px; border-radius: 4px; font-size: 12px;">
+                            <option value="">Select a log file...</option>
+                        </select>
+                        <div id="log-info" style="font-size: 10px; color: #666666; margin-top: 3px;"></div>
+                    </div>
+                </div>
             </div>
-            <div style="padding: 0 20px; margin-bottom: 10px;">
-                <select id="log-selector" class="version-select" style="width: 100%; background: #f0f0f0; color: #000000; border: 1px solid #e0e0e0; padding: 8px; border-radius: 4px;">
-                    <option value="">Select a log file...</option>
-                </select>
-                <div id="log-info" style="font-size: 11px; color: #333333; margin-top: 5px;"></div>
-            </div>
-            
-            <button id="view-notes-btn" class="management-btn" style="opacity: 1; background: #f0f0f0 !important; color: #000000; border-left: 3px solid #777777;" disabled>
-                View Notes (<span id="notes-token-count">0</span>)
-            </button>
-            
-            <div class="sidebar-divider"></div>
-            
-            <!-- Danger zone at the bottom -->
-            <button id="delete-data-btn" class="danger-btn">Delete Data</button>
         </div>
 
         <div class="main-content" id="main-content">
@@ -1844,6 +1909,22 @@
                 closeExplainerPanel();
             } else {
                 openExplainerPanel();
+            }
+        }
+        
+        // Admin section toggle functionality
+        function toggleSettingsSection() {
+            const subnav = document.getElementById('settings-subnav');
+            const icon = document.querySelector('.nav-collapse-icon');
+            
+            if (subnav.classList.contains('expanded')) {
+                subnav.classList.remove('expanded');
+                icon.textContent = '▶';
+                icon.classList.remove('expanded');
+            } else {
+                subnav.classList.add('expanded');
+                icon.textContent = '▼';
+                icon.classList.add('expanded');
             }
         }
         

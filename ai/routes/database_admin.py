@@ -376,8 +376,8 @@ async def get_session_logs_info():
         logs_directory = logs_dir
         
         if os.path.exists(logs_dir):
-            # Count session log files
-            session_files = [f for f in os.listdir(logs_dir) if f.endswith('.json') and f.startswith('session_')]
+            # Count session log files (all JSON files in sessions directory)
+            session_files = [f for f in os.listdir(logs_dir) if f.endswith('.json')]
             total_sessions = len(session_files)
             
             # Find the latest session
@@ -419,8 +419,8 @@ async def download_session_logs():
                 "message": "Session logs directory not found"
             }, status_code=404)
         
-        # Find all session log files
-        session_files = [f for f in os.listdir(logs_dir) if f.endswith('.json') and f.startswith('session_')]
+        # Find all session log files (all JSON files in sessions directory)
+        session_files = [f for f in os.listdir(logs_dir) if f.endswith('.json')]
         
         if not session_files:
             return JSONResponse({

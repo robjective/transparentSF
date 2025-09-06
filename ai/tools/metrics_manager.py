@@ -345,7 +345,7 @@ def update_metric(metric_id: int, updates: Dict[str, Any]) -> Dict[str, Any]:
             elif field == 'key':
                 # Do NOT allow changing the unique key
                 continue
-            elif field in ['location_fields', 'category_fields', 'metadata']:
+            elif field in ['location_fields', 'category_fields', 'metadata', 'map_filters', 'map_config']:
                 set_clauses.append(f"{field} = %s")
                 params.append(json.dumps(value))
             else:
