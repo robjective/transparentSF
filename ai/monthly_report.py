@@ -1967,6 +1967,11 @@ DO NOT include any additional content, headers, or formatting outside of this JS
             # Update the database with the detailed explanation, chart data, session_id, and updated metadata
             if explanation:  # Only update if we have a valid explanation
                 try:
+                    # Check if connection is still alive before executing query
+                    if connection.closed != 0:
+                        logger.error(f"Database connection is closed, cannot update report ID {report_id}")
+                        continue
+                    
                     if chart_html:
                         cursor.execute("""
                             UPDATE monthly_reporting
@@ -1985,14 +1990,46 @@ DO NOT include any additional content, headers, or formatting outside of this JS
                         """, (explanation, json.dumps(existing_metadata), report_id))
                         logger.info(f"Updated explanation and metadata for report ID {report_id}")
                     successful_explanations += 1
+                except (psycopg2.OperationalError, psycopg2.InterfaceError) as db_error:
+                    error_msg = str(db_error).lower()
+                    if any(keyword in error_msg for keyword in [
+                        'ssl connection has been closed',
+                        'connection already closed',
+                        'server closed the connection'
+                    ]):
+                        logger.error(f"Database connection lost while updating explanation for report ID {report_id}: {str(db_error)}")
+                        # Re-raise the exception so the outer retry logic can handle it
+                        raise
+                    else:
+                        logger.error(f"Database error while updating explanation for report ID {report_id}: {str(db_error)}")
+                        logger.error(traceback.format_exc())
                 except Exception as db_error:
-                    logger.error(f"Database error while updating explanation: {str(db_error)}")
+                    logger.error(f"Unexpected database error while updating explanation for report ID {report_id}: {str(db_error)}")
                     logger.error(traceback.format_exc())
             else:
                 logger.warning(f"No valid explanation to store for report ID {report_id}")
         
-        connection.commit()
-        cursor.close()
+        try:
+            # Check if connection is still alive before committing
+            if connection.closed == 0:
+                connection.commit()
+                logger.info(f"Successfully committed {successful_explanations} explanation updates")
+            else:
+                logger.error("Cannot commit changes - database connection is closed")
+        except Exception as commit_error:
+            logger.error(f"Error committing database changes: {str(commit_error)}")
+            # Try to rollback if possible
+            try:
+                if connection.closed == 0:
+                    connection.rollback()
+                    logger.info("Rolled back database changes due to commit error")
+            except Exception as rollback_error:
+                logger.error(f"Error during rollback: {str(rollback_error)}")
+        
+        try:
+            cursor.close()
+        except Exception as close_error:
+            logger.warning(f"Error closing cursor: {str(close_error)}")
         
         return successful_explanations
     

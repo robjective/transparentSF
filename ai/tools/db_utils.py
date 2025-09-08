@@ -27,10 +27,12 @@ def get_postgres_connection(
     port: int = None,
     dbname: str = None,
     user: str = None,
-    password: str = None
+    password: str = None,
+    max_retries: int = 3,
+    retry_delay: float = 1.0
 ) -> Optional[psycopg2.extensions.connection]:
     """
-    Establish a connection to the PostgreSQL database.
+    Establish a connection to the PostgreSQL database with retry logic.
     
     Args:
         host (str): Database host
@@ -38,20 +40,37 @@ def get_postgres_connection(
         dbname (str): Database name
         user (str): Database user
         password (str): Database password
+        max_retries (int): Maximum number of connection retry attempts
+        retry_delay (float): Delay between retry attempts in seconds
         
     Returns:
         connection: PostgreSQL database connection or None if connection fails
     """
+    import time
+    
     # Check if DATABASE_URL is provided (common for managed services like Replit PostgreSQL)
     database_url = os.getenv("DATABASE_URL")
     if database_url:
-        try:
-            connection = psycopg2.connect(database_url)
-            logging.info("Successfully connected to PostgreSQL database using DATABASE_URL")
-            return connection
-        except Exception as e:
-            logging.error(f"Error connecting with DATABASE_URL: {e}")
-            # Fall through to individual parameter connection
+        for attempt in range(max_retries):
+            try:
+                # Add SSL and connection parameters for better reliability
+                connection = psycopg2.connect(
+                    database_url,
+                    sslmode='prefer',  # Use SSL if available, but don't require it
+                    connect_timeout=30,  # 30 second connection timeout
+                    keepalives_idle=600,  # Send keepalive packets every 10 minutes
+                    keepalives_interval=30,  # Wait 30 seconds for keepalive response
+                    keepalives_count=3  # Close connection after 3 failed keepalives
+                )
+                logging.info("Successfully connected to PostgreSQL database using DATABASE_URL")
+                return connection
+            except Exception as e:
+                logging.warning(f"Connection attempt {attempt + 1} failed with DATABASE_URL: {e}")
+                if attempt < max_retries - 1:
+                    time.sleep(retry_delay * (attempt + 1))  # Exponential backoff
+                else:
+                    logging.error(f"All {max_retries} connection attempts failed with DATABASE_URL")
+                    # Fall through to individual parameter connection
     
     # Use environment variables if parameters are not provided
     host = host or os.getenv("POSTGRES_HOST", "localhost")
@@ -60,19 +79,29 @@ def get_postgres_connection(
     user = user or os.getenv("POSTGRES_USER", "postgres")
     password = password or os.getenv("POSTGRES_PASSWORD", "postgres")
     
-    try:
-        connection = psycopg2.connect(
-            host=host,
-            port=port,
-            dbname=dbname,
-            user=user,
-            password=password
-        )
-        logging.info("Successfully connected to PostgreSQL database using individual parameters")
-        return connection
-    except Exception as e:
-        logging.error(f"Error connecting to PostgreSQL database: {e}")
-        return None
+    for attempt in range(max_retries):
+        try:
+            connection = psycopg2.connect(
+                host=host,
+                port=port,
+                dbname=dbname,
+                user=user,
+                password=password,
+                sslmode='prefer',  # Use SSL if available, but don't require it
+                connect_timeout=30,  # 30 second connection timeout
+                keepalives_idle=600,  # Send keepalive packets every 10 minutes
+                keepalives_interval=30,  # Wait 30 seconds for keepalive response
+                keepalives_count=3  # Close connection after 3 failed keepalives
+            )
+            logging.info("Successfully connected to PostgreSQL database using individual parameters")
+            return connection
+        except Exception as e:
+            logging.warning(f"Connection attempt {attempt + 1} failed: {e}")
+            if attempt < max_retries - 1:
+                time.sleep(retry_delay * (attempt + 1))  # Exponential backoff
+            else:
+                logging.error(f"All {max_retries} connection attempts failed")
+                return None
 
 def execute_with_connection(
     operation: callable,
@@ -80,10 +109,11 @@ def execute_with_connection(
     db_port: int = None,
     db_name: str = None,
     db_user: str = None,
-    db_password: str = None
+    db_password: str = None,
+    max_retries: int = 3
 ) -> Dict[str, Any]:
     """
-    Execute a database operation with proper connection handling.
+    Execute a database operation with proper connection handling and retry logic.
     
     Args:
         operation: Function that takes a connection and returns a result
@@ -92,10 +122,13 @@ def execute_with_connection(
         db_name: Database name
         db_user: Database user
         db_password: Database password
+        max_retries: Maximum number of retry attempts for connection failures
         
     Returns:
         dict: Result with status and message
     """
+    import time
+    
     # Use environment variables if parameters are not provided
     db_host = db_host or os.getenv("POSTGRES_HOST", "localhost")
     db_port = db_port or int(os.getenv("POSTGRES_PORT", "5432"))
@@ -103,41 +136,203 @@ def execute_with_connection(
     db_user = db_user or os.getenv("POSTGRES_USER", "postgres")
     db_password = db_password or os.getenv("POSTGRES_PASSWORD", "postgres")
     
+    last_exception = None
+    
+    for attempt in range(max_retries):
+        connection = None
+        try:
+            # Connect to database with retry logic
+            connection = get_postgres_connection(
+                host=db_host,
+                port=db_port,
+                dbname=db_name,
+                user=db_user,
+                password=db_password,
+                max_retries=1  # Don't retry within get_postgres_connection since we're retrying here
+            )
+            
+            if connection is None:
+                raise Exception("Failed to establish database connection")
+            
+            # Check if connection is still alive
+            if connection.closed != 0:
+                raise Exception("Database connection is closed")
+            
+            # Execute the operation
+            result = operation(connection)
+            
+            return {
+                "status": "success",
+                "message": "Operation completed successfully",
+                "result": result
+            }
+        
+        except (psycopg2.OperationalError, psycopg2.InterfaceError) as e:
+            last_exception = e
+            error_msg = str(e).lower()
+            
+            # Check if this is a connection-related error that we should retry
+            if any(keyword in error_msg for keyword in [
+                'ssl connection has been closed',
+                'connection already closed',
+                'server closed the connection',
+                'connection refused',
+                'timeout expired',
+                'connection reset'
+            ]):
+                logging.warning(f"Database connection error on attempt {attempt + 1}: {e}")
+                if attempt < max_retries - 1:
+                    # Wait before retrying with exponential backoff
+                    wait_time = 2 ** attempt
+                    logging.info(f"Retrying database operation in {wait_time} seconds...")
+                    time.sleep(wait_time)
+                    continue
+                else:
+                    logging.error(f"All {max_retries} database operation attempts failed")
+            else:
+                # Non-retryable error, fail immediately
+                logging.error(f"Non-retryable database error: {e}")
+                break
+                
+        except Exception as e:
+            last_exception = e
+            logging.error(f"Unexpected error in database operation: {e}")
+            import traceback
+            logging.error(traceback.format_exc())
+            break
+        
+        finally:
+            if connection:
+                try:
+                    connection.close()
+                except Exception as close_error:
+                    logging.warning(f"Error closing database connection: {close_error}")
+    
+    # If we get here, all retries failed
+    error_message = str(last_exception) if last_exception else "Unknown database error"
+    return {
+        "status": "error",
+        "message": f"Database operation failed after {max_retries} attempts: {error_message}"
+    }
+
+def check_database_health(
+    db_host: str = None,
+    db_port: int = None,
+    db_name: str = None,
+    db_user: str = None,
+    db_password: str = None
+) -> Dict[str, Any]:
+    """
+    Check the health of the database connection and return diagnostic information.
+    
+    Args:
+        db_host: Database host
+        db_port: Database port
+        db_name: Database name
+        db_user: Database user
+        db_password: Database password
+        
+    Returns:
+        dict: Health check results with status and diagnostic information
+    """
+    import time
+    
+    # Use environment variables if parameters are not provided
+    db_host = db_host or os.getenv("POSTGRES_HOST", "localhost")
+    db_port = db_port or int(os.getenv("POSTGRES_PORT", "5432"))
+    db_name = db_name or os.getenv("POSTGRES_DB", "transparentsf")
+    db_user = db_user or os.getenv("POSTGRES_USER", "postgres")
+    db_password = db_password or os.getenv("POSTGRES_PASSWORD", "postgres")
+    
+    health_info = {
+        "timestamp": time.time(),
+        "connection_params": {
+            "host": db_host,
+            "port": db_port,
+            "database": db_name,
+            "user": db_user
+        },
+        "ssl_info": {},
+        "connection_test": {},
+        "query_test": {}
+    }
+    
     connection = None
     try:
-        # Connect to database
+        # Test basic connection
+        start_time = time.time()
         connection = get_postgres_connection(
             host=db_host,
             port=db_port,
             dbname=db_name,
             user=db_user,
-            password=db_password
+            password=db_password,
+            max_retries=1
         )
+        connection_time = time.time() - start_time
         
         if connection is None:
-            return {
-                "status": "error",
-                "message": "Failed to connect to database"
+            health_info["status"] = "error"
+            health_info["message"] = "Failed to establish database connection"
+            return health_info
+        
+        # Get SSL information
+        try:
+            cursor = connection.cursor()
+            cursor.execute("SELECT version(), ssl_is_used(), ssl_version()")
+            ssl_info = cursor.fetchone()
+            if ssl_info:
+                health_info["ssl_info"] = {
+                    "version": ssl_info[0],
+                    "ssl_used": ssl_info[1] if len(ssl_info) > 1 else None,
+                    "ssl_version": ssl_info[2] if len(ssl_info) > 2 else None
+                }
+            cursor.close()
+        except Exception as ssl_error:
+            health_info["ssl_info"]["error"] = str(ssl_error)
+        
+        # Test a simple query
+        try:
+            start_time = time.time()
+            cursor = connection.cursor()
+            cursor.execute("SELECT 1 as test_query")
+            result = cursor.fetchone()
+            query_time = time.time() - start_time
+            cursor.close()
+            
+            health_info["query_test"] = {
+                "success": True,
+                "result": result[0] if result else None,
+                "execution_time": query_time
+            }
+        except Exception as query_error:
+            health_info["query_test"] = {
+                "success": False,
+                "error": str(query_error)
             }
         
-        # Execute the operation
-        result = operation(connection)
-        
-        return {
-            "status": "success",
-            "message": "Operation completed successfully",
-            "result": result
+        health_info["connection_test"] = {
+            "success": True,
+            "connection_time": connection_time,
+            "connection_status": "open" if connection.closed == 0 else "closed"
         }
-    
+        
+        health_info["status"] = "healthy"
+        health_info["message"] = "Database connection is healthy"
+        
     except Exception as e:
-        logging.error(f"Error in database operation: {e}")
-        import traceback
-        logging.error(traceback.format_exc())
-        return {
-            "status": "error",
-            "message": str(e)
+        health_info["status"] = "error"
+        health_info["message"] = f"Database health check failed: {str(e)}"
+        health_info["connection_test"] = {
+            "success": False,
+            "error": str(e)
         }
     
     finally:
         if connection:
-            connection.close() 
+            try:
+                connection.close()
+            except Exception as close_error:
+                logging.warning(f"Error closing connection during health check: {close_error}")
+    
+    return health_info 
