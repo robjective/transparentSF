@@ -405,7 +405,7 @@ def get_charts_for_review(
                 def get_maps_operation(connection):
                     cursor = connection.cursor()
                     
-                    # Select only essential fields unless include_metadata is True
+                    # Always include metadata for caption extraction, but only include other fields if include_metadata is True
                     if include_metadata:
                         maps_query = """
                             SELECT 
@@ -429,6 +429,7 @@ def get_charts_for_review(
                                 id,
                                 title,
                                 type,
+                                metadata,
                                 created_at,
                                 metric_id,
                                 active
@@ -462,10 +463,11 @@ def get_charts_for_review(
                 
                 if maps_result['status'] == 'success':
                     for row in maps_result['result']:
+                        # Always extract caption from metadata (metadata is always included now)
                         if include_metadata:
-                            # Extract caption from metadata if available
+                            # Full metadata version - metadata is at index 4
                             metadata_caption = extract_caption_from_metadata(row[4])
-                            base_caption = "No description available"  # Default since no description column
+                            base_caption = "No description available"
                             enhanced_caption = metadata_caption if metadata_caption else base_caption
                             
                             chart_info = {
@@ -484,16 +486,20 @@ def get_charts_for_review(
                                 'chart_reference': f"[CHART:map:{row[0]}]"
                             }
                         else:
-                            # Simplified version without metadata
+                            # Simplified version - metadata is at index 3
+                            metadata_caption = extract_caption_from_metadata(row[3])
+                            base_caption = "No description available"
+                            enhanced_caption = metadata_caption if metadata_caption else base_caption
+                            
                             chart_info = {
                                 'chart_id': row[0],  # id (integer)
                                 'title': row[1] or f"Map {row[0]}",  # title
-                                'caption': "No description available",
+                                'caption': enhanced_caption,
                                 'map_type': row[2],  # type
                                 'district': None,  # No district column in maps table
-                                'created_at': row[3].isoformat() if row[3] else None,  # created_at
-                                'metric_id': row[4],  # metric_id
-                                'active': row[5],  # active
+                                'created_at': row[4].isoformat() if row[4] else None,  # created_at
+                                'metric_id': row[5],  # metric_id
+                                'active': row[6],  # active
                                 'chart_type': 'map',
                                 'chart_reference': f"[CHART:map:{row[0]}]"
                             }

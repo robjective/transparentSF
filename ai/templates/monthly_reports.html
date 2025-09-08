@@ -113,6 +113,25 @@
             cursor: not-allowed;
         }
         
+        .action-btn.available {
+            background-color: #ad35fa66; /* Muted purple for available actions */
+            color: white;
+        }
+        
+        .action-btn.available:hover {
+            background-color: #ad35fa99;
+        }
+        
+        .action-btn.completed {
+            background-color: #6c757d; /* Grey for completed actions */
+            color: white;
+            cursor: pointer; /* Allow clicking even when completed */
+        }
+        
+        .action-btn.completed:hover {
+            background-color: #5a6268; /* Slightly lighter grey on hover */
+        }
+        
         .reports-list {
             margin-top: 20px;
         }
@@ -938,6 +957,7 @@
                     </button>
                     <button id="rerun-proofreading" class="action-btn">Re-run Proofreading</button>
                     <button id="rerun-postproofing" class="action-btn">Re-run Email</button>
+                    <button id="rerun-final-version" class="action-btn">Re-run Final Version</button>
                     <button id="generate-narration" class="action-btn">Generate Narration</button>
                     <button id="delete-report-btn" class="action-btn delete-btn">Delete Report</button>
                 </div>
@@ -1079,11 +1099,98 @@
                     revisedLink.style.display = revisedFilename ? 'inline-block' : 'none';
                 }
                 
-                // Email link
+                // Final link (with embedded charts) - only show if charts exist
+                const finalLink = document.getElementById('view-final-report');
+                if (finalLink) {
+                    // Try different possible final filename patterns
+                    let possibleFinalFilenames = [];
+                    
+                    if (revisedFilename) {
+                        // Pattern 1: _revised -> _final
+                        possibleFinalFilenames.push(revisedFilename.replace('_revised', '_final'));
+                        // Pattern 2: _for_proofreading_revised -> _final
+                        possibleFinalFilenames.push(revisedFilename.replace('_for_proofreading_revised', '_final'));
+                        // Pattern 3: _for_proofreading_revised -> _for_proofreading_revised_final
+                        possibleFinalFilenames.push(revisedFilename.replace('_for_proofreading_revised', '_for_proofreading_revised_final'));
+                    }
+                    
+                    if (originalFilename) {
+                        // Pattern 4: original -> _final
+                        possibleFinalFilenames.push(originalFilename.replace('.html', '_final.html'));
+                    }
+                    
+                    // Pattern 5: Try to construct from the base filename (remove all suffixes)
+                    if (originalFilename) {
+                        const baseName = originalFilename.replace(/_(revised|for_proofreading|email|with_placeholders)\.html$/, '');
+                        possibleFinalFilenames.push(`${baseName}_final.html`);
+                    }
+                    
+                    // Check each possible filename to see if it exists
+                    const checkFinalFile = async () => {
+                        for (const finalFilename of possibleFinalFilenames) {
+                            try {
+                                const response = await fetch(`/backend/monthly-report/file/${finalFilename}`, { method: 'HEAD' });
+                                if (response.ok) {
+                                    finalLink.href = `/backend/monthly-report/file/${finalFilename}`;
+                                    finalLink.style.display = 'inline-block';
+                                    return;
+                                }
+                            } catch (e) {
+                                // Continue to next filename
+                            }
+                        }
+                        // If no final file found, hide the link
+                        finalLink.style.display = 'none';
+                    };
+                    
+                    checkFinalFile();
+                }
+                
+                // Email link - try multiple patterns
                 const emailLink = document.getElementById('view-email-report');
                 if (emailLink) {
-                    emailLink.href = emailFilename ? `/backend/monthly-report/file/${emailFilename}` : '#';
-                    emailLink.style.display = emailFilename ? 'inline-block' : 'none';
+                    // Try different possible email filename patterns
+                    let possibleEmailFilenames = [];
+                    
+                    if (revisedFilename) {
+                        // Pattern 1: _revised -> _email
+                        possibleEmailFilenames.push(revisedFilename.replace('_revised', '_email'));
+                        // Pattern 2: _for_proofreading_revised -> _email
+                        possibleEmailFilenames.push(revisedFilename.replace('_for_proofreading_revised', '_email'));
+                        // Pattern 3: _for_proofreading_revised -> _for_proofreading_revised_email
+                        possibleEmailFilenames.push(revisedFilename.replace('_for_proofreading_revised', '_for_proofreading_revised_email'));
+                    }
+                    
+                    if (originalFilename) {
+                        // Pattern 4: original -> _email
+                        possibleEmailFilenames.push(originalFilename.replace('.html', '_email.html'));
+                    }
+                    
+                    // Pattern 5: Try to construct from the base filename (remove all suffixes)
+                    if (originalFilename) {
+                        const baseName = originalFilename.replace(/_(revised|for_proofreading|email|with_placeholders)\.html$/, '');
+                        possibleEmailFilenames.push(`${baseName}_email.html`);
+                    }
+                    
+                    // Check each possible filename to see if it exists
+                    const checkEmailFile = async () => {
+                        for (const emailFilename of possibleEmailFilenames) {
+                            try {
+                                const response = await fetch(`/backend/monthly-report/file/${emailFilename}`, { method: 'HEAD' });
+                                if (response.ok) {
+                                    emailLink.href = `/backend/monthly-report/file/${emailFilename}`;
+                                    emailLink.style.display = 'inline-block';
+                                    return;
+                                }
+                            } catch (e) {
+                                // Continue to next filename
+                            }
+                        }
+                        // If no email file found, hide the link
+                        emailLink.style.display = 'none';
+                    };
+                    
+                    checkEmailFile();
                 }
                 
                 // Audio script link
@@ -1380,13 +1487,16 @@
             }
             
             // Load reports into the selector
-            async function loadReports() {
+            async function loadReports(preserveSelection = false) {
                 try {
                     const response = await fetch('/api/monthly-reports/list');
                     const data = await response.json();
                     
                     console.log("Newsletters data received:", data);
                     reportsData = data; // Store for later use
+                    
+                    // Store current selection if we want to preserve it
+                    const currentSelection = preserveSelection ? reportSelect.value : null;
                     
                     if (data.status === 'success' && data.reports && data.reports.length > 0) {
                         // Log each report's published_url for debugging
@@ -1412,8 +1522,13 @@
                             console.log("Added option:", option.value, option.textContent);
                         });
                         
-                        // If there's only one report, select it automatically
-                        if (data.reports.length === 1) {
+                        // Restore selection if preserving, otherwise auto-select if only one report
+                        if (preserveSelection && currentSelection) {
+                            reportSelect.value = currentSelection;
+                            // Trigger the change event to load the report details
+                            const event = new Event('change');
+                            reportSelect.dispatchEvent(event);
+                        } else if (data.reports.length === 1) {
                             reportSelect.value = data.reports[0].original_filename;
                             // Trigger the change event to load the report details
                             const event = new Event('change');
@@ -1439,6 +1554,86 @@
                 }
             }
             
+            // Function to check if a file exists
+            async function checkFileExists(filename) {
+                try {
+                    const response = await fetch(`/backend/monthly-report/file/${filename}`, { method: 'HEAD' });
+                    return response.ok;
+                } catch (error) {
+                    console.error(`Error checking file ${filename}:`, error);
+                    return false;
+                }
+            }
+            
+            // Function to update button states based on file existence
+            async function updateButtonStates(originalFilename) {
+                if (!originalFilename) return;
+                
+                const baseName = originalFilename.replace(/\.html$/, '');
+                
+                // Check which files exist
+                const filesToCheck = [
+                    { suffix: '_revised.html', buttonId: 'rerunReportBtn', buttonText: 'Re-write newsletter' },
+                    { suffix: '_for_proofreading.html', buttonId: 'rerun-proofreading', buttonText: 'Re-run Proofreading' },
+                    { suffix: '_email.html', buttonId: 'rerun-postproofing', buttonText: 'Re-run Email' },
+                    { suffix: '_final.html', buttonId: 'rerun-final-version', buttonText: 'Re-run Final Version' }
+                ];
+                
+                // Check each file and update button state
+                for (const fileInfo of filesToCheck) {
+                    const filename = baseName + fileInfo.suffix;
+                    const exists = await checkFileExists(filename);
+                    const button = document.getElementById(fileInfo.buttonId);
+                    
+                    if (button) {
+                        if (exists) {
+                            button.classList.remove('available');
+                            button.classList.add('completed');
+                            button.disabled = false; // Keep buttons clickable even when completed
+                        } else {
+                            button.classList.remove('completed');
+                            button.classList.add('available');
+                            button.disabled = false;
+                        }
+                    }
+                }
+                
+                // Special handling for re-prioritize deltas button
+                // This should only be available if the original file exists but no revised version
+                const reprioritizeBtn = document.getElementById('reprioritize-deltas-btn');
+                if (reprioritizeBtn) {
+                    const originalExists = await checkFileExists(originalFilename);
+                    const revisedExists = await checkFileExists(baseName + '_revised.html');
+                    
+                    if (originalExists && !revisedExists) {
+                        reprioritizeBtn.classList.remove('completed');
+                        reprioritizeBtn.classList.add('available');
+                        reprioritizeBtn.disabled = false;
+                    } else {
+                        reprioritizeBtn.classList.remove('available');
+                        reprioritizeBtn.classList.add('completed');
+                        reprioritizeBtn.disabled = false; // Keep clickable even when completed
+                    }
+                }
+                
+                // Special handling for re-explain deltas button
+                // This should be available if revised file doesn't exist
+                const reexplainBtn = document.getElementById('reexplain-deltas-btn');
+                if (reexplainBtn) {
+                    const revisedExists = await checkFileExists(baseName + '_revised.html');
+                    
+                    if (!revisedExists) {
+                        reexplainBtn.classList.remove('completed');
+                        reexplainBtn.classList.add('available');
+                        reexplainBtn.disabled = false;
+                    } else {
+                        reexplainBtn.classList.remove('available');
+                        reexplainBtn.classList.add('completed');
+                        reexplainBtn.disabled = false; // Keep clickable even when completed
+                    }
+                }
+            }
+            
             // Handle report selection
             reportSelect.addEventListener('change', () => {
                 const selectedReport = reportSelect.value;
@@ -1461,6 +1656,9 @@
                     
                     // Update report links for the selected report
                     setTimeout(updateReportLinks, 500);
+                    
+                    // Update button states based on file existence
+                    updateButtonStates(selectedReport);
                     
                     // Set up the re-run generation button
                     const rerunReportBtn = document.getElementById('rerunReportBtn');
@@ -1549,8 +1747,8 @@
                         generateStatus.textContent = 'Newsletter generated successfully!';
                         generateStatus.style.display = 'block';
                         
-                        // Reload the reports list
-                        loadReports();
+                        // Reload the reports list while preserving selection
+                        loadReports(true);
                     } else {
                         throw new Error(data.message || 'Failed to generate newsletter');
                     }
@@ -1705,6 +1903,10 @@
                     // Construct the report path
                     const report_path = `output/reports/${filename}`;
                     
+                    // Get the selected model from the dropdown
+                    const modelSelect = document.getElementById('model-select');
+                    const selectedModel = modelSelect.value;
+                    
                     const response = await fetch('/backend/rerun_monthly_report_generation', {
                         method: 'POST',
                         headers: {
@@ -1716,36 +1918,17 @@
                             period_type: 'month',
                             max_report_items: 10,
                             only_generate: true,
-                            report_path
+                            report_path,
+                            model_key: selectedModel || null
                         })
                     });
                     
                     const data = await response.json();
                     
                     if (data.status === 'success') {
-                        // Step 2: Update button status for chart expansion
-                        button.innerHTML = '<div style="display: flex; align-items: center; justify-content: center;"><span class="loading"></span> Expanding charts...</div>';
-                        
-                        // Step 3: Expand chart placeholders to turn them into working charts
-                        const expandResponse = await fetch('/backend/expand_chart_placeholders', {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json',
-                            },
-                            body: JSON.stringify({
-                                filename: filename
-                            })
-                        });
-                        
-                        const expandData = await expandResponse.json();
-                        
-                        if (expandData.status === 'success') {
-                            alert('Newsletter has been re-written successfully with charts expanded!');
-                            location.reload();
-                        } else {
-                            alert('Newsletter re-written but error expanding charts: ' + expandData.message);
-                            location.reload(); // Still reload as the report was generated
-                        }
+                        alert('Newsletter has been re-written successfully!');
+                        // Reload reports while preserving the current selection
+                        await loadReports(true);
                     } else {
                         alert('Error re-writing newsletter: ' + data.message);
                     }
@@ -1768,6 +1951,10 @@
                     // Use the output/reports directory path
                     const report_path = `output/reports/${filename}`;
                     
+                    // Get the selected model from the dropdown
+                    const modelSelect = document.getElementById('model-select');
+                    const selectedModel = modelSelect.value;
+                    
                     // Call the API to re-run proofreading
                     const response = await fetch('/backend/rerun_monthly_report_proofreading', {
                         method: 'POST',
@@ -1776,7 +1963,8 @@
                         },
                         body: JSON.stringify({
                             filename,
-                            report_path
+                            report_path,
+                            model_key: selectedModel || null
                         })
                     });
                     
@@ -1784,8 +1972,10 @@
                     
                     if (data.status === 'success') {
                         alert('Proofreading re-run successfully!');
-                        // Reload the reports list
-                        loadReports();
+                        // Reload the reports list while preserving selection
+                        loadReports(true);
+                        // Update button states after completion
+                        setTimeout(() => updateButtonStates(filename), 1000);
                     } else {
                         throw new Error(data.message || 'Failed to re-run proofreading');
                     }
@@ -1840,8 +2030,8 @@
 
                     if (deleteData.status === 'success') {
                         alert('Newsletter deleted successfully!');
-                        // Reload the reports list
-                        loadReports();
+                        // Reload the reports list while preserving selection
+                        loadReports(true);
                         // Hide the report details
                         reportDetails.style.display = 'none';
                     } else {
@@ -1915,6 +2105,7 @@
                         <div class="report-links" style="margin-top: 15px; display: flex; flex-wrap: wrap; gap: 15px; align-items: center;">
                             <a href="#" id="view-original-report" target="_blank" style="text-decoration: none; color: #ad35fa;">View Original</a>
                             <a href="#" id="view-revised-report" target="_blank" style="text-decoration: none; color: #ad35fa;">View Revised</a>
+                            <a href="#" id="view-final-report" target="_blank" style="text-decoration: none; color: #ad35fa;">View Final (with Charts)</a>
                             <a href="#" id="view-email-report" target="_blank" style="text-decoration: none; color: #ad35fa;">View Email Version</a>
                             <div id="audio-player-container" style="display: none; align-items: center; gap: 10px;">
                                 <span style="color: #ad35fa; font-size: 14px;">🎧 Audio:</span>
@@ -1981,6 +2172,18 @@
                             </div>
                         `;
                     }
+                }
+                
+                // Display proofread feedback if available
+                if (report.proofread_feedback) {
+                    metricsHtml += `
+                        <div class="proofread-feedback-container" style="margin-top: 20px; margin-bottom: 20px; padding: 15px; background-color: #e8f4fd; border-radius: 8px; border-left: 4px solid #007bff;">
+                            <h2 style="margin: 0 0 10px 0; color: #007bff;">📝 Proofreading Feedback</h2>
+                            <div class="proofread-feedback-content" style="color: #333; line-height: 1.6;">
+                                ${report.proofread_feedback.replace(/\n/g, '<br>')}
+                            </div>
+                        </div>
+                    `;
                 }
                 
                 // Check if metrics exist in the report
@@ -2093,23 +2296,13 @@
                                                             // Use the reference field if it contains a chart reference
                                                             chartRef = chart.reference;
                                                         } else if (chart.html) {
-                                                            // If chart has HTML, display it directly
-                                                            chartsHtml += `
-                                                                <div class="chart-container">
-                                                                    <h5>${chartTitle}</h5>
-                                                                    ${chart.html}
-                                                                </div>
-                                                            `;
-                                                            return; // Skip the chart-placeholder creation
+                                                            // If chart has HTML, still use placeholder for consistency
+                                                            // The HTML will be expanded later in the process
+                                                            chartRef = `[CHART:html_chart:${chartTitle}]`;
                                                         } else if (chart.url) {
-                                                            // If chart has URL, create iframe
-                                                            chartsHtml += `
-                                                                <div class="chart-container">
-                                                                    <h5>${chartTitle}</h5>
-                                                                    <iframe src="${chart.url}" style="width: 100%; height: 400px; border: none;" frameborder="0"></iframe>
-                                                                </div>
-                                                            `;
-                                                            return; // Skip the chart-placeholder creation
+                                                            // If chart has URL, still use placeholder for consistency
+                                                            // The URL will be expanded later in the process
+                                                            chartRef = `[CHART:url_chart:${chart.url}]`;
                                                         } else {
                                                             // Fallback for unknown chart objects
                                                             chartRef = JSON.stringify(chart);
@@ -2688,7 +2881,9 @@
                         const data = await response.json();
                         if (data.status === 'success') {
                             alert('Email-compatible version re-generated successfully!');
-                            loadReports();
+                            loadReports(true);
+                            // Update button states after completion
+                            setTimeout(() => updateButtonStates(selectedReport), 1000);
                         } else {
                             throw new Error(data.message || 'Failed to re-run email version');
                         }
@@ -2697,6 +2892,48 @@
                     } finally {
                         rerunPostProofingBtn.disabled = false;
                         rerunPostProofingBtn.textContent = originalText;
+                    }
+                };
+            }
+            
+            // Add click handler for re-running final version
+            const rerunFinalVersionBtn = document.getElementById('rerun-final-version');
+            if (rerunFinalVersionBtn) {
+                rerunFinalVersionBtn.onclick = async (e) => {
+                    e.preventDefault();
+                    const selectedOption = reportSelect.options[reportSelect.selectedIndex];
+                    if (!selectedOption || !selectedOption.value) {
+                        alert('Please select a newsletter to re-run final version.');
+                        return;
+                    }
+                    const filename = selectedOption.value;
+                    // Use the output/reports directory path
+                    const report_path = `output/reports/${filename}`;
+                    rerunFinalVersionBtn.disabled = true;
+                    const originalText = rerunFinalVersionBtn.textContent;
+                    rerunFinalVersionBtn.innerHTML = '<div style="display: flex; align-items: center; justify-content: center;"><span class="loading"></span> Re-running...</div>';
+                    try {
+                        // Call backend endpoint to re-run final version generation
+                        const response = await fetch('/backend/rerun_final_version', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ report_path })
+                        });
+                        const data = await response.json();
+                        if (data.status === 'success') {
+                            alert('Final version regenerated successfully!');
+                            // Refresh the report list to show updated files
+                            loadReports(true);
+                            // Update button states after completion
+                            setTimeout(() => updateButtonStates(selectedReport), 1000);
+                        } else {
+                            throw new Error(data.message || 'Failed to re-run final version');
+                        }
+                    } catch (error) {
+                        alert('Error: ' + error.message);
+                    } finally {
+                        rerunFinalVersionBtn.disabled = false;
+                        rerunFinalVersionBtn.textContent = originalText;
                     }
                 };
             }
@@ -2872,8 +3109,10 @@
 
                     if (data.status === 'success') {
                         alert('Deltas re-prioritized successfully! The monthly_reporting data has been cleared and regenerated.');
-                        // Reload the reports list and details
-                        loadReports();
+                        // Reload the reports list and details while preserving selection
+                        loadReports(true);
+                        // Update button states after completion
+                        setTimeout(() => updateButtonStates(filename), 1000);
                         setTimeout(() => {
                             // Reselect the current report to refresh its details
                             reportSelect.value = filename;
@@ -2936,6 +3175,10 @@
                         }
                         
                         alert(successMessage);
+                        // Reload the reports list while preserving selection
+                        loadReports(true);
+                        // Update button states after completion
+                        setTimeout(() => updateButtonStates(filename), 1000);
                         // Optionally refresh the newsletter details
                         loadReportDetails(filename);
                     } else {

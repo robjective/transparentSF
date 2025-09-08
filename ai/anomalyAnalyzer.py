@@ -720,13 +720,20 @@ Periods: {previous_period} → {recent_period}
         return {"error": f"Failed to explain metric change: {str(e)}"}
 
 # Import LangChain explainer agent instead of Swarm-based agent
-try:
-    from agents.langchain_agent.explainer_agent import create_explainer_agent
-    anomaly_explainer_agent = create_explainer_agent()
-    logger.info("Successfully imported LangChain explainer agent")
-except ImportError:
-    logger.error("Failed to import LangChain explainer agent")
-    anomaly_explainer_agent = None
+_anomaly_explainer_agent = None
+
+def get_anomaly_explainer_agent():
+    """Get the anomaly explainer agent, creating it lazily if needed."""
+    global _anomaly_explainer_agent
+    if _anomaly_explainer_agent is None:
+        try:
+            from agents.langchain_agent.explainer_agent import create_explainer_agent
+            _anomaly_explainer_agent = create_explainer_agent()
+            logger.info("Successfully created LangChain explainer agent")
+        except Exception as e:
+            logger.error(f"Failed to create LangChain explainer agent: {e}")
+            _anomaly_explainer_agent = None
+    return _anomaly_explainer_agent
 
 # Now update the function mapping to refer directly to the functions
 function_mapping = {
@@ -997,7 +1004,7 @@ async def anomaly_chat(request: Request):
             logger.info(f"Creating new session: {session_id}")
             sessions[session_id] = {
                 "messages": [],
-                "agent": anomaly_explainer_agent,
+                "agent": get_anomaly_explainer_agent(),
                 "context_variables": context_variables.copy()
             }
         
@@ -1047,7 +1054,7 @@ async def reset_anomaly_chat(request: Request):
         if session_id in sessions:
             sessions[session_id] = {
                 "messages": [],
-                "agent": anomaly_explainer_agent,
+                "agent": get_anomaly_explainer_agent(),
                 "context_variables": context_variables.copy()
             }
         
@@ -1650,7 +1657,7 @@ async def explain_metric_change_endpoint(request: Request):
         # Initialize session with the explainer agent
         sessions[session_id] = {
             "messages": [],
-            "agent": anomaly_explainer_agent,
+            "agent": get_anomaly_explainer_agent(),
             "context_variables": context_variables.copy()
         }
         

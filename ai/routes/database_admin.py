@@ -130,34 +130,57 @@ async def create_database_backup():
         backup_filename = f"database_backup_{timestamp}.sql"
         backup_path = os.path.join(backups_dir, backup_filename)
         
-        # Construct pg_dump command
-        pg_dump_cmd = [
-            'pg_dump',
-            '--verbose',
-            '--no-owner',
-            '--no-privileges',
-            '--clean',
-            '--if-exists',
-            '--format=plain',
-            '--file', backup_path
-        ]
+        # Check if DATABASE_URL is available (common for managed services like Replit PostgreSQL)
+        database_url = os.getenv("DATABASE_URL")
         
-        # Add connection parameters
-        if 'host' in conn_params:
-            pg_dump_cmd.extend(['--host', conn_params['host']])
-        if 'port' in conn_params:
-            pg_dump_cmd.extend(['--port', conn_params['port']])
-        if 'user' in conn_params:
-            pg_dump_cmd.extend(['--username', conn_params['user']])
-        if 'dbname' in conn_params:
-            pg_dump_cmd.append(conn_params['dbname'])
+        if database_url:
+            # Use DATABASE_URL directly for pg_dump
+            logger.info("Using DATABASE_URL for pg_dump")
+            pg_dump_cmd = [
+                'pg_dump',
+                '--verbose',
+                '--no-owner',
+                '--no-privileges',
+                '--clean',
+                '--if-exists',
+                '--format=plain',
+                '--file', backup_path,
+                database_url
+            ]
+            
+            # Set environment variables
+            env = os.environ.copy()
+            
+        else:
+            # Use individual connection parameters (fallback for local setups)
+            logger.info("Using individual connection parameters for pg_dump")
+            pg_dump_cmd = [
+                'pg_dump',
+                '--verbose',
+                '--no-owner',
+                '--no-privileges',
+                '--clean',
+                '--if-exists',
+                '--format=plain',
+                '--file', backup_path
+            ]
+            
+            # Add connection parameters
+            if 'host' in conn_params:
+                pg_dump_cmd.extend(['--host', conn_params['host']])
+            if 'port' in conn_params:
+                pg_dump_cmd.extend(['--port', conn_params['port']])
+            if 'user' in conn_params:
+                pg_dump_cmd.extend(['--username', conn_params['user']])
+            if 'dbname' in conn_params:
+                pg_dump_cmd.append(conn_params['dbname'])
+            
+            # Set environment variables for password
+            env = os.environ.copy()
+            if 'password' in conn_params:
+                env['PGPASSWORD'] = conn_params['password']
         
-        # Set environment variables for password
-        env = os.environ.copy()
-        if 'password' in conn_params:
-            env['PGPASSWORD'] = conn_params['password']
-        
-        logger.info(f"Running pg_dump command: {' '.join(pg_dump_cmd[:-1])} [database]")
+        logger.info(f"Running pg_dump command: {' '.join(pg_dump_cmd[:-2])} [database/file]")
         
         # Run pg_dump
         result = subprocess.run(
@@ -292,27 +315,45 @@ async def restore_database(backup_file: UploadFile = File(...)):
             
             logger.info(f"Processing SQL file: {sql_file_path} ({file_size} bytes)")
             
-            # Construct psql command for restore
-            psql_cmd = [
-                'psql',
-                '--quiet',
-                '--file', sql_file_path
-            ]
+            # Check if DATABASE_URL is available (common for managed services like Replit PostgreSQL)
+            database_url = os.getenv("DATABASE_URL")
             
-            # Add connection parameters
-            if 'host' in conn_params:
-                psql_cmd.extend(['--host', conn_params['host']])
-            if 'port' in conn_params:
-                psql_cmd.extend(['--port', conn_params['port']])
-            if 'user' in conn_params:
-                psql_cmd.extend(['--username', conn_params['user']])
-            if 'dbname' in conn_params:
-                psql_cmd.extend(['--dbname', conn_params['dbname']])
-            
-            # Set environment variables for password
-            env = os.environ.copy()
-            if 'password' in conn_params:
-                env['PGPASSWORD'] = conn_params['password']
+            if database_url:
+                # Use DATABASE_URL directly for psql
+                logger.info("Using DATABASE_URL for psql restore")
+                psql_cmd = [
+                    'psql',
+                    '--quiet',
+                    '--file', sql_file_path,
+                    database_url
+                ]
+                
+                # Set environment variables
+                env = os.environ.copy()
+                
+            else:
+                # Use individual connection parameters (fallback for local setups)
+                logger.info("Using individual connection parameters for psql restore")
+                psql_cmd = [
+                    'psql',
+                    '--quiet',
+                    '--file', sql_file_path
+                ]
+                
+                # Add connection parameters
+                if 'host' in conn_params:
+                    psql_cmd.extend(['--host', conn_params['host']])
+                if 'port' in conn_params:
+                    psql_cmd.extend(['--port', conn_params['port']])
+                if 'user' in conn_params:
+                    psql_cmd.extend(['--username', conn_params['user']])
+                if 'dbname' in conn_params:
+                    psql_cmd.extend(['--dbname', conn_params['dbname']])
+                
+                # Set environment variables for password
+                env = os.environ.copy()
+                if 'password' in conn_params:
+                    env['PGPASSWORD'] = conn_params['password']
             
             logger.info(f"Running psql restore command")
             

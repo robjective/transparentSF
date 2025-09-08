@@ -3031,12 +3031,13 @@ async def time_series_chart_page(request: Request):
     return templates.TemplateResponse("time_series_chart.html", {"request": request})
 
 @router.get("/monthly-report/file/{filename}")
-async def get_monthly_report_file(filename: str):
+@router.head("/monthly-report/file/{filename}")
+async def get_monthly_report_file(filename: str, request: Request):
     """
     Serve a monthly report file directly by filename from the output/reports directory.
     """
     try:
-        logger.info(f"Requesting monthly report file: {filename}")
+        logger.info(f"Requesting monthly report file: {filename} (method: {request.method})")
         
         # Construct the path to the reports directory
         script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -3056,7 +3057,16 @@ async def get_monthly_report_file(filename: str):
             logger.info(f"Serving file: {file_path}")
             # Determine media type based on extension
             media_type = "text/html" if filename.lower().endswith(".html") else "application/octet-stream"
-            return FileResponse(file_path, media_type=media_type)
+            
+            # For HEAD requests, return just headers without content
+            if request.method == "HEAD":
+                from fastapi import Response
+                response = Response()
+                response.headers["Content-Type"] = media_type
+                response.headers["Content-Length"] = str(os.path.getsize(file_path))
+                return response
+            else:
+                return FileResponse(file_path, media_type=media_type)
         else:
             logger.error(f"Monthly report file not found at: {file_path}")
             logger.error(f"File exists check: {os.path.exists(file_path)}") # ADDED LOGGING
@@ -3131,7 +3141,7 @@ async def rerun_monthly_report_generation(request: Request):
     This endpoint allows users to manually trigger the monthly report generation process
     """
     try:
-        from monthly_report import run_monthly_report_process, generate_monthly_report
+        from monthly_report import run_monthly_report_process, generate_monthly_report, run_monthly_report_process_with_filename
         import asyncio
         
         # Get request data
@@ -3141,8 +3151,9 @@ async def rerun_monthly_report_generation(request: Request):
         max_report_items = data.get("max_report_items", 10)
         only_generate = data.get("only_generate", False)
         filename = data.get("filename")  # Get the original filename for regeneration
+        model_key = data.get("model_key")  # Get the selected model key
         
-        logger.info(f"Re-running monthly report generation for district {district}, period_type {period_type}, only_generate={only_generate}, filename={filename}")
+        logger.info(f"Re-running monthly report generation for district {district}, period_type {period_type}, only_generate={only_generate}, filename={filename}, model_key={model_key}")
         
         # Run the monthly report process in a separate thread to prevent blocking
         loop = asyncio.get_event_loop()
@@ -3151,18 +3162,34 @@ async def rerun_monthly_report_generation(request: Request):
             # Only run the generate_monthly_report function with original filename if provided
             result = await loop.run_in_executor(
                 None,
-                lambda: generate_monthly_report(district=district, original_filename=filename)
+                lambda: generate_monthly_report(district=district, original_filename=filename, model_key=model_key)
             )
         else:
-            # Run the full monthly report process
-            result = await loop.run_in_executor(
-                None,
-                lambda: run_monthly_report_process(
-                    district=district,
-                    period_type=period_type,
-                    max_report_items=max_report_items
+            # Run the full monthly report process - but use the existing filename if provided
+            # This ensures we don't create duplicate files with different timestamps
+            if filename:
+                # If we have an existing filename, use it to maintain consistency
+                result = await loop.run_in_executor(
+                    None,
+                    lambda: run_monthly_report_process_with_filename(
+                        district=district,
+                        period_type=period_type,
+                        max_report_items=max_report_items,
+                        model_key=model_key,
+                        original_filename=filename
+                    )
                 )
-            )
+            else:
+                # Run the full monthly report process with new filename generation
+                result = await loop.run_in_executor(
+                    None,
+                    lambda: run_monthly_report_process(
+                        district=district,
+                        period_type=period_type,
+                        max_report_items=max_report_items,
+                        model_key=model_key
+                    )
+                )
         
         if result.get("status") == "success":
             return JSONResponse(
@@ -3205,6 +3232,7 @@ async def rerun_monthly_report_proofreading(request: Request):
         # Get request data
         data = await request.json()
         report_path = data.get("report_path")
+        model_key = data.get("model_key")
         
         if not report_path:
             return JSONResponse(
@@ -3215,13 +3243,69 @@ async def rerun_monthly_report_proofreading(request: Request):
                 }
             )
         
-        logger.info(f"Re-running proofreading for report at {report_path}")
+        logger.info(f"Re-running proofreading for report at {report_path} with model_key={model_key}")
+        
+        # Get the report_id from the filename for more reliable database updates
+        report_id = None
+        try:
+            from pathlib import Path
+            import os
+            
+            # Extract the original filename from the report path
+            report_filename = Path(report_path).name
+            
+            # Handle different filename patterns to get the original filename
+            original_filename = report_filename
+            if '_for_proofreading' in report_filename:
+                original_filename = report_filename.replace('_for_proofreading', '')
+            elif '_with_placeholders' in report_filename:
+                original_filename = report_filename.replace('_with_placeholders', '')
+            elif '_revised' in report_filename:
+                original_filename = report_filename.replace('_revised', '')
+            elif '_email' in report_filename:
+                original_filename = report_filename.replace('_email', '')
+            elif '_final' in report_filename:
+                original_filename = report_filename.replace('_final', '')
+            
+            # Look up the report_id
+            def get_report_id_operation(connection):
+                cursor = connection.cursor()
+                cursor.execute("""
+                    SELECT id FROM reports WHERE original_filename = %s ORDER BY created_at DESC LIMIT 1
+                """, (original_filename,))
+                result = cursor.fetchone()
+                return result[0] if result else None
+            
+            # Get database connection parameters
+            db_host = os.getenv("POSTGRES_HOST", 'localhost')
+            db_port = os.getenv("POSTGRES_PORT", '5432')
+            db_user = os.getenv("POSTGRES_USER", 'postgres')
+            db_password = os.getenv("POSTGRES_PASSWORD", 'postgres')
+            db_name = os.getenv("POSTGRES_DB", 'transparentsf')
+            
+            report_id_result = execute_with_connection(
+                operation=get_report_id_operation,
+                db_host=db_host,
+                db_port=db_port,
+                db_name=db_name,
+                db_user=db_user,
+                db_password=db_password
+            )
+            
+            if report_id_result.get("status") == "success" and report_id_result.get("result"):
+                report_id = report_id_result["result"]
+                logger.info(f"Found report_id: {report_id} for filename: {original_filename}")
+            else:
+                logger.warning(f"Could not find report_id for filename: {original_filename}")
+                
+        except Exception as e:
+            logger.warning(f"Error looking up report_id: {e}. Will use filename-based lookup as fallback.")
         
         # Run the proofreading process in a separate thread to prevent blocking
         loop = asyncio.get_event_loop()
         result = await loop.run_in_executor(
             None,
-            lambda: proofread_and_revise_report(report_path)
+            lambda: proofread_and_revise_report(report_path, model_key=model_key, report_id=report_id)
         )
         
         if result.get("status") == "success":
@@ -3936,6 +4020,66 @@ async def rerun_email_version(request: Request):
             }
         )
 
+@router.post("/rerun_final_version")
+async def rerun_final_version(request: Request):
+    """
+    Re-run the final version generation for a monthly report with embedded charts
+    
+    This endpoint allows users to manually regenerate the final version with TransparentSF embedded charts
+    """
+    try:
+        from monthly_report import generate_final_version_with_charts
+        import asyncio
+        
+        # Get request data
+        data = await request.json()
+        report_path = data.get("report_path")
+        
+        if not report_path:
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "status": "error",
+                    "message": "Missing report_path parameter"
+                }
+            )
+        
+        logger.info(f"Re-running final version generation for report at {report_path}")
+        
+        # Run the final version generation process in a separate thread to prevent blocking
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(
+            None,
+            lambda: generate_final_version_with_charts(report_path)
+        )
+        
+        if result:
+            return JSONResponse(
+                content={
+                    "status": "success",
+                    "message": "Final version generated successfully",
+                    "final_report_path": result
+                }
+            )
+        else:
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "status": "error",
+                    "message": "Failed to generate final version"
+                }
+            )
+            
+    except Exception as e:
+        logger.error(f"Error re-running final version generation: {str(e)}", exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={
+                "status": "error",
+                "message": f"Error re-running final version generation: {str(e)}"
+            }
+        )
+
 @router.post("/expand_charts_local")
 async def expand_charts_local(request: Request):
     """
@@ -4064,6 +4208,7 @@ async def generate_narrated_report_endpoint(request: Request):
         # Get request data
         data = await request.json()
         filename = data.get("filename")
+        model_key = data.get("model_key")
         
         if not filename:
             return JSONResponse(
@@ -4074,7 +4219,7 @@ async def generate_narrated_report_endpoint(request: Request):
                 }
             )
         
-        logger.info(f"Generating narrated version for report: {filename}")
+        logger.info(f"Generating narrated version for report: {filename} with model_key={model_key}")
         
         # Construct the path to the email version of the report
         script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -4112,7 +4257,7 @@ async def generate_narrated_report_endpoint(request: Request):
         loop = asyncio.get_event_loop()
         result = await loop.run_in_executor(
             None,
-            lambda: generate_narrated_report(email_report_path)
+            lambda: generate_narrated_report(email_report_path, model_key=model_key)
         )
         
         if result:
@@ -4407,16 +4552,17 @@ async def expand_chart_placeholders(request: Request):
         monthly_report.create_datawrapper_chart = create_datawrapper_chart_direct
         
         try:
-            # Call the expand_chart_references function with the patched version
-            result = expand_chart_references(report_path)
+            # Call the expand_chart_references_with_tabs function with the patched version
+            from tools.chart_expansion import expand_chart_references_with_tabs
+            result = expand_chart_references_with_tabs(report_path)
             
             # Restore the original function
             monthly_report.create_datawrapper_chart = original_create_datawrapper_chart
             
             if result:
-                return {"status": "success", "message": f"Chart references expanded in {filename}"}
+                return {"status": "success", "message": f"Chart references expanded with tabs in {filename}"}
             else:
-                return {"status": "error", "message": f"Failed to expand chart references in {filename}"}
+                return {"status": "error", "message": f"Failed to expand chart references with tabs in {filename}"}
         finally:
             # Ensure we restore the original function even if an error occurs
             monthly_report.create_datawrapper_chart = original_create_datawrapper_chart

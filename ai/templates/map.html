@@ -856,7 +856,7 @@
                 console.log('Loading map data for type:', mapData.type);
                 if (mapData.type === 'supervisor_district') {
                     loadDistrictMap();
-                } else if (mapData.type === 'point' || mapData.type === 'symbol') {
+                } else if (mapData.type === 'point' || mapData.type === 'symbol' || mapData.type === 'address') {
                     loadPointMap();
                 } else {
                     showError('Unsupported map type: ' + mapData.type);

@@ -758,9 +758,19 @@ def generate_anomaly_chart_from_id(anomaly_id, chart_title=None, output_dir='sta
         anomaly_details_url = f"{api_base_url}/anomaly-analyzer/api/anomaly-details/{anomaly_id}"
         logger.info(f"Requesting anomaly data from: {anomaly_details_url}")
         
-        response = requests.get(anomaly_details_url, timeout=30)
-        if response.status_code != 200:
-            logger.error(f"Failed to fetch anomaly details: {response.status_code} - {response.text}")
+        try:
+            response = requests.get(anomaly_details_url, timeout=30)
+            if response.status_code != 200:
+                logger.error(f"Failed to fetch anomaly details: {response.status_code} - {response.text}")
+                return None
+        except requests.exceptions.ReadTimeout:
+            logger.error(f"Timeout fetching anomaly details for ID {anomaly_id}. Backend service may be overloaded.")
+            return None
+        except requests.exceptions.ConnectionError:
+            logger.error(f"Connection error fetching anomaly details for ID {anomaly_id}. Backend service may be down.")
+            return None
+        except Exception as e:
+            logger.error(f"Unexpected error fetching anomaly details for ID {anomaly_id}: {str(e)}")
             return None
             
         # Parse the response

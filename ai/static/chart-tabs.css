@@ -1,0 +1,61 @@
+/* Chart Tabs Styling */
+.chart-tabs-container {
+    margin: 20px 0;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.chart-tabs-header {
+    display: flex;
+    background-color: #f8f9fa;
+    border-bottom: 1px solid #ddd;
+}
+
+.chart-tab-btn {
+    flex: 1;
+    padding: 12px 20px;
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 500;
+    color: #666;
+    transition: all 0.2s ease;
+    border-right: 1px solid #ddd;
+}
+
+.chart-tab-btn:last-child {
+    border-right: none;
+}
+
+.chart-tab-btn:hover {
+    background-color: #e9ecef;
+    color: #333;
+}
+
+.chart-tab-btn.active {
+    background-color: #ad35fa;
+    color: white;
+}
+
+.chart-tab-content {
+    position: relative;
+}
+
+.chart-tab-panel {
+    display: none;
+    min-height: 400px;
+}
+
+.chart-tab-panel.active {
+    display: block;
+}
+
+.datawrapper-chart-embed {
+    padding: 20px;
+    background-color: #fff;
+}
+
+
+

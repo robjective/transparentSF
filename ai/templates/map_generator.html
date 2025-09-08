@@ -246,6 +246,22 @@
             color: var(--text-primary);
             z-index: 1000;
             backdrop-filter: blur(5px);
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+        
+        .query-url-link {
+            color: var(--accent-color);
+            text-decoration: none;
+            font-size: 0.8em;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+        
+        .query-url-link:hover {
+            text-decoration: underline;
         }
         
         [data-theme="dark"] .map-info-overlay {
@@ -703,7 +719,12 @@
                     <div id="live-map" style="height: 100%; width: 100%;"></div>
                     <div id="map-preview-subtitle" class="map-preview-subtitle" style="display: none;"></div>
                     <div id="map-info-overlay" class="map-info-overlay" style="display: none;">
-                        <i class="fas fa-map-marker-alt"></i> <span id="point-count">0</span> points
+                        <div>
+                            <i class="fas fa-map-marker-alt"></i> <span id="point-count">0</span> points
+                        </div>
+                        <a id="query-url-link" class="query-url-link" href="#" target="_blank" style="display: none;">
+                            <i class="fas fa-external-link-alt"></i> View Raw Data
+                        </a>
                     </div>
                     <div id="map-legend" class="map-legend" style="display: none;">
                         <div class="legend-title">Color Legend</div>
@@ -776,6 +797,7 @@
         let availableFields = [];
         let currentColorField = 'date';
         let colorScale = null;
+        let currentQueryUrl = null;
 
         // Function to calculate and display date range subtitle for preview
         function updatePreviewDateRangeSubtitle() {
@@ -891,6 +913,7 @@
         const colorFieldSelect = document.getElementById('color-field-select');
         const mapInfoOverlay = document.getElementById('map-info-overlay');
         const pointCountSpan = document.getElementById('point-count');
+        const queryUrlLink = document.getElementById('query-url-link');
         const mapLegend = document.getElementById('map-legend');
         const legendItems = document.getElementById('legend-items');
 
@@ -1411,6 +1434,7 @@
             }
             // Clear stored data
             previewData = null;
+            currentQueryUrl = null;
             
             // Hide the date range subtitle
             const subtitleElement = document.getElementById('map-preview-subtitle');
@@ -1577,6 +1601,16 @@
             console.log('showLivePreview called with:', data);
             // Store the data for potential color updates
             previewData = data;
+            
+            // Store and handle the executed query URL
+            currentQueryUrl = data.executed_query_url;
+            if (currentQueryUrl) {
+                queryUrlLink.href = currentQueryUrl;
+                queryUrlLink.style.display = 'flex';
+            } else {
+                queryUrlLink.style.display = 'none';
+            }
+            
             mapPreviewPlaceholder.style.display = 'none';
             mapPreviewContainer.style.display = 'flex';
             

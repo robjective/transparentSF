@@ -293,7 +293,7 @@ def get_charts_for_review_tool(
     metric_id: str = None,
     only_recent: bool = True,  # New parameter
     max_total_charts: int = 20,  # New parameter
-    include_metadata: bool = False,  # New parameter
+    include_metadata: bool = False,  # New parameter - keep false but we'll add caption extraction
     include_urls: bool = False,  # New parameter
     sort_by: str = "created_at"  # New parameter
 ) -> Dict[str, Any]:

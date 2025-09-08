@@ -13,7 +13,14 @@ ai_dir = current_dir.parent.parent
 sys.path.insert(0, str(ai_dir))
 
 from langchain.tools import Tool, StructuredTool
-from ..config.tool_config import ToolGroup, ToolDefinition, tool_config
+from ..config.tool_config import ToolGroup, ToolDefinition
+
+# Import tool_config dynamically to avoid caching issues
+def get_tool_config():
+    """Get the tool_config instance, using the global instance."""
+    from ..config.tool_config import tool_config
+    # Use the global instance
+    return tool_config
 
 # Import metrics tools from the local tools directory
 from .explainer_metrics_tools import (
@@ -86,10 +93,11 @@ class ToolFactory:
         Returns:
             List of LangChain Tool objects
         """
-        if not tool_config.validate_tool_groups(groups):
+        config = get_tool_config()
+        if not config.validate_tool_groups(groups):
             raise ValueError(f"Invalid tool groups: {groups}")
         
-        tool_definitions = tool_config.get_tools_for_groups(groups)
+        tool_definitions = config.get_tools_for_groups(groups)
         tools = []
         
         for tool_def in tool_definitions:
@@ -110,18 +118,21 @@ class ToolFactory:
     
     def get_tool_names_for_groups(self, groups: List[ToolGroup]) -> List[str]:
         """Get the names of tools that would be created for the specified groups."""
-        return tool_config.get_tool_names_for_groups(groups)
+        config = get_tool_config()
+        return config.get_tool_names_for_groups(groups)
     
     def get_required_prompt_sections(self, groups: List[ToolGroup]) -> List[str]:
         """Get the required prompt sections for the specified tool groups."""
-        return tool_config.get_required_prompt_sections(groups)
+        config = get_tool_config()
+        return config.get_required_prompt_sections(groups)
     
     def list_available_tools(self) -> Dict[str, List[str]]:
         """List all available tools grouped by their tool groups."""
+        config = get_tool_config()
         result = {}
         for group in ToolGroup:
-            if group in tool_config.tool_groups:
-                result[group.value] = [tool.name for tool in tool_config.tool_groups[group]]
+            if group in config.tool_groups:
+                result[group.value] = [tool.name for tool in config.tool_groups[group]]
         return result
     
     def validate_tool_availability(self, groups: List[ToolGroup]) -> Dict[str, List[str]]:
@@ -131,7 +142,8 @@ class ToolFactory:
         Returns:
             Dict with 'available' and 'missing' tool lists
         """
-        tool_definitions = tool_config.get_tools_for_groups(groups)
+        config = get_tool_config()
+        tool_definitions = config.get_tools_for_groups(groups)
         available = []
         missing = []
         

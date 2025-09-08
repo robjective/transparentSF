@@ -81,7 +81,7 @@ class ToolConfig:
                 function=None,
                 description="Get summary of available analysis and documentation",
                 group=ToolGroup.ANALYSIS,
-                required_prompt_sections=["core_tools"],
+                required_prompt_sections=["core_tools", "workflow"],
                 examples=[
                     "Always start with get_notes() to see what analysis is available",
                     "Use get_notes() to understand what data and documentation you have access to"
@@ -90,12 +90,12 @@ class ToolConfig:
             ToolDefinition(
                 name="get_dashboard_metric",
                 function=None,
-                description="Retrieve dashboard metric data containing anomalies",
+                description="Retrieve dashboard metric data with analysis files (monthly, weekly, annual, YTD)",
                 group=ToolGroup.ANALYSIS,
-                required_prompt_sections=["core_tools"],
+                required_prompt_sections=["core_tools", "workflow"],
                 examples=[
                     "get_dashboard_metric(context_variables, district_number=0, metric_id=123)",
-                    "Use this to get the dashboard metric that contains the anomaly you want explained"
+                    "Use this to get the dashboard metric data and all available analysis files for a specific metric"
                 ]
             ),
             ToolDefinition(
@@ -103,7 +103,7 @@ class ToolConfig:
                 function=None,
                 description="Query anomalies directly from the PostgreSQL database",
                 group=ToolGroup.ANALYSIS,
-                required_prompt_sections=["core_tools"],
+                required_prompt_sections=["core_tools", "workflow"],
                 examples=[
                     "query_anomalies_db(context_variables, query_type='by_metric_id', metric_id=123, district_filter=2, only_anomalies=True)",
                     "Use this to find anomalies for a specific metric and district"
@@ -114,7 +114,7 @@ class ToolConfig:
                 function=None,
                 description="Get detailed information about a specific anomaly by ID",
                 group=ToolGroup.ANALYSIS,
-                required_prompt_sections=["core_tools"],
+                required_prompt_sections=["core_tools", "workflow"],
                 examples=[
                     "get_anomaly_details(context_variables, anomaly_id=123)",
                     "Use this to get complete information about a specific anomaly"
@@ -125,7 +125,7 @@ class ToolConfig:
                 function=None,
                 description="Get available charts for newsletter inclusion review",
                 group=ToolGroup.ANALYSIS,
-                required_prompt_sections=["core_tools", "charts"],
+                required_prompt_sections=["core_tools", "charts", "workflow"],
                 examples=[
                     "get_charts_for_review(context_variables, limit=20, days_back=30, district_filter='2', metric_id='3')",
                     "Use this to find relevant charts and maps that support your explanations"
@@ -298,6 +298,12 @@ class ToolConfig:
                 ]
             )
         ]
+        
+        # Documentation tools (empty for now, but initialized to prevent validation errors)
+        self.tool_groups[ToolGroup.DOCUMENTATION] = []
+        
+        # Anomaly detection tools (empty for now, but initialized to prevent validation errors)
+        self.tool_groups[ToolGroup.ANOMALY_DETECTION] = []
     
     def _initialize_prompt_sections(self):
         """Initialize the prompt sections that correspond to tool groups."""
@@ -337,6 +343,7 @@ class ToolConfig:
     
     def validate_tool_groups(self, groups: List[ToolGroup]) -> bool:
         """Validate that the specified tool groups exist."""
+        # Check if all groups are valid ToolGroup enum values and have been initialized
         return all(group in self.tool_groups for group in groups)
 
 # Global instance

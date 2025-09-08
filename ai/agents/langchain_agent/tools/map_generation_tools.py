@@ -195,7 +195,8 @@ def get_recent_maps_tool(context_variables: Dict[str, Any], limit: int = 10,
 def generate_map_with_query_tool(endpoint: str, query: str, map_title: str, map_type: str, 
                                  map_metadata: Optional[Dict[str, Any]] = None, 
                                  series_field: Optional[str] = None, 
-                                 color_palette: Optional[str] = None) -> Dict[str, Any]:
+                                 color_palette: Optional[str] = None,
+                                 metric_id: Optional[str] = None) -> Dict[str, Any]:
     """
     Generate a map by querying DataSF and creating a map visualization in one step.
     
@@ -225,6 +226,7 @@ def generate_map_with_query_tool(endpoint: str, query: str, map_title: str, map_
             * "priority" - Red, Orange, Yellow, Green, Blue for priority levels
             * "sequential" - Graduated colors for sequential data
             * Custom list of hex colors: ["#FF0000", "#00FF00", "#0000FF"]
+        metric_id: Optional metric ID to associate this map with (for proper categorization in metric_control.html)
     
     Returns:
         Dictionary with map_id and URLs for editing and viewing the map
@@ -235,7 +237,8 @@ def generate_map_with_query_tool(endpoint: str, query: str, map_title: str, map_
             query="SELECT supervisor_district, COUNT(*) as value WHERE date_trunc_ym(report_datetime) = date_trunc_ym(CURRENT_DATE) GROUP BY supervisor_district",
             map_title="Crime Incidents by District",
             map_type="supervisor_district",
-            map_metadata={"description": "Monthly crime incidents by supervisor district"}
+            map_metadata={"description": "Monthly crime incidents by supervisor district"},
+            metric_id="23"
         )
     """
     logger.info("=== Starting generate_map_with_query_tool ===")
@@ -315,6 +318,7 @@ def generate_map_with_query_tool(endpoint: str, query: str, map_title: str, map_
             map_type=map_type,
             location_data="from_context",  # Use dataset from context
             map_metadata=map_metadata or {},
+            metric_id=metric_id,
             series_field=series_field,
             color_palette=color_palette,
             preview_mode=False

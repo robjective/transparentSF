@@ -325,10 +325,15 @@ def fetch_metric_data(metric_id, district="0", period_type="month", time_periods
         if 'error' in result:
             return result
         
-        # Return the dataset
+        # Return the dataset and executed query URL
         dataset = context_variables.get('dataset')
+        executed_query_url = context_variables.get('executed_query_url')
+        
         if dataset is not None and not dataset.empty:
-            return {'data': dataset}
+            return {
+                'data': dataset,
+                'executed_query_url': executed_query_url
+            }
         else:
             return {'error': 'No data returned from API'}
             

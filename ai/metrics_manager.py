@@ -1488,31 +1488,49 @@ async def backup_metrics_table_api():
             old_backup_moved = True
             logger.info(f"Moved existing backup to: {old_backup_location}")
         
-        # Get database connection parameters from environment
-        db_host = os.getenv("POSTGRES_HOST", "localhost")
-        db_port = os.getenv("POSTGRES_PORT", "5432")
-        db_name = os.getenv("POSTGRES_DB", "transparentsf")
-        db_user = os.getenv("POSTGRES_USER", "postgres")
-        db_password = os.getenv("POSTGRES_PASSWORD", "postgres")
+        # Check if DATABASE_URL is provided (common for managed services like Replit PostgreSQL)
+        database_url = os.getenv("DATABASE_URL")
         
         # Set up environment for pg_dump
         env = os.environ.copy()
-        if db_password:
-            env["PGPASSWORD"] = db_password
         
-        # Create the backup using pg_dump
-        dump_cmd = [
-            "pg_dump",
-            "-h", db_host,
-            "-p", str(db_port),
-            "-U", db_user,
-            "-d", db_name,
-            "--table=public.metrics",
-            "--inserts",
-            "--column-inserts",
-            "--no-owner",
-            "-f", backup_file
-        ]
+        if database_url:
+            # Use DATABASE_URL for managed database
+            logger.info("Using DATABASE_URL for backup")
+            dump_cmd = [
+                "pg_dump",
+                database_url,
+                "--table=public.metrics",
+                "--inserts",
+                "--column-inserts",
+                "--no-owner",
+                "-f", backup_file
+            ]
+        else:
+            # Fall back to individual parameters for local development
+            logger.info("Using individual database parameters for backup")
+            db_host = os.getenv("POSTGRES_HOST", "localhost")
+            db_port = os.getenv("POSTGRES_PORT", "5432")
+            db_name = os.getenv("POSTGRES_DB", "transparentsf")
+            db_user = os.getenv("POSTGRES_USER", "postgres")
+            db_password = os.getenv("POSTGRES_PASSWORD", "postgres")
+            
+            if db_password:
+                env["PGPASSWORD"] = db_password
+            
+            # Create the backup using pg_dump with individual parameters
+            dump_cmd = [
+                "pg_dump",
+                "-h", db_host,
+                "-p", str(db_port),
+                "-U", db_user,
+                "-d", db_name,
+                "--table=public.metrics",
+                "--inserts",
+                "--column-inserts",
+                "--no-owner",
+                "-f", backup_file
+            ]
         
         logger.info("Creating new backup of metrics table...")
         result = subprocess.run(dump_cmd, env=env, capture_output=True, text=True)

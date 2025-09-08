@@ -275,8 +275,9 @@ async def generate_map_endpoint(request: Request):
                     content={"status": "error", "message": f"Failed to fetch data: {data_result.get('error', 'Unknown error')}"}
                 )
             
-            # Extract the dataset from the result
+            # Extract the dataset and executed query URL from the result
             dataset = data_result.get("data")
+            executed_query_url = data_result.get("executed_query_url")
             if dataset is None or dataset.empty:
                 cursor.close()
                 conn.close()
@@ -293,6 +294,9 @@ async def generate_map_endpoint(request: Request):
                 # Check if it has point data
                 if any("lat" in str(field).lower() or "lon" in str(field).lower() for field in metric["location_fields"]):
                     map_type = "point"
+                # Check if it has address data
+                elif any("address" in str(field).lower() for field in metric["location_fields"]):
+                    map_type = "address"
             
             # Override map type if dataset has location data (point/symbol maps)
             if dataset is not None and not dataset.empty:
@@ -316,7 +320,8 @@ async def generate_map_endpoint(request: Request):
             map_result = generate_map(
                 context_variables={
                     "dataset": dataset,
-                    "map_config": metric.get("map_config")
+                    "map_config": metric.get("map_config"),
+                    "executed_query_url": executed_query_url
                 },
                 map_title=map_title,
                 map_type=map_type,
@@ -356,7 +361,8 @@ async def generate_map_endpoint(request: Request):
                 return JSONResponse(content={
                     "status": "success",
                     "location_data": location_data,
-                    "data_points": len(location_data)
+                    "data_points": len(location_data),
+                    "executed_query_url": executed_query_url
                 })
             
         except ImportError:

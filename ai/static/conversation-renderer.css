@@ -28,8 +28,8 @@
 .conversation-message.user {
     background: rgba(173, 53, 250, 0.1);
     color: var(--text-primary, #000000);
-    margin-left: auto;
-    text-align: right;
+    margin-right: auto;
+    text-align: left;
 }
 
 .conversation-message.assistant {

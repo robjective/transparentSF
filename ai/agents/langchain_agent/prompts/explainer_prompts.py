@@ -39,10 +39,11 @@ WORKFLOW_INSTRUCTIONS = """MANDATORY WORKFLOW (follow this exact sequence):
 4. FOURTH, Use get_charts_for_review to review the recent charts for this metric. If there are charts that are relevant to the change, then include them in your explanation.
 5. FIFTH, Apply category best practices, see below. 
 6. SIXTH, contextualize this change vs the historical data, you can use the data from get_dashboard_metric to do this. 
-7. SEVENTH, if an anomaly is explanatory, then be sure to include a link to the anomaly chart
+7. SEVENTH, if an anomaly is explanatory, then be sure to include a link to the anomaly chart (or charts).  
 8. EIGHTH, if you still don't have enough information to understand the data, then use set_dataset to get exactly what you need from DataSF. You can use the queries that you see in the get_dashboard_metric tool data as a starting point, make sure to use the right fieldNames with the right case. Read more about that in the set_dataset() tool. 
-9. NINTH, if the data has a strong geographic component, create a map visualization to show spatial patterns using generate_map_with_query (preferred) or generate_map. If there are a small number of datapoints in the month (say 30 or fewer), it can be helpful to plot them out on a locator map using point, address, or intersection map types.
-10. TENTH, when analyzing geographic patterns, examine the metric's map_query, map_filters, and map_config fields to understand how the system builds map queries and what geographic data is available."""
+9. NINTH, if the data has a strong geographic component, use a map visualization to show spatial patterns.  There should already be a map showing absolute amounts and changes by metric by district, use those if you can.  There should be a good description of each map in the get_charts_for-review call.  If you can't see the map you need, you can use generate_map_with_query (preferred) or generate_map.
+10. Tell the story with charts and maps to illustrate the data.
+"""
 
 # Category-specific best practices
 CATEGORY_BEST_PRACTICES = """Best Practices for explaining certain categories: 
@@ -144,7 +145,8 @@ SELECT
 WHERE neighborhoods_analysis_boundaries LIKE '%Chinatown%'
 This method provides the complete picture of business dynamics, capturing both new market entrants and expansion activity by existing businesses.
 
-3. I fyou are being asked about crime data, then you should query for the actual crimes that have occurred, and include the crime type, the date of the crime, and the location of the crime in your explanation.
+3. Some things to note about the police incident daaset: First, it incudes secondary reports for the same initial incident.  You can see where this happens by looking at how many incident_ids there are for an incident_number.   Some incidents of say homicide are withdroawn from the dataset for privacy reasons, so counting distrinct incidents numbers usually shows fewer homicides then what might be filed with say the FBI.  You can also look at inicident_type to see if its an initial or follow on incident.
+   If you are being asked about crime data, then you should query for the actual crimes that have occurred, and include the crime type, the date of the crime, and the location of the crime in your explanation.
 set_dataset
 Arguments:
 {{
@@ -185,7 +187,7 @@ MAP_GENERATION_INSTRUCTIONS = """
 MAP GENERATION TOOLS (Mapbox Only - Enhanced Geographic Visualizations):
 
 PREFERRED TOOL - generate_map_with_query: Query DataSF and create map in one step
-  USAGE: generate_map_with_query(endpoint="dataset-id", query="your-soql-query", map_title="Title", map_type="supervisor_district", map_metadata={{"description": "Description"}}, series_field=None, color_palette=None)
+  USAGE: generate_map_with_query(endpoint="dataset-id", query="your-soql-query", map_title="Title", map_type="supervisor_district", map_metadata={{"description": "Description"}}, series_field=None, color_palette=None, metric_id="metric_id")
   
   RETURNS: {{"status": "success", "map_id": 123, "message": "Map created successfully"}}
   The map_id is an integer that you use to reference the map in your explanations as [CHART:map:123].
@@ -207,10 +209,11 @@ PREFERRED TOOL - generate_map_with_query: Query DataSF and create map in one ste
      * For locator maps: {{"description": "Description", "center_lat": 37.7749, "center_lon": -122.4194, "zoom": 12}}
   - series_field: Field name for colored series grouping (point/address/intersection maps only)
   - color_palette: Series color scheme: "categorical", "status", "priority", "sequential", or custom hex colors
+  - metric_id: The metric ID to associate this map with (use the metric_id from the current analysis context)
 
   QUERY REQUIREMENTS:
   1. District Maps: Include district field and value field
-     Example: SELECT supervisor_district, COUNT(*) as value WHERE date_trunc_ym(report_datetime) = date_trunc_ym(CURRENT_DATE) GROUP BY supervisor_district
+     Example: generate_map_with_query(endpoint="wg3w-h783", query="SELECT supervisor_district, COUNT(*) as value WHERE date_trunc_ym(report_datetime) = date_trunc_ym(CURRENT_DATE) GROUP BY supervisor_district", map_title="Crime Incidents by District", map_type="supervisor_district", metric_id="23")
 
   2. Point Maps: Include latitude, longitude, title, and description fields  
      Example: SELECT latitude, longitude, incident_description as title, incident_category as description WHERE report_datetime >= CURRENT_DATE - INTERVAL '30 days'

@@ -151,10 +151,11 @@ def get_dashboard_metric(context_variables, district_number=0, metric_id=None):
                 if not metric_id_number:
                     logger.info(f"Could not determine metric ID number from {base_metric_name}")
             
-            # Look for analysis files in monthly, annual, and weekly folders
+            # Look for analysis files in monthly, annual, weekly, and YTD folders
             monthly_dir = script_dir / 'output' / 'monthly'
             annual_dir = script_dir / 'output' / 'annual'
             weekly_dir = script_dir / 'output' / 'weekly'
+            ytd_dir = script_dir / 'output' / 'ytd'
             
             # Only proceed if we have a metric ID number
             if metric_id_number:
@@ -162,10 +163,12 @@ def get_dashboard_metric(context_variables, district_number=0, metric_id=None):
                 monthly_analysis_path = monthly_dir / f"{district_number}/{metric_id_number}.md"
                 annual_analysis_path = annual_dir / f"{district_number}/{metric_id_number}.md"
                 weekly_analysis_path = weekly_dir / f"{district_number}/{metric_id_number}.md"
+                ytd_analysis_path = ytd_dir / f"{district_number}/{metric_id_number}.md"
                 
                 logger.info(f"Looking for monthly analysis at: {monthly_analysis_path}")
                 logger.info(f"Looking for annual analysis at: {annual_analysis_path}")
                 logger.info(f"Looking for weekly analysis at: {weekly_analysis_path}")
+                logger.info(f"Looking for YTD analysis at: {ytd_analysis_path}")
                 
                 # Read monthly analysis if it exists
                 if monthly_analysis_path.exists():
@@ -199,6 +202,17 @@ def get_dashboard_metric(context_variables, district_number=0, metric_id=None):
                             logger.info(f"Found weekly analysis file ({len(weekly_content)} chars)")
                     except Exception as e:
                         logger.error(f"Error reading weekly analysis: {str(e)}")
+                
+                # Read YTD analysis if it exists
+                if ytd_analysis_path.exists():
+                    try:
+                        with open(ytd_analysis_path, 'r', encoding='utf-8') as f:
+                            ytd_content = f.read()
+                            total_analysis_length += len(ytd_content.split())
+                            analysis_content["ytd_analysis"] = ytd_content
+                            logger.info(f"Found YTD analysis file ({len(ytd_content)} chars)")
+                    except Exception as e:
+                        logger.error(f"Error reading YTD analysis: {str(e)}")
             else:
                 logger.info("No metric ID number available for finding analysis files")
             

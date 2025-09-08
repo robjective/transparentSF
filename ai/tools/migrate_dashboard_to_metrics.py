@@ -69,48 +69,87 @@ def restore_metrics_from_backup(backup_file_path=None):
         logger.error(f"Backup file not found at: {backup_file}")
         return False
 
-    # Gather DB connection parameters from environment (fall back to defaults)
-    db_host = os.getenv("POSTGRES_HOST", "localhost")
-    db_port = os.getenv("POSTGRES_PORT", "5432")
-    db_name = os.getenv("POSTGRES_DB", "transparentsf")
-    db_user = os.getenv("POSTGRES_USER", "postgres")
-    db_password = os.getenv("POSTGRES_PASSWORD", "postgres")
-
-    # Set up environment for psql (password via env var so no prompt)
+    # Check if DATABASE_URL is available (common for managed services like Replit PostgreSQL)
+    database_url = os.getenv("DATABASE_URL")
+    
+    # Set up environment for psql
     env = os.environ.copy()
-    if db_password:
-        env["PGPASSWORD"] = db_password
-
-    # Drop existing table first to avoid duplicate errors
-    drop_cmd = [
-        "psql",
-        "-h", db_host,
-        "-p", str(db_port),
-        "-U", db_user,
-        "-d", db_name,
-        "-c", "DROP TABLE IF EXISTS public.metrics CASCADE;"
-    ]
-
-    # Pre-process the dump so ownership lines reference the current user instead of hard-coded "postgres"
-    with open(backup_file, "r", encoding="utf-8") as f:
-        dump_sql = f.read()
-
-    fixed_sql = re.sub(r"OWNER TO\s+postgres", f"OWNER TO {db_user}", dump_sql, flags=re.IGNORECASE)
-
-    # Write to a temporary file for psql to consume
-    tmp = tempfile.NamedTemporaryFile(delete=False, suffix="_metrics_restore.sql")
-    with open(tmp.name, "w", encoding="utf-8") as f:
-        f.write(fixed_sql)
-
-    restore_cmd = [
-        "psql",
-        "-h", db_host,
-        "-p", str(db_port),
-        "-U", db_user,
-        "-d", db_name,
-        "-v", "ON_ERROR_STOP=1",
-        "-f", tmp.name
-    ]
+    
+    if database_url:
+        # Use DATABASE_URL directly for psql
+        logger.info("Using DATABASE_URL for psql restore")
+        
+        # Drop existing table first to avoid duplicate errors
+        drop_cmd = [
+            "psql",
+            database_url,
+            "-c", "DROP TABLE IF EXISTS public.metrics CASCADE;"
+        ]
+        
+        # Pre-process the dump to remove ownership lines (not needed with DATABASE_URL)
+        with open(backup_file, "r", encoding="utf-8") as f:
+            dump_sql = f.read()
+        
+        # Remove ownership lines since they're not needed with DATABASE_URL
+        fixed_sql = re.sub(r"OWNER TO\s+\w+;", "", dump_sql, flags=re.IGNORECASE)
+        
+        # Write to a temporary file for psql to consume
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix="_metrics_restore.sql")
+        with open(tmp.name, "w", encoding="utf-8") as f:
+            f.write(fixed_sql)
+        
+        restore_cmd = [
+            "psql",
+            database_url,
+            "-v", "ON_ERROR_STOP=1",
+            "-f", tmp.name
+        ]
+        
+    else:
+        # Use individual connection parameters (fallback for local setups)
+        logger.info("Using individual connection parameters for psql restore")
+        
+        # Gather DB connection parameters from environment (fall back to defaults)
+        db_host = os.getenv("POSTGRES_HOST", "localhost")
+        db_port = os.getenv("POSTGRES_PORT", "5432")
+        db_name = os.getenv("POSTGRES_DB", "transparentsf")
+        db_user = os.getenv("POSTGRES_USER", "postgres")
+        db_password = os.getenv("POSTGRES_PASSWORD", "postgres")
+        
+        # Set up environment for psql (password via env var so no prompt)
+        if db_password:
+            env["PGPASSWORD"] = db_password
+        
+        # Drop existing table first to avoid duplicate errors
+        drop_cmd = [
+            "psql",
+            "-h", db_host,
+            "-p", str(db_port),
+            "-U", db_user,
+            "-d", db_name,
+            "-c", "DROP TABLE IF EXISTS public.metrics CASCADE;"
+        ]
+        
+        # Pre-process the dump so ownership lines reference the current user instead of hard-coded "postgres"
+        with open(backup_file, "r", encoding="utf-8") as f:
+            dump_sql = f.read()
+        
+        fixed_sql = re.sub(r"OWNER TO\s+postgres", f"OWNER TO {db_user}", dump_sql, flags=re.IGNORECASE)
+        
+        # Write to a temporary file for psql to consume
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix="_metrics_restore.sql")
+        with open(tmp.name, "w", encoding="utf-8") as f:
+            f.write(fixed_sql)
+        
+        restore_cmd = [
+            "psql",
+            "-h", db_host,
+            "-p", str(db_port),
+            "-U", db_user,
+            "-d", db_name,
+            "-v", "ON_ERROR_STOP=1",
+            "-f", tmp.name
+        ]
 
     try:
         logger.info("Dropping existing metrics table (if any)...")

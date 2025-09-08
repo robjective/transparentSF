@@ -18,6 +18,9 @@ import string
 from urllib.parse import quote
 import math
 import re
+import geopy
+from geopy.geocoders import Nominatim
+from geopy.exc import GeocoderTimedOut, GeocoderServiceError
 
 """
 Enhanced Map Generation with Series Support
@@ -121,6 +124,71 @@ as these use choropleth styling instead of individual markers.
 
 # Configure logging
 logger = logging.getLogger(__name__)
+
+# Initialize geocoder for address maps
+geocoder = None
+
+def get_geocoder():
+    """Get or initialize the geocoder instance."""
+    global geocoder
+    if geocoder is None:
+        try:
+            geocoder = Nominatim(user_agent="transparent_sf_map_generator")
+        except Exception as e:
+            logger.warning(f"Failed to initialize geocoder: {e}")
+            geocoder = None
+    return geocoder
+
+def geocode_address(address, max_retries=3, delay=1):
+    """
+    Geocode an address to latitude and longitude coordinates.
+    
+    Args:
+        address (str): The address to geocode
+        max_retries (int): Maximum number of retry attempts
+        delay (float): Delay between retries in seconds
+        
+    Returns:
+        tuple: (lat, lon) coordinates or (None, None) if geocoding fails
+    """
+    if not address or not isinstance(address, str):
+        return None, None
+    
+    # Clean the address
+    address = address.strip()
+    if not address:
+        return None, None
+    
+    # Add San Francisco context to improve geocoding accuracy
+    if "san francisco" not in address.lower() and "sf" not in address.lower():
+        address = f"{address}, San Francisco, CA"
+    
+    geocoder_instance = get_geocoder()
+    if not geocoder_instance:
+        logger.warning("Geocoder not available")
+        return None, None
+    
+    for attempt in range(max_retries):
+        try:
+            logger.debug(f"Geocoding address (attempt {attempt + 1}): {address}")
+            location = geocoder_instance.geocode(address, timeout=10)
+            
+            if location:
+                logger.debug(f"Successfully geocoded: {address} -> ({location.latitude}, {location.longitude})")
+                return location.latitude, location.longitude
+            else:
+                logger.warning(f"No results for address: {address}")
+                
+        except (GeocoderTimedOut, GeocoderServiceError) as e:
+            logger.warning(f"Geocoding error (attempt {attempt + 1}): {e}")
+            if attempt < max_retries - 1:
+                time.sleep(delay * (attempt + 1))  # Exponential backoff
+        except Exception as e:
+            logger.error(f"Unexpected geocoding error: {e}")
+            break
+    
+    logger.warning(f"Failed to geocode address after {max_retries} attempts: {address}")
+    return None, None
 
 # Determine the project root based on the script's location
 script_dir = Path(__file__).resolve().parent
@@ -1969,7 +2037,7 @@ def generate_mapbox_map(context_variables, map_title, map_type, location_data=No
             map_title,
             map_type,
             json.dumps(location_data),
-            json.dumps(metadata if not map_metadata else {**metadata, **map_metadata}),
+            json.dumps(metadata),
             True,
             metric_id  # Already converted to int in the route
         ))
@@ -2418,6 +2486,54 @@ def process_dataset_for_map(dataset, map_type, series_field=None, color_palette=
                 location_data.append(item)
                 if idx < 3:  # Only log first 3 rows to avoid spam
                     logger.info(f"Row {idx} - Added lat/lon item to location_data")
+            
+            # Handle address geocoding for address map type
+            elif map_type == "address":
+                # Look for address fields in the row
+                address_fields = ['address', 'full_address', 'business_address', 'full_business_address', 'street_address', 'location_address']
+                address = None
+                
+                for field in address_fields:
+                    if field in row and row[field] and str(row[field]).strip():
+                        address = str(row[field]).strip()
+                        break
+                
+                if address:
+                    if idx < 3:  # Only log first 3 rows to avoid spam
+                        logger.info(f"Row {idx} - Geocoding address: {address}")
+                    
+                    lat, lon = geocode_address(address)
+                    if lat is not None and lon is not None:
+                        title, description = generate_point_title_and_description(row, idx)
+                        tooltip_fields = extract_tooltip_fields(row, location_fields)
+                        item = {
+                            "lat": lat,
+                            "lon": lon,
+                            "value": row.get('value', 1),
+                            "title": title,
+                            "description": description,
+                            "address": address,  # Store original address
+                            "coordinates": [lon, lat],
+                            "color": "#6B46C1",  # TransparentSF purple
+                            "tooltip_fields": tooltip_fields
+                        }
+                        # Add all original data fields for coloring options
+                        for column, value in row.items():
+                            if column not in ['lat', 'lon', 'long', 'latitude', 'longitude', 'coordinates', 'point', 'point_geom', 'intersection']:
+                                item[column] = value
+                        
+                        # Add tooltip fields as individual properties for coloring
+                        if tooltip_fields:
+                            for field_name, field_value in tooltip_fields.items():
+                                item[field_name] = field_value
+                        
+                        location_data.append(item)
+                        if idx < 3:  # Only log first 3 rows to avoid spam
+                            logger.info(f"Row {idx} - Successfully geocoded and added address item")
+                    else:
+                        logger.warning(f"Row {idx} - Failed to geocode address: {address}")
+                else:
+                    logger.warning(f"Row {idx} - No address field found for address map type")
         
         # Use location fields configuration if available
         elif location_fields and use_point_data:
