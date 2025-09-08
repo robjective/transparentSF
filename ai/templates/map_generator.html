@@ -1228,8 +1228,8 @@
             if (anomalies && anomalies.length > 0) {
                 anomalies.forEach(anomaly => {
                     const option = document.createElement('option');
-                    // Store field value in the option value
-                    option.value = anomaly.group_value;
+                    // Store field name and value in the option value to make it unique
+                    option.value = `${anomaly.group_field_name}:${anomaly.group_value}`;
                     
                     // Add visual indicator for out-of-bounds vs in-bounds anomalies
                     const status = anomaly.out_of_bounds ? '🚨 OUT OF BOUNDS' : '✅ In Bounds';
@@ -2040,16 +2040,28 @@
             let anomalyFieldValue = null;
             
             if (anomalyType && anomalyType !== '') {
-                // Get the selected option to read the field name
-                const selectedOption = anomalySelect.querySelector(`option[value="${anomalyType}"]`);
-                if (selectedOption) {
-                    anomalyFieldName = selectedOption.getAttribute('data-field-name');
-                    anomalyFieldValue = anomalyType;
-                    console.log('Anomaly data from option:', { anomalyFieldName, anomalyFieldValue });
+                // Parse the anomaly type which is now in format "field_name:value"
+                if (anomalyType.includes(':')) {
+                    const [fieldName, fieldValue] = anomalyType.split(':', 2);
+                    anomalyFieldName = fieldName;
+                    anomalyFieldValue = fieldValue;
+                    console.log('Parsed anomaly data:', { anomalyFieldName, anomalyFieldValue });
                 } else {
-                    // Fallback: treat as legacy format
-                    anomalyFieldValue = anomalyType;
-                    console.log('Selected option not found, using legacy format:', anomalyFieldValue);
+                    // Legacy format - get the selected option to read the field name
+                    const selectedOption = anomalySelect.querySelector(`option[value="${anomalyType}"]`);
+                    console.log('Looking for option with value:', anomalyType);
+                    console.log('Available options:', Array.from(anomalySelect.options).map(opt => ({ value: opt.value, text: opt.textContent, fieldName: opt.getAttribute('data-field-name') })));
+                    
+                    if (selectedOption) {
+                        anomalyFieldName = selectedOption.getAttribute('data-field-name');
+                        anomalyFieldValue = anomalyType;
+                        console.log('Anomaly data from option:', { anomalyFieldName, anomalyFieldValue });
+                    } else {
+                        // Fallback: treat as legacy format
+                        anomalyFieldValue = anomalyType;
+                        console.log('Selected option not found, using legacy format:', anomalyFieldValue);
+                        console.log('This will trigger the fallback lookup in the backend!');
+                    }
                 }
             }
 

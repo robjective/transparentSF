@@ -2888,7 +2888,7 @@ async def add_to_monthly_report(request: Request):
             content={"status": "error", "message": f"Failed to add item to monthly report: {str(e)}"}
         )
 
-@router.post("/api/generate-map")
+@router.post("/generate-map")
 async def generate_map_endpoint(request: Request):
     """
     Generate a map from anomaly data.

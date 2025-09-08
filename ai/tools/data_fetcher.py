@@ -270,6 +270,16 @@ def fetch_metric_data(metric_id, district="0", period_type="month", time_periods
             conn.close()
             return {'error': f'Metric {metric_id} missing endpoint'}
         
+        # Parse anomaly_type if it's in "field_name:value" format
+        if anomaly_type and ':' in anomaly_type and not anomaly_field_name:
+            try:
+                field_name, field_value = anomaly_type.split(':', 1)
+                anomaly_field_name = field_name
+                anomaly_type = field_value
+                logger.info(f"Parsed anomaly_type: field_name='{anomaly_field_name}', value='{anomaly_type}'")
+            except ValueError:
+                logger.warning(f"Could not parse anomaly_type '{anomaly_type}' as field_name:value format")
+        
         # Use provided anomaly_field_name or look it up if not provided
         if anomaly_type and not anomaly_field_name:
             logger.info(f"Looking up anomaly field for metric_id={metric_id} (type: {type(metric_id)}) and anomaly_type={anomaly_type}")
@@ -282,6 +292,13 @@ def fetch_metric_data(metric_id, district="0", period_type="month", time_periods
                     SELECT group_field_name 
                     FROM anomalies 
                     WHERE object_id = %s AND group_value = %s AND is_active = TRUE 
+                    ORDER BY 
+                        CASE 
+                            WHEN group_field_name = 'vacant' THEN 1
+                            WHEN group_field_name = 'incident_category' THEN 2
+                            WHEN group_field_name = 'service_name' THEN 3
+                            ELSE 4
+                        END
                     LIMIT 1
                 """, [str(metric_id), anomaly_type])
                 anomaly_result = cursor.fetchone()
