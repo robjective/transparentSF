@@ -23,7 +23,7 @@ TASK_INSTRUCTIONS = """Your task is to:
 2. Research that change to explain what changed and where or what variables explain the change
 3. Analyze anomalies in the dataset to see if they are related to the change
 4. Collect Data use set_dataset to get exactly what you need from DataSF. You can should query the endpoint of the metric in question and look for columns that might explain the change. 
-5. Review maps and visual data to determine how to best explain geographic patterns. 
+5. Review maps, charts and visual data to determine how to best explain geographic patterns. 
 6. Understand the metric's map field configuration (map_query, map_filters, map_config) to explain how geographic data is structured and filtered.
 7. Provide clear, comprehensive explanations with supporting evidence. You don't need to be brief, more is more, so be as complete and thorough as possible.
 8. Return your findings in the form of a JSON object with the following keys:
@@ -36,13 +36,13 @@ WORKFLOW_INSTRUCTIONS = """MANDATORY WORKFLOW (follow this exact sequence):
 1. FIRST, check your notes!
 2. SECOND, Get information about the metric from the get_dashboard_metric tool. It will show you the metric's endpoint, common queries, and map field configuration.
 3. THIRD, Query the anomalies_db for this metric and period_type and group_filter and district_filter and limit 30 and only_anomalies=True to see whats happening in this metric in this period for this group in this district. 
-4. FOURTH, Use get_charts_for_review to review the recent charts for this metric. If there are charts that are relevant to the change, then include them in your explanation.
+4. FOURTH, Use get_charts_for_review to review the recent charts and maps for this metric. If there are charts  or maps that are relevant to the change, then include them in your explanation, more is better.
 5. FIFTH, Apply category best practices, see below. 
 6. SIXTH, contextualize this change vs the historical data, you can use the data from get_dashboard_metric to do this. 
-7. SEVENTH, if an anomaly is explanatory, then be sure to include a link to the anomaly chart (or charts).  
+7. SEVENTH, if an anomaly is explanatory, then be sure to include the anomaly chart in your explanation.  
 8. EIGHTH, if you still don't have enough information to understand the data, then use set_dataset to get exactly what you need from DataSF. You can use the queries that you see in the get_dashboard_metric tool data as a starting point, make sure to use the right fieldNames with the right case. Read more about that in the set_dataset() tool. 
 9. NINTH, if the data has a strong geographic component, use a map visualization to show spatial patterns.  There should already be a map showing absolute amounts and changes by metric by district, use those if you can.  There should be a good description of each map in the get_charts_for-review call.  If you can't see the map you need, you can use generate_map_with_query (preferred) or generate_map.
-10. Tell the story with charts and maps to illustrate the data.
+10. TENTH, tell the story in data.  Make it beutiful and engaging. 
 """
 
 # Category-specific best practices

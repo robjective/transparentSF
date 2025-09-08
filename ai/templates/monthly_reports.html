@@ -1573,8 +1573,7 @@
                 
                 // Check which files exist
                 const filesToCheck = [
-                    { suffix: '_revised.html', buttonId: 'rerunReportBtn', buttonText: 'Re-write newsletter' },
-                    { suffix: '_for_proofreading.html', buttonId: 'rerun-proofreading', buttonText: 'Re-run Proofreading' },
+                    { suffix: '_revised.html', buttonId: 'rerun-proofreading', buttonText: 'Re-run Proofreading' },
                     { suffix: '_email.html', buttonId: 'rerun-postproofing', buttonText: 'Re-run Email' },
                     { suffix: '_final.html', buttonId: 'rerun-final-version', buttonText: 'Re-run Final Version' }
                 ];
@@ -1631,6 +1630,15 @@
                         reexplainBtn.classList.add('completed');
                         reexplainBtn.disabled = false; // Keep clickable even when completed
                     }
+                }
+                
+                // Special handling for re-write newsletter button
+                // This should always be available since it regenerates the original newsletter
+                const rerunReportBtn = document.getElementById('rerunReportBtn');
+                if (rerunReportBtn) {
+                    rerunReportBtn.classList.remove('completed');
+                    rerunReportBtn.classList.add('available');
+                    rerunReportBtn.disabled = false;
                 }
             }
             
