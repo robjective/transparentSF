@@ -383,21 +383,7 @@ def create_time_series_chart_from_data(chart_data, metadata):
         return None
     else:
         # Extract the public URL from the publish response
-        # The publicUrl can be in different places in the response structure
-        public_url = None
-        
-        # Try direct access first
-        if isinstance(publish_response, dict):
-            public_url = publish_response.get("publicUrl")
-            
-            # If not found directly, try nested structure
-            if not public_url and "data" in publish_response:
-                data = publish_response["data"]
-                if isinstance(data, dict):
-                    public_url = data.get("publicUrl")
-                elif isinstance(data, list) and len(data) > 0:
-                    public_url = data[0].get("publicUrl")
-        
+        public_url = publish_response.get("publicUrl")
         if public_url:
             logger.info(f"Successfully created and published Datawrapper chart: {public_url}")
             return public_url

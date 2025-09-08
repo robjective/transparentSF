@@ -9,8 +9,100 @@ This module provides two different chart expansion strategies:
 import re
 import logging
 from pathlib import Path
+from monthly_report import get_existing_map_url
 
 logger = logging.getLogger(__name__)
+
+def get_existing_time_series_dw_url(metric_id, district, period_type):
+    """
+    Get the existing DataWrapper URL for a time series chart from the database.
+    
+    Args:
+        metric_id: The metric ID
+        district: The district ID
+        period_type: The period type (month/year)
+        
+    Returns:
+        The DataWrapper URL if found, or None if not found
+    """
+    try:
+        from tools.db_utils import get_postgres_connection
+        
+        conn = get_postgres_connection()
+        cursor = conn.cursor()
+        
+        # Query for time series metadata with DataWrapper URL
+        params = (metric_id, int(district), period_type, '%dw_url%')
+        cursor.execute("""
+            SELECT metadata 
+            FROM time_series_metadata 
+            WHERE object_id = %s AND district = %s AND period_type = %s
+            AND metadata::text LIKE %s
+            LIMIT 1
+        """, params)
+        
+        result = cursor.fetchone()
+        cursor.close()
+        conn.close()
+        
+        if result and result[0]:
+            metadata = result[0]
+            if isinstance(metadata, dict) and 'dw_url' in metadata:
+                dw_url = metadata['dw_url']
+                if dw_url and 'datawrapper' in dw_url:
+                    logger.info(f"Found existing DataWrapper URL for time series {metric_id}: {dw_url}")
+                    return dw_url
+        
+        logger.info(f"No existing DataWrapper URL found for time series {metric_id}")
+        return None
+        
+    except Exception as e:
+        logger.warning(f"Error checking for existing time series DataWrapper URL: {e}")
+        return None
+
+def get_existing_anomaly_dw_url(anomaly_id):
+    """
+    Get the existing DataWrapper URL for an anomaly chart from the database.
+    
+    Args:
+        anomaly_id: The anomaly ID
+        
+    Returns:
+        The DataWrapper URL if found, or None if not found
+    """
+    try:
+        from tools.db_utils import get_postgres_connection
+        
+        conn = get_postgres_connection()
+        cursor = conn.cursor()
+        
+        # Query for anomaly metadata with DataWrapper URL
+        cursor.execute("""
+            SELECT metadata 
+            FROM anomalies 
+            WHERE id = %s
+            AND metadata::text LIKE %s
+            LIMIT 1
+        """, (anomaly_id, '%dw_url%'))
+        
+        result = cursor.fetchone()
+        cursor.close()
+        conn.close()
+        
+        if result and result[0]:
+            metadata = result[0]
+            if isinstance(metadata, dict) and 'dw_url' in metadata:
+                dw_url = metadata['dw_url']
+                if dw_url and 'datawrapper' in dw_url:
+                    logger.info(f"Found existing DataWrapper URL for anomaly {anomaly_id}: {dw_url}")
+                    return dw_url
+        
+        logger.info(f"No existing DataWrapper URL found for anomaly {anomaly_id}")
+        return None
+        
+    except Exception as e:
+        logger.warning(f"Error checking for existing anomaly DataWrapper URL: {e}")
+        return None
 
 def expand_chart_references_local(report_path):
     """
@@ -581,7 +673,7 @@ def expand_chart_references_with_tabs(report_path):
                 <div class="datawrapper-chart-embed" style="display: flex; justify-content: center;">
                     <iframe src="{dw_chart_url}"
                             title="Time Series Chart - Metric {metric_id}"
-                            style="width: 1000px; height: 600px; border: none; display: block;" 
+                            style="width: 1000px; height: 600px; border: none;" 
                             frameborder="0">
                     </iframe>
                 </div>
@@ -603,7 +695,7 @@ def expand_chart_references_with_tabs(report_path):
         <div class="chart-tab-content">
             <div id="{chart_id}_local" class="chart-tab-panel active">
                 <iframe src="/backend/time-series-chart?metric_id={metric_id}&district={district}&period_type={period_type}"
-                        style="width: 1000px; height: 600px; border: none; display: block; margin: 0 auto;" 
+                        style="width: 1000px; height: 600px; border: none; margin: 0 auto;" 
                         frameborder="0" 
                         scrolling="no"
                         title="Time Series Chart - Metric {metric_id}">
@@ -644,7 +736,7 @@ def expand_chart_references_with_tabs(report_path):
                 <div class="datawrapper-chart-embed" style="display: flex; justify-content: center;">
                     <iframe src="{dw_chart_url}"
                             title="Anomaly {anomaly_id}: Trend Analysis"
-                            style="width: 1000px; height: 600px; border: none; display: block;" 
+                            style="width: 1000px; height: 600px; border: none;" 
                             frameborder="0">
                     </iframe>
                 </div>
@@ -666,7 +758,7 @@ def expand_chart_references_with_tabs(report_path):
         <div class="chart-tab-content">
             <div id="{chart_id}_local" class="chart-tab-panel active">
                 <iframe src="/anomaly-analyzer/anomaly-chart?id={anomaly_id}#chart-section"
-                        style="width: 1000px; height: 600px; border: none; display: block; margin: 0 auto;" 
+                        style="width: 1000px; height: 600px; border: none; margin: 0 auto;" 
                         frameborder="0" 
                         scrolling="no"
                         title="Anomaly Analysis - ID {anomaly_id}">
@@ -707,7 +799,7 @@ def expand_chart_references_with_tabs(report_path):
                 <div class="datawrapper-chart-embed" style="display: flex; justify-content: center;">
                     <iframe src="{dw_chart_url}"
                             title="Map {map_id}"
-                            style="width: 600px; height: 400px; border: none; display: block;" 
+                            style="width: 600px; height: 400px; border: none;" 
                             frameborder="0">
                     </iframe>
                 </div>
@@ -729,7 +821,7 @@ def expand_chart_references_with_tabs(report_path):
         <div class="chart-tab-content">
             <div id="{chart_id}_local" class="chart-tab-panel active">
                 <iframe src="/backend/map-chart?map_id={map_id}"
-                        style="width: 600px; height: 400px; border: none; display: block; margin: 0 auto;" 
+                        style="width: 600px; height: 400px; border: none; margin: 0 auto;" 
                         frameborder="0" 
                         scrolling="no"
                         title="Map - ID {map_id}">
@@ -783,8 +875,14 @@ def expand_chart_references_with_tabs(report_path):
 '''
         
         # Insert the CSS and JavaScript at the end of the head section
-        if '<head>' in report_html:
+        if '</head>' in report_html:
             report_html = report_html.replace('</head>', css_and_js + '</head>')
+        elif '</head><body>' in report_html:
+            # Handle minified HTML where </head> is concatenated with <body>
+            report_html = report_html.replace('</head><body>', '</head>' + css_and_js + '<body>')
+        elif '<head>' in report_html:
+            # Handle minified HTML where </head> might be concatenated
+            report_html = report_html.replace('<head>', '<head>' + css_and_js)
         else:
             # If no head section, add it at the beginning
             report_html = css_and_js + report_html
@@ -864,7 +962,7 @@ def expand_chart_references_with_auto_dw_generation(report_path):
                 <div class="datawrapper-chart-embed" style="display: flex; justify-content: center;">
                     <iframe src="{dw_chart_url}"
                             title="Time Series Chart - Metric {metric_id}"
-                            style="width: 1000px; height: 600px; border: none; display: block;" 
+                            style="width: 1000px; height: 600px; border: none;" 
                             frameborder="0">
                     </iframe>
                 </div>
@@ -886,7 +984,7 @@ def expand_chart_references_with_auto_dw_generation(report_path):
         <div class="chart-tab-content">
             <div id="{chart_id}_local" class="chart-tab-panel active">
                 <iframe src="/backend/time-series-chart?metric_id={metric_id}&district={district}&period_type={period_type}"
-                        style="width: 1000px; height: 600px; border: none; display: block; margin: 0 auto;" 
+                        style="width: 1000px; height: 600px; border: none; margin: 0 auto;" 
                         frameborder="0" 
                         scrolling="no"
                         title="Time Series Chart - Metric {metric_id}">
@@ -926,7 +1024,7 @@ def expand_chart_references_with_auto_dw_generation(report_path):
                 <div class="datawrapper-chart-embed" style="display: flex; justify-content: center;">
                     <iframe src="{dw_chart_url}"
                             title="Anomaly {anomaly_id}: Trend Analysis"
-                            style="width: 1000px; height: 600px; border: none; display: block;" 
+                            style="width: 1000px; height: 600px; border: none;" 
                             frameborder="0">
                     </iframe>
                 </div>
@@ -948,7 +1046,7 @@ def expand_chart_references_with_auto_dw_generation(report_path):
         <div class="chart-tab-content">
             <div id="{chart_id}_local" class="chart-tab-panel active">
                 <iframe src="/anomaly-analyzer/anomaly-chart?id={anomaly_id}#chart-section"
-                        style="width: 1000px; height: 600px; border: none; display: block; margin: 0 auto;" 
+                        style="width: 1000px; height: 600px; border: none; margin: 0 auto;" 
                         frameborder="0" 
                         scrolling="no"
                         title="Anomaly Analysis - ID {anomaly_id}">
@@ -993,7 +1091,7 @@ def expand_chart_references_with_auto_dw_generation(report_path):
                 <div class="datawrapper-chart-embed" style="display: flex; justify-content: center;">
                     <iframe src="{dw_chart_url}"
                             title="Map {map_id}"
-                            style="width: 600px; height: 400px; border: none; display: block;" 
+                            style="width: 600px; height: 400px; border: none;" 
                             frameborder="0">
                     </iframe>
                 </div>
@@ -1015,7 +1113,7 @@ def expand_chart_references_with_auto_dw_generation(report_path):
         <div class="chart-tab-content">
             <div id="{chart_id}_local" class="chart-tab-panel active">
                 <iframe src="/backend/map-chart?map_id={map_id}"
-                        style="width: 600px; height: 400px; border: none; display: block; margin: 0 auto;" 
+                        style="width: 600px; height: 400px; border: none; margin: 0 auto;" 
                         frameborder="0" 
                         scrolling="no"
                         title="Map - ID {map_id}">
@@ -1069,8 +1167,14 @@ def expand_chart_references_with_auto_dw_generation(report_path):
 '''
         
         # Insert the CSS and JavaScript at the end of the head section
-        if '<head>' in report_html:
+        if '</head>' in report_html:
             report_html = report_html.replace('</head>', css_and_js + '</head>')
+        elif '</head><body>' in report_html:
+            # Handle minified HTML where </head> is concatenated with <body>
+            report_html = report_html.replace('</head><body>', '</head>' + css_and_js + '<body>')
+        elif '<head>' in report_html:
+            # Handle minified HTML where </head> might be concatenated
+            report_html = report_html.replace('<head>', '<head>' + css_and_js)
         else:
             # If no head section, add it at the beginning
             report_html = css_and_js + report_html
@@ -1151,13 +1255,7 @@ def expand_chart_references_for_email(report_path):
             
             if dw_chart_url:
                 email_html = f'''
-<div class="chart-container" style="margin: 20px 0; padding: 15px; background-color: #f8f9fa; border: 1px solid #ddd; border-radius: 8px;">
-    <h4 style="margin: 0 0 10px 0; color: #333;">Time Series Chart - Metric {metric_id}</h4>
-    <div style="margin-top: 10px; padding: 10px; background-color: #e9ecef; border-radius: 4px; font-family: monospace; font-size: 12px;">
-        <strong>DataWrapper URL:</strong><br>
-        {dw_chart_url}
-    </div>
-</div>
+{dw_chart_url}<br><br>
 '''
             else:
                 # Fallback - no DataWrapper URL available
@@ -1185,13 +1283,7 @@ def expand_chart_references_for_email(report_path):
             
             if dw_chart_url:
                 email_html = f'''
-<div class="chart-container" style="margin: 20px 0; padding: 15px; background-color: #f8f9fa; border: 1px solid #ddd; border-radius: 8px;">
-    <h4 style="margin: 0 0 10px 0; color: #333;">Anomaly Analysis - ID {anomaly_id}</h4>
-    <div style="margin-top: 10px; padding: 10px; background-color: #e9ecef; border-radius: 4px; font-family: monospace; font-size: 12px;">
-        <strong>DataWrapper URL:</strong><br>
-        {dw_chart_url}
-    </div>
-</div>
+{dw_chart_url}<br><br>
 '''
             else:
                 # Fallback - no DataWrapper URL available
@@ -1222,13 +1314,7 @@ def expand_chart_references_for_email(report_path):
             
             if dw_chart_url:
                 email_html = f'''
-<div class="chart-container" style="margin: 20px 0; padding: 15px; background-color: #f8f9fa; border: 1px solid #ddd; border-radius: 8px;">
-    <h4 style="margin: 0 0 10px 0; color: #333;">Map - ID {map_id}</h4>
-    <div style="margin-top: 10px; padding: 10px; background-color: #e9ecef; border-radius: 4px; font-family: monospace; font-size: 12px;">
-        <strong>DataWrapper URL:</strong><br>
-        {dw_chart_url}
-    </div>
-</div>
+{dw_chart_url}<br><br>
 '''
             else:
                 # Fallback - no DataWrapper URL available
@@ -1283,13 +1369,7 @@ def expand_chart_references_for_email(report_path):
             
             if dw_chart_url:
                 email_html = f'''
-<div class="chart-container" style="margin: 20px 0; padding: 15px; background-color: #f8f9fa; border: 1px solid #ddd; border-radius: 8px;">
-    <h4 style="margin: 0 0 10px 0; color: #333;">Anomaly Analysis - ID {anomaly_id}</h4>
-    <div style="margin-top: 10px; padding: 10px; background-color: #e9ecef; border-radius: 4px; font-family: monospace; font-size: 12px;">
-        <strong>DataWrapper URL:</strong><br>
-        {dw_chart_url}
-    </div>
-</div>
+{dw_chart_url}<br><br>
 '''
             else:
                 email_html = f'''
@@ -1317,13 +1397,7 @@ def expand_chart_references_for_email(report_path):
             
             if dw_chart_url:
                 email_html = f'''
-<div class="chart-container" style="margin: 20px 0; padding: 15px; background-color: #f8f9fa; border: 1px solid #ddd; border-radius: 8px;">
-    <h4 style="margin: 0 0 10px 0; color: #333;">Map - ID {map_id}</h4>
-    <div style="margin-top: 10px; padding: 10px; background-color: #e9ecef; border-radius: 4px; font-family: monospace; font-size: 12px;">
-        <strong>DataWrapper URL:</strong><br>
-        {dw_chart_url}
-    </div>
-</div>
+{dw_chart_url}<br><br>
 '''
             else:
                 email_html = f'''
@@ -1338,6 +1412,11 @@ def expand_chart_references_for_email(report_path):
         def replace_any_chart_container(match):
             container_html = match.group(0)
             logger.info(f"Processing chart container: {container_html[:100]}...")
+            
+            # Check if this is already an email format container (don't process it)
+            if 'DataWrapper URL:' in container_html or 'datawrapper.dwcdn.net' in container_html:
+                logger.info("Container is already in email format, keeping it")
+                return container_html
             
             # Try to extract chart information from the container
             time_series_match = re.search(r'/backend/time-series-chart\?chart_id=(\d+)', container_html)
@@ -1442,4 +1521,324 @@ def expand_chart_references_for_email(report_path):
     except Exception as e:
         error_msg = f"Error in expand_chart_references_for_email: {str(e)}"
         logger.error(error_msg, exc_info=True)
+        return report_path
+
+def keep_placeholders_for_proofreading(report_path):
+    """
+    Keep chart placeholders intact for AI proofreading.
+    This function ensures placeholders are properly formatted but not expanded.
+    
+    Args:
+        report_path: Path to the report file to process
+        
+    Returns:
+        Path to the processed report file
+    """
+    logger.info(f"Preparing placeholders for proofreading in: {report_path}")
+    
+    try:
+        with open(report_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        
+        # Define patterns for chart placeholders
+        patterns = {
+            'time_series': r'\[CHART:time_series:(\d+):(\d+):(\w+)\]\s*[.,;:]*\s*',
+            'time_series_id': r'\[CHART:time_series_id:(\d+)\]\s*[.,;:]*\s*',
+            'anomaly': r'\[CHART:anomaly:([a-zA-Z0-9]+)\]\s*[.,;:]*\s*',
+            'map': r'\[CHART:map:([a-zA-Z0-9\-]+)\]\s*[.,;:]*\s*'
+        }
+        
+        def format_placeholder(match, chart_type, chart_id):
+            return f'''
+<div class="chart-placeholder" style="border: 2px dashed #ccc; padding: 20px; margin: 20px 0; text-align: center; background-color: #f9f9f9;">
+    <h4>📊 {chart_type} Chart</h4>
+    <p><strong>Chart ID:</strong> {chart_id}</p>
+    <p><em>Chart will be rendered here after proofreading</em></p>
+</div>'''
+        
+        def replace_time_series(match):
+            metric_id, district, period_type = match.groups()
+            return format_placeholder(match, "Time Series", f"{metric_id} (District {district}, {period_type})")
+        
+        def replace_time_series_id(match):
+            chart_id = match.group(1)
+            return format_placeholder(match, "Time Series", chart_id)
+        
+        def replace_anomaly(match):
+            anomaly_id = match.group(1)
+            return format_placeholder(match, "Anomaly Analysis", anomaly_id)
+        
+        def replace_map(match):
+            map_id = match.group(1)
+            return format_placeholder(match, "Map", map_id)
+        
+        # Apply replacements
+        content = re.sub(patterns['time_series'], replace_time_series, content)
+        content = re.sub(patterns['time_series_id'], replace_time_series_id, content)
+        content = re.sub(patterns['anomaly'], replace_anomaly, content)
+        content = re.sub(patterns['map'], replace_map, content)
+        
+        # Write back to file
+        with open(report_path, 'w', encoding='utf-8') as f:
+            f.write(content)
+        
+        logger.info(f"Successfully prepared placeholders for proofreading: {report_path}")
+        return report_path
+        
+    except Exception as e:
+        logger.error(f"Error preparing placeholders for proofreading: {str(e)}")
+        return report_path
+
+def expand_charts_with_tabs_final(report_path):
+    """
+    Expand chart placeholders to tabbed interface with both TransparentSF and DataWrapper charts.
+    This is the final web version after proofreading.
+    
+    Args:
+        report_path: Path to the report file to process
+        
+    Returns:
+        Path to the processed report file
+    """
+    logger.info(f"Expanding charts with tabs for final version in: {report_path}")
+    
+    try:
+        from monthly_report import request_chart_image, get_existing_map_url
+        
+        with open(report_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        
+        # Define patterns
+        patterns = {
+            'time_series': r'\[CHART:time_series:(\d+):(\d+):(\w+)\]\s*[.,;:]*\s*',
+            'time_series_id': r'\[CHART:time_series_id:(\d+)\]\s*[.,;:]*\s*',
+            'anomaly': r'\[CHART:anomaly:([a-zA-Z0-9]+)\]\s*[.,;:]*\s*',
+            'map': r'\[CHART:map:([a-zA-Z0-9\-]+)\]\s*[.,;:]*\s*'
+        }
+        
+        def replace_time_series(match):
+            metric_id, district, period_type = match.groups()
+            chart_id = f"chart_{metric_id}_{district}_{period_type}"
+            
+            # Try to get existing DataWrapper chart first
+            dw_url = get_existing_time_series_dw_url(metric_id, district, period_type)
+            
+            # If no existing URL found, try to generate a new one
+            if not dw_url:
+                try:
+                    dw_url = request_chart_image('time_series', {
+                        'metric_id': metric_id,
+                        'district': district,
+                        'period_type': period_type
+                    })
+                    if dw_url and 'datawrapper' not in dw_url:
+                        dw_url = None
+                except Exception as e:
+                    logger.warning(f"Failed to get DataWrapper chart for metric_id {metric_id}: {str(e)}")
+            
+            # Build the DataWrapper tab HTML if URL exists
+            dw_tab_html = ""
+            if dw_url:
+                dw_tab_html = f'''
+            <div id="{chart_id}_dw" class="chart-tab-panel">
+                <div class="datawrapper-chart-embed" style="display: flex; justify-content: center;">
+                    <iframe src="{dw_url}"
+                            title="Time Series Chart - Metric {metric_id}"
+                            style="width: 1000px; height: 600px; border: none;" 
+                            frameborder="0">
+                    </iframe>
+                </div>
+            </div>
+            '''
+            
+            # Build the DataWrapper button HTML if URL exists
+            dw_button_html = ""
+            if dw_url:
+                dw_button_html = f'<button class="chart-tab-btn" onclick="switchChartTab(\'{chart_id}\', \'dw\')">DataWrapper</button>'
+            
+            tabs_html = f'''
+<div class="chart-container" style="display: flex; justify-content: center; margin: 20px 0;">
+    <div class="chart-tabs-container" id="{chart_id}_container" style="max-width: 1000px; width: 100%;">
+        <div class="chart-tabs-header">
+            <button class="chart-tab-btn active" onclick="switchChartTab('{chart_id}', 'local')">Transparent SF</button>
+            {dw_button_html}
+        </div>
+        <div class="chart-tab-content">
+            <div id="{chart_id}_local" class="chart-tab-panel active">
+                <iframe src="/backend/time-series-chart?metric_id={metric_id}&district={district}&period_type={period_type}"
+                        style="width: 1000px; height: 600px; border: none; margin: 0 auto;" 
+                        frameborder="0" 
+                        scrolling="no"
+                        title="Time Series Chart - Metric {metric_id}">
+                </iframe>
+            </div>
+            {dw_tab_html}
+        </div>
+    </div>
+</div>
+'''
+            return tabs_html
+        
+        def replace_time_series_id(match):
+            chart_id = match.group(1)
+            return f'''
+<div class="chart-container" style="display: flex; justify-content: center; margin: 20px 0;">
+    <iframe src="/backend/time-series-chart?chart_id={chart_id}"
+            style="width: 1000px; height: 600px; border: none; margin: 0 auto;" 
+            frameborder="0" 
+            scrolling="no"
+            title="Time Series Chart - ID {chart_id}">
+    </iframe>
+</div>
+'''
+        
+        def replace_anomaly(match):
+            anomaly_id = match.group(1)
+            chart_id = f"anomaly_{anomaly_id}"
+            
+            # Try to get existing DataWrapper chart first
+            dw_url = get_existing_anomaly_dw_url(anomaly_id)
+            
+            # If no existing URL found, try to generate a new one
+            if not dw_url:
+                try:
+                    dw_url = request_chart_image('anomaly', {'id': anomaly_id})
+                    if dw_url and 'datawrapper' not in dw_url:
+                        dw_url = None
+                except Exception as e:
+                    logger.warning(f"Failed to get DataWrapper chart for anomaly {anomaly_id}: {str(e)}")
+            
+            # Build the DataWrapper tab HTML if URL exists
+            dw_tab_html = ""
+            if dw_url:
+                dw_tab_html = f'''
+            <div id="{chart_id}_dw" class="chart-tab-panel">
+                <div class="datawrapper-chart-embed" style="display: flex; justify-content: center;">
+                    <iframe src="{dw_url}"
+                            title="Anomaly Analysis - {anomaly_id}"
+                            style="width: 1000px; height: 600px; border: none;" 
+                            frameborder="0">
+                    </iframe>
+                </div>
+            </div>
+            '''
+            
+            # Build the DataWrapper button HTML if URL exists
+            dw_button_html = ""
+            if dw_url:
+                dw_button_html = f'<button class="chart-tab-btn" onclick="switchChartTab(\'{chart_id}\', \'dw\')">DataWrapper</button>'
+            
+            tabs_html = f'''
+<div class="chart-container" style="display: flex; justify-content: center; margin: 20px 0;">
+    <div class="chart-tabs-container" id="{chart_id}_container" style="max-width: 1000px; width: 100%;">
+        <div class="chart-tabs-header">
+            <button class="chart-tab-btn active" onclick="switchChartTab('{chart_id}', 'local')">Transparent SF</button>
+            {dw_button_html}
+        </div>
+        <div class="chart-tab-content">
+            <div id="{chart_id}_local" class="chart-tab-panel active">
+                <iframe src="/anomaly-analyzer/anomaly-chart?id={anomaly_id}"
+                        style="width: 1000px; height: 600px; border: none; margin: 0 auto;" 
+                        frameborder="0" 
+                        scrolling="no"
+                        title="Anomaly Analysis - {anomaly_id}">
+                </iframe>
+            </div>
+            {dw_tab_html}
+        </div>
+    </div>
+</div>
+'''
+            return tabs_html
+        
+        def replace_map(match):
+            map_id = match.group(1)
+            chart_id = f"map_{map_id}"
+            
+            # Try to get DataWrapper map
+            dw_url = get_existing_map_url(map_id)
+            if not dw_url:
+                try:
+                    from tools.gen_map_dw import create_datawrapper_map
+                    dw_url = create_datawrapper_map(map_id)
+                except Exception as e:
+                    logger.warning(f"Failed to create DataWrapper map for {map_id}: {e}")
+            
+            # Build the DataWrapper tab HTML if URL exists
+            dw_tab_html = ""
+            if dw_url:
+                dw_tab_html = f'''
+            <div id="{chart_id}_dw" class="chart-tab-panel">
+                <div class="datawrapper-chart-embed" style="display: flex; justify-content: center;">
+                    <iframe src="{dw_url}"
+                            title="Map - {map_id}"
+                            style="width: 1000px; height: 600px; border: none;" 
+                            frameborder="0">
+                    </iframe>
+                </div>
+            </div>
+            '''
+            
+            # Build the DataWrapper button HTML if URL exists
+            dw_button_html = ""
+            if dw_url:
+                dw_button_html = f'<button class="chart-tab-btn" onclick="switchChartTab(\'{chart_id}\', \'dw\')">DataWrapper</button>'
+            
+            tabs_html = f'''
+<div class="chart-container" style="display: flex; justify-content: center; margin: 20px 0;">
+    <div class="chart-tabs-container" id="{chart_id}_container" style="max-width: 1000px; width: 100%;">
+        <div class="chart-tabs-header">
+            <button class="chart-tab-btn active" onclick="switchChartTab('{chart_id}', 'local')">Transparent SF</button>
+            {dw_button_html}
+        </div>
+        <div class="chart-tab-content">
+            <div id="{chart_id}_local" class="chart-tab-panel active">
+                <iframe src="/backend/map-chart?id={map_id}"
+                        style="width: 1000px; height: 600px; border: none; margin: 0 auto;" 
+                        frameborder="0" 
+                        scrolling="no"
+                        title="Map - {map_id}">
+                </iframe>
+            </div>
+            {dw_tab_html}
+        </div>
+    </div>
+</div>
+'''
+            return tabs_html
+        
+        # Apply replacements
+        content = re.sub(patterns['time_series'], replace_time_series, content)
+        content = re.sub(patterns['time_series_id'], replace_time_series_id, content)
+        content = re.sub(patterns['anomaly'], replace_anomaly, content)
+        content = re.sub(patterns['map'], replace_map, content)
+        
+        # Add references to external CSS and JavaScript files
+        css_and_js = '''
+<link rel="stylesheet" href="/static/chart-tabs.css">
+<script src="/static/chart-tabs.js"></script>
+'''
+        
+        # Insert the CSS and JavaScript at the end of the head section
+        if '</head>' in content:
+            content = content.replace('</head>', css_and_js + '</head>')
+        elif '</head><body>' in content:
+            # Handle minified HTML where </head> is concatenated with <body>
+            content = content.replace('</head><body>', '</head>' + css_and_js + '<body>')
+        elif '<head>' in content:
+            # Handle minified HTML where </head> might be concatenated
+            content = content.replace('<head>', '<head>' + css_and_js)
+        else:
+            # If no head section, add it at the beginning
+            content = css_and_js + content
+        
+        # Write back to file
+        with open(report_path, 'w', encoding='utf-8') as f:
+            f.write(content)
+        
+        logger.info(f"Successfully expanded charts with tabs for final version: {report_path}")
+        return report_path
+        
+    except Exception as e:
+        logger.error(f"Error expanding charts with tabs for final version: {str(e)}")
         return report_path

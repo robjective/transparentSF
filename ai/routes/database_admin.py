@@ -13,6 +13,7 @@ from fastapi.templating import Jinja2Templates
 from tools.db_utils import get_postgres_connection
 import psycopg2
 import psycopg2.extras
+import io
 
 # Initialize APIRouter
 router = APIRouter()
@@ -28,6 +29,129 @@ def set_templates(t):
 
 # Get logger
 logger = logging.getLogger(__name__)
+
+def create_python_backup(backup_path):
+    """
+    Create a database backup using Python/psycopg2 instead of pg_dump.
+    This is a fallback when pg_dump is not available in the environment.
+    """
+    logger.info("Creating Python-based database backup")
+    
+    connection = get_postgres_connection()
+    if not connection:
+        raise Exception("Could not connect to database")
+    
+    try:
+        cursor = connection.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        
+        with open(backup_path, 'w', encoding='utf-8') as backup_file:
+            # Write header
+            backup_file.write("-- Database backup created with Python/psycopg2\n")
+            backup_file.write(f"-- Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+            backup_file.write("-- This backup includes schema and data for all tables\n\n")
+            
+            # Set search path
+            backup_file.write("SET search_path = public;\n\n")
+            
+            # Get all tables in the public schema
+            cursor.execute("""
+                SELECT table_name 
+                FROM information_schema.tables 
+                WHERE table_schema = 'public' 
+                AND table_type = 'BASE TABLE'
+                ORDER BY table_name;
+            """)
+            tables = cursor.fetchall()
+            
+            for table in tables:
+                table_name = table['table_name']
+                logger.info(f"Backing up table: {table_name}")
+                
+                # Get table structure
+                cursor.execute(f"""
+                    SELECT column_name, data_type, is_nullable, column_default
+                    FROM information_schema.columns 
+                    WHERE table_schema = 'public' 
+                    AND table_name = '{table_name}'
+                    ORDER BY ordinal_position;
+                """)
+                columns = cursor.fetchall()
+                
+                # Write DROP TABLE statement
+                backup_file.write(f"DROP TABLE IF EXISTS \"{table_name}\" CASCADE;\n")
+                
+                # Write CREATE TABLE statement
+                backup_file.write(f"CREATE TABLE \"{table_name}\" (\n")
+                
+                column_definitions = []
+                for col in columns:
+                    col_def = f'    "{col["column_name"]}" {col["data_type"]}'
+                    if col["is_nullable"] == "NO":
+                        col_def += " NOT NULL"
+                    if col["column_default"]:
+                        col_def += f" DEFAULT {col['column_default']}"
+                    column_definitions.append(col_def)
+                
+                backup_file.write(",\n".join(column_definitions))
+                backup_file.write("\n);\n\n")
+                
+                # Get and write table data
+                cursor.execute(f'SELECT * FROM "{table_name}"')
+                rows = cursor.fetchall()
+                
+                if rows:
+                    # Get column names
+                    column_names = [col['column_name'] for col in columns]
+                    
+                    # Write INSERT statements
+                    for row in rows:
+                        values = []
+                        for col_name in column_names:
+                            value = row[col_name]
+                            if value is None:
+                                values.append('NULL')
+                            elif isinstance(value, str):
+                                # Escape single quotes in strings
+                                escaped_value = value.replace("'", "''")
+                                values.append(f"'{escaped_value}'")
+                            elif isinstance(value, (int, float)):
+                                values.append(str(value))
+                            elif isinstance(value, bool):
+                                values.append('TRUE' if value else 'FALSE')
+                            else:
+                                # For other types, convert to string and escape
+                                escaped_value = str(value).replace("'", "''")
+                                values.append(f"'{escaped_value}'")
+                        
+                        column_list = ', '.join([f'"{name}"' for name in column_names])
+                        value_list = ', '.join(values)
+                        backup_file.write(f'INSERT INTO "{table_name}" ({column_list}) VALUES ({value_list});\n')
+                    
+                    backup_file.write("\n")
+                
+                # Get and write indexes
+                cursor.execute(f"""
+                    SELECT indexname, indexdef
+                    FROM pg_indexes 
+                    WHERE schemaname = 'public' 
+                    AND tablename = '{table_name}'
+                    AND indexname NOT LIKE '%_pkey';
+                """)
+                indexes = cursor.fetchall()
+                
+                for index in indexes:
+                    backup_file.write(f"{index['indexdef']};\n")
+                
+                backup_file.write("\n")
+            
+            # Write footer
+            backup_file.write("-- Backup completed\n")
+        
+        logger.info(f"Python backup completed: {backup_path}")
+        
+    finally:
+        cursor.close()
+        connection.close()
 
 @router.get("/database-admin")
 async def database_admin_page(request: Request):
@@ -182,29 +306,52 @@ async def create_database_backup():
         
         logger.info(f"Running pg_dump command: {' '.join(pg_dump_cmd[:-2])} [database/file]")
         
-        # Run pg_dump
-        result = subprocess.run(
-            pg_dump_cmd,
-            env=env,
-            capture_output=True,
-            text=True,
-            timeout=300  # 5 minute timeout
-        )
-        
-        if result.returncode != 0:
-            logger.error(f"pg_dump failed: {result.stderr}")
-            raise Exception(f"Backup failed: {result.stderr}")
-        
-        # Verify backup file was created
-        if not os.path.exists(backup_path):
-            raise Exception("Backup file was not created")
-        
-        # Get file size for verification
-        file_size = os.path.getsize(backup_path)
-        if file_size == 0:
-            raise Exception("Backup file is empty")
-        
-        logger.info(f"Database backup created successfully: {backup_path} ({file_size} bytes)")
+        # Try pg_dump first
+        try:
+            result = subprocess.run(
+                pg_dump_cmd,
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=300  # 5 minute timeout
+            )
+            
+            if result.returncode != 0:
+                raise Exception(f"pg_dump failed: {result.stderr}")
+            
+            # Verify backup file was created
+            if not os.path.exists(backup_path):
+                raise Exception("Backup file was not created")
+            
+            # Get file size for verification
+            file_size = os.path.getsize(backup_path)
+            if file_size == 0:
+                raise Exception("Backup file is empty")
+            
+            logger.info(f"Database backup created successfully with pg_dump: {backup_path} ({file_size} bytes)")
+            
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
+            # pg_dump failed or is not available, try Python backup
+            logger.warning(f"pg_dump failed or not available: {str(e)}")
+            logger.info("Falling back to Python-based backup")
+            
+            try:
+                create_python_backup(backup_path)
+                
+                # Verify backup file was created
+                if not os.path.exists(backup_path):
+                    raise Exception("Python backup file was not created")
+                
+                # Get file size for verification
+                file_size = os.path.getsize(backup_path)
+                if file_size == 0:
+                    raise Exception("Python backup file is empty")
+                
+                logger.info(f"Database backup created successfully with Python: {backup_path} ({file_size} bytes)")
+                
+            except Exception as python_backup_error:
+                logger.error(f"Python backup also failed: {str(python_backup_error)}")
+                raise Exception(f"Both pg_dump and Python backup failed. pg_dump error: {str(e)}, Python backup error: {str(python_backup_error)}")
         
         # Return success with download URL
         return JSONResponse({

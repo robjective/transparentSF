@@ -126,7 +126,7 @@ try:
     # First try to import from the ai package
     from ai.tools.db_utils import get_postgres_connection, execute_with_connection, CustomJSONEncoder
     logger.warning("Successfully imported from ai.tools.db_utils")
-    from ai.tools.genChartdw import create_datawrapper_chart # New import
+    # OLD IMPORT REMOVED - create_datawrapper_chart function has been removed
     logger.warning("Successfully imported from ai.tools.genChartdw")
     from ai.tools.gen_anomaly_chart_dw import generate_anomaly_chart_dw # Import for anomaly charts
 except ImportError:
@@ -134,7 +134,7 @@ except ImportError:
         # If that fails, try to import from the local directory
         from tools.db_utils import get_postgres_connection, execute_with_connection, CustomJSONEncoder
         logger.warning("Successfully imported from tools.db_utils")
-        from tools.genChartdw import create_datawrapper_chart # New import - local fallback
+        # OLD IMPORT REMOVED - create_datawrapper_chart function has been removed
         logger.warning("Successfully imported from tools.genChartdw")
         from tools.gen_anomaly_chart_dw import generate_anomaly_chart_dw # Import for anomaly charts - local fallback
     except ImportError:
@@ -3551,7 +3551,7 @@ def run_monthly_report_process(district="0", period_type="month", max_report_ite
                 shutil.copy2(original_newsletter_path, proofreading_newsletter_path)
                 
                 # Format placeholders for proofreading
-                from tools.chart_expansion_improved import keep_placeholders_for_proofreading
+                from tools.chart_expansion import keep_placeholders_for_proofreading
                 keep_placeholders_for_proofreading(proofreading_newsletter_path)
                 logger.info(f"Created separate revised report with placeholders for proofreading: {proofreading_newsletter_path}")
             except Exception as e:
@@ -3605,7 +3605,7 @@ def run_monthly_report_process(district="0", period_type="month", max_report_ite
                 
                 # Expand chart references with improved tabbed interface
                 try:
-                    from tools.chart_expansion_improved import expand_charts_with_tabs_final
+                    from tools.chart_expansion import expand_charts_with_tabs_final
                     expand_result = expand_charts_with_tabs_final(final_report_path)
                     if not expand_result:
                         logger.warning("Failed to expand chart references with improved tabs in the final report")
@@ -3970,8 +3970,8 @@ def generate_email_compatible_report(report_path, output_path=None):
         shutil.copy2(report_path, output_path)
         
         # Use the improved email format chart expansion
-        from tools.chart_expansion_improved import expand_charts_for_email
-        expand_result = expand_charts_for_email(output_path)
+        from tools.chart_expansion import expand_chart_references_for_email
+        expand_result = expand_chart_references_for_email(output_path)
         
         if expand_result:
             logger.info(f"Generated email-compatible report with DataWrapper URLs at {output_path}")
@@ -4012,7 +4012,7 @@ def generate_final_version_with_charts(report_path, output_path=None):
         shutil.copy2(report_path, output_path)
         
         # Use the improved chart expansion with tabs for final version
-        from tools.chart_expansion_improved import expand_charts_with_tabs_final
+        from tools.chart_expansion import expand_charts_with_tabs_final
         expand_result = expand_charts_with_tabs_final(output_path)
         
         if expand_result:
@@ -4729,14 +4729,59 @@ def request_chart_image(chart_type, params, output_path=None):
             district = params.get('district', '0')
             period_type = params.get('period_type', 'year')
             
-            # Try to generate a Datawrapper chart first
+            # Try to generate a Datawrapper chart first using the same method as the "Create DW version" button
             try:
                 logger.info(f"Attempting to create Datawrapper chart for metric_id: {metric_id}, district: {district}, period: {period_type}")
-                dw_chart_url = create_datawrapper_chart(
-                    metric_id=metric_id,
-                    district=district,
-                    period_type=period_type
-                )
+                
+                # Use the exact same approach as the "Create DW version" button in metric_control.html
+                # First, find the chart_id (time_series_id) for this metric_id, district, and period_type
+                try:
+                    import os
+                    
+                    api_base_url = os.getenv("API_BASE_URL", "http://localhost:8000")
+                    
+                    # Get active charts for this metric to find the chart_id
+                    charts_response = requests.get(f"{api_base_url}/backend/api/active-charts?metric_id={metric_id}&district={district}&period_type={period_type}")
+                    
+                    if charts_response.ok:
+                        charts_data = charts_response.json()
+                        charts = charts_data.get("charts", [])
+                        
+                        if charts:
+                            # Use the first chart found
+                            chart_id = charts[0].get("chart_id")
+                            
+                            if chart_id:
+                                logger.info(f"Found chart_id: {chart_id} for metric_id: {metric_id}")
+                                
+                                # Call the same endpoint that the "Create DW version" button uses
+                                dw_response = requests.post(f"{api_base_url}/backend/generate-dw-time-series?chart_id={chart_id}")
+                                
+                                if dw_response.ok:
+                                    response_data = dw_response.json()
+                                    if response_data.get("status") == "success":
+                                        dw_chart_url = response_data.get("chart_url")
+                                        logger.info(f"Successfully generated DW chart using chart_id {chart_id}: {dw_chart_url}")
+                                    else:
+                                        logger.warning(f"DW chart generation failed for chart_id {chart_id}: {response_data.get('message', 'Unknown error')}")
+                                        dw_chart_url = None
+                                else:
+                                    logger.warning(f"Failed to call DW generation endpoint for chart_id {chart_id}: {dw_response.status_code}")
+                                    dw_chart_url = None
+                            else:
+                                logger.warning(f"No chart_id found in charts data for metric_id: {metric_id}")
+                                dw_chart_url = None
+                        else:
+                            logger.warning(f"No charts found for metric_id: {metric_id}, district: {district}, period_type: {period_type}")
+                            dw_chart_url = None
+                    else:
+                        logger.warning(f"Failed to fetch active charts for metric_id: {metric_id}, status: {charts_response.status_code}")
+                        dw_chart_url = None
+                        
+                except Exception as e:
+                    logger.error(f"Error using DW generation endpoint: {str(e)}")
+                    # No fallback - the old function has been removed
+                    dw_chart_url = None
                 
                 if dw_chart_url:
                     logger.info(f"Successfully generated Datawrapper chart: {dw_chart_url}")

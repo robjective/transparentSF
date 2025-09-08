@@ -89,6 +89,27 @@ MODEL_CONFIGS = {
         "max_tokens": 8192,
         "temperature": 0.1
     }),
+    # Fast Turbo Models - optimized for speed and cost
+    "gpt-4-turbo": ModelConfig(ModelProvider.OPENAI, "gpt-4-turbo", {
+        "max_tokens": 8192,
+        "temperature": 0.1
+    }),
+    "gpt-4-turbo-2024-04-09": ModelConfig(ModelProvider.OPENAI, "gpt-4-turbo-2024-04-09", {
+        "max_tokens": 8192,
+        "temperature": 0.1
+    }),
+    "gpt-4o-mini": ModelConfig(ModelProvider.OPENAI, "gpt-4o-mini", {
+        "max_tokens": 8192,
+        "temperature": 0.1
+    }),
+    "gpt-3.5-turbo": ModelConfig(ModelProvider.OPENAI, "gpt-3.5-turbo", {
+        "max_tokens": 4096,  # GPT-3.5-turbo has lower token limit
+        "temperature": 0.1
+    }),
+    "gpt-3.5-turbo-16k": ModelConfig(ModelProvider.OPENAI, "gpt-3.5-turbo-16k", {
+        "max_tokens": 4096,
+        "temperature": 0.1
+    }),
     # Anthropic Models (Latest versions - updated 2025) - with increased token limits
     "claude-opus-4": ModelConfig(ModelProvider.ANTHROPIC, "claude-opus-4-20250514", {
         "max_tokens": 8192,
@@ -114,6 +135,10 @@ MODEL_CONFIGS = {
         "max_tokens": 8192,
         "temperature": 0.1
     }),
+    "claude-3-haiku-20240307": ModelConfig(ModelProvider.ANTHROPIC, "claude-3-haiku-20240307", {
+        "max_tokens": 8192,
+        "temperature": 0.1
+    }),
     # Google Models (Latest versions - with specific config for tool calling)
     "gemini-2.5-pro": ModelConfig(ModelProvider.GOOGLE, "gemini-2.5-pro", {
         "temperature": 0.1,
@@ -128,6 +153,18 @@ MODEL_CONFIGS = {
         "max_output_tokens": 8192
     }),
     "gemini-1.5-flash": ModelConfig(ModelProvider.GOOGLE, "gemini-1.5-flash", {
+        "temperature": 0.1,
+        "top_p": 0.8,
+        "top_k": 40,
+        "max_output_tokens": 8192
+    }),
+    "gemini-1.5-flash-8b": ModelConfig(ModelProvider.GOOGLE, "gemini-1.5-flash-8b", {
+        "temperature": 0.1,
+        "top_p": 0.8,
+        "top_k": 40,
+        "max_output_tokens": 8192
+    }),
+    "gemini-1.0-pro": ModelConfig(ModelProvider.GOOGLE, "gemini-1.0-pro", {
         "temperature": 0.1,
         "top_p": 0.8,
         "top_k": 40,

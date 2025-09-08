@@ -1533,14 +1533,119 @@ async def backup_metrics_table_api():
             ]
         
         logger.info("Creating new backup of metrics table...")
-        result = subprocess.run(dump_cmd, env=env, capture_output=True, text=True)
         
-        if result.returncode != 0:
-            logger.error(f"pg_dump failed: {result.stderr}")
-            return JSONResponse({
-                "status": "error",
-                "message": f"Backup failed: {result.stderr}"
-            }, status_code=500)
+        # Try pg_dump first
+        try:
+            result = subprocess.run(dump_cmd, env=env, capture_output=True, text=True)
+            
+            if result.returncode != 0:
+                raise Exception(f"pg_dump failed: {result.stderr}")
+                
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
+            # pg_dump failed or is not available, try Python backup
+            logger.warning(f"pg_dump failed or not available: {str(e)}")
+            logger.info("Falling back to Python-based metrics backup")
+            
+            try:
+                # Create Python-based backup for metrics table
+                connection = get_postgres_connection()
+                if not connection:
+                    raise Exception("Could not connect to database")
+                
+                cursor = connection.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+                
+                with open(backup_file, 'w', encoding='utf-8') as backup_f:
+                    # Write header
+                    backup_f.write("-- Metrics table backup created with Python/psycopg2\n")
+                    backup_f.write(f"-- Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
+                    
+                    # Get table structure
+                    cursor.execute("""
+                        SELECT column_name, data_type, is_nullable, column_default
+                        FROM information_schema.columns 
+                        WHERE table_schema = 'public' 
+                        AND table_name = 'metrics'
+                        ORDER BY ordinal_position;
+                    """)
+                    columns = cursor.fetchall()
+                    
+                    # Write DROP TABLE statement
+                    backup_f.write("DROP TABLE IF EXISTS \"metrics\" CASCADE;\n")
+                    
+                    # Write CREATE TABLE statement
+                    backup_f.write("CREATE TABLE \"metrics\" (\n")
+                    
+                    column_definitions = []
+                    for col in columns:
+                        col_def = f'    "{col["column_name"]}" {col["data_type"]}'
+                        if col["is_nullable"] == "NO":
+                            col_def += " NOT NULL"
+                        if col["column_default"]:
+                            col_def += f" DEFAULT {col['column_default']}"
+                        column_definitions.append(col_def)
+                    
+                    backup_f.write(",\n".join(column_definitions))
+                    backup_f.write("\n);\n\n")
+                    
+                    # Get and write table data
+                    cursor.execute('SELECT * FROM "metrics"')
+                    rows = cursor.fetchall()
+                    
+                    if rows:
+                        # Get column names
+                        column_names = [col['column_name'] for col in columns]
+                        
+                        # Write INSERT statements
+                        for row in rows:
+                            values = []
+                            for col_name in column_names:
+                                value = row[col_name]
+                                if value is None:
+                                    values.append('NULL')
+                                elif isinstance(value, str):
+                                    # Escape single quotes in strings
+                                    escaped_value = value.replace("'", "''")
+                                    values.append(f"'{escaped_value}'")
+                                elif isinstance(value, (int, float)):
+                                    values.append(str(value))
+                                elif isinstance(value, bool):
+                                    values.append('TRUE' if value else 'FALSE')
+                                else:
+                                    # For other types, convert to string and escape
+                                    escaped_value = str(value).replace("'", "''")
+                                    values.append(f"'{escaped_value}'")
+                            
+                            column_list = ', '.join([f'"{name}"' for name in column_names])
+                            value_list = ', '.join(values)
+                            backup_f.write(f'INSERT INTO "metrics" ({column_list}) VALUES ({value_list});\n')
+                        
+                        backup_f.write("\n")
+                    
+                    # Get and write indexes
+                    cursor.execute("""
+                        SELECT indexname, indexdef
+                        FROM pg_indexes 
+                        WHERE schemaname = 'public' 
+                        AND tablename = 'metrics'
+                        AND indexname NOT LIKE '%_pkey';
+                    """)
+                    indexes = cursor.fetchall()
+                    
+                    for index in indexes:
+                        backup_f.write(f"{index['indexdef']};\n")
+                    
+                    backup_f.write("\n-- Backup completed\n")
+                
+                cursor.close()
+                connection.close()
+                logger.info(f"Python metrics backup completed: {backup_file}")
+                
+            except Exception as python_backup_error:
+                logger.error(f"Python metrics backup also failed: {str(python_backup_error)}")
+                return JSONResponse({
+                    "status": "error",
+                    "message": f"Both pg_dump and Python backup failed. pg_dump error: {str(e)}, Python backup error: {str(python_backup_error)}"
+                }, status_code=500)
         
         # Verify the backup file was created
         if not os.path.exists(backup_file):
