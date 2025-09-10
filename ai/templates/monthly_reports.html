@@ -946,6 +946,9 @@
                 </div>
                 
                 <div class="report-actions" style="display: flex; gap: 10px; align-items: flex-end;">
+                    <button id="regenerate-newsletter-btn" class="action-btn primary-btn" style="background-color: #28a745; font-weight: bold;">
+                        Regenerate Newsletter
+                    </button>
                     <button id="reprioritize-deltas-btn" class="action-btn primary-btn">
                         Re-prioritize deltas
                     </button>
@@ -1640,6 +1643,15 @@
                     rerunReportBtn.classList.add('available');
                     rerunReportBtn.disabled = false;
                 }
+                
+                // Special handling for regenerate newsletter button
+                // This should always be available since it runs the complete workflow
+                const regenerateNewsletterBtn = document.getElementById('regenerate-newsletter-btn');
+                if (regenerateNewsletterBtn) {
+                    regenerateNewsletterBtn.classList.remove('completed');
+                    regenerateNewsletterBtn.classList.add('available');
+                    regenerateNewsletterBtn.disabled = false;
+                }
             }
             
             // Handle report selection
@@ -1704,6 +1716,15 @@
                         };
                     }
 
+                    // Set up the regenerate newsletter button
+                    const regenerateNewsletterBtn = document.getElementById('regenerate-newsletter-btn');
+                    if (regenerateNewsletterBtn) {
+                        regenerateNewsletterBtn.onclick = () => {
+                            console.log("Regenerating complete newsletter for:", selectedReport);
+                            regenerateCompleteNewsletter(selectedReport);
+                        };
+                    }
+                    
                     // Set up the re-explain deltas button
                     const reexplainDeltasBtn = document.getElementById('reexplain-deltas-btn');
                     if (reexplainDeltasBtn) {
@@ -3200,6 +3221,93 @@
                     const reexplainBtn = document.getElementById('reexplain-deltas-btn');
                     reexplainBtn.disabled = false;
                     reexplainBtn.textContent = 'Re-explain deltas & generate newsletter text';
+                }
+            }
+
+            // Wrapper function for post-proofing (email version)
+            async function rerunPostProofing(filename) {
+                const report_path = `output/reports/${filename}`;
+                const response = await fetch('/backend/rerun_email_version', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ report_path: report_path })
+                });
+                const data = await response.json();
+                if (data.status !== 'success') {
+                    throw new Error(data.message || 'Failed to re-run email version');
+                }
+                return data;
+            }
+
+            // Wrapper function for final version
+            async function rerunFinalVersion(filename) {
+                const report_path = `output/reports/${filename}`;
+                const response = await fetch('/backend/rerun_final_version', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ report_path })
+                });
+                const data = await response.json();
+                if (data.status !== 'success') {
+                    throw new Error(data.message || 'Failed to re-run final version');
+                }
+                return data;
+            }
+
+            // Function to regenerate complete newsletter workflow
+            async function regenerateCompleteNewsletter(filename) {
+                if (!filename) {
+                    alert('No newsletter selected');
+                    return;
+                }
+
+                if (!confirm('Are you sure you want to regenerate the complete newsletter? This will run all steps: Re-explain deltas, Re-write newsletter, Re-run proofreading, Re-run email, and Re-run final version. This may take several minutes.')) {
+                    return;
+                }
+
+                const regenerateBtn = document.getElementById('regenerate-newsletter-btn');
+                const originalText = regenerateBtn.textContent;
+                regenerateBtn.disabled = true;
+
+                const steps = [
+                    { name: 'Re-explain deltas', func: () => reexplainDeltas(filename) },
+                    { name: 'Re-write newsletter', func: () => rerunReportGeneration(filename) },
+                    { name: 'Re-run proofreading', func: () => rerunProofreading(filename) },
+                    { name: 'Re-run email', func: () => rerunPostProofing(filename) },
+                    { name: 'Re-run final version', func: () => rerunFinalVersion(filename) }
+                ];
+
+                try {
+                    for (let i = 0; i < steps.length; i++) {
+                        const step = steps[i];
+                        const progress = `(${i + 1}/${steps.length})`;
+                        regenerateBtn.innerHTML = `<div style="display: flex; align-items: center; justify-content: center;"><span class="loading"></span> ${progress} ${step.name}...</div>`;
+                        
+                        console.log(`Starting step ${i + 1}: ${step.name}`);
+                        await step.func();
+                        console.log(`Completed step ${i + 1}: ${step.name}`);
+                        
+                        // Small delay between steps
+                        await new Promise(resolve => setTimeout(resolve, 1000));
+                    }
+
+                    // Final success message
+                    regenerateBtn.innerHTML = '<div style="display: flex; align-items: center; justify-content: center;"><span style="color: #28a745;">✓</span> Complete!</div>';
+                    alert('Newsletter regeneration completed successfully!');
+                    
+                    // Reload reports and update button states
+                    loadReports(true);
+                    setTimeout(() => updateButtonStates(selectedReport), 1000);
+                    
+                } catch (error) {
+                    console.error('Error in newsletter regeneration:', error);
+                    alert(`Error during newsletter regeneration: ${error.message}`);
+                } finally {
+                    // Reset button after a delay
+                    setTimeout(() => {
+                        regenerateBtn.disabled = false;
+                        regenerateBtn.textContent = originalText;
+                    }, 3000);
                 }
             }
         });

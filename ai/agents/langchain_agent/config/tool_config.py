@@ -92,7 +92,7 @@ class ToolConfig:
                 function=None,
                 description="Retrieve dashboard metric data with analysis files (monthly, weekly, annual, YTD)",
                 group=ToolGroup.ANALYSIS,
-                required_prompt_sections=["core_tools", "workflow"],
+                required_prompt_sections=["core_tools", "analysis_tools", "workflow"],
                 examples=[
                     "get_dashboard_metric(context_variables, district_number=0, metric_id=123)",
                     "Use this to get the dashboard metric data and all available analysis files for a specific metric"
@@ -103,7 +103,7 @@ class ToolConfig:
                 function=None,
                 description="Query anomalies directly from the PostgreSQL database",
                 group=ToolGroup.ANALYSIS,
-                required_prompt_sections=["core_tools", "workflow"],
+                required_prompt_sections=["core_tools", "analysis_tools", "workflow"],
                 examples=[
                     "query_anomalies_db(context_variables, query_type='by_metric_id', metric_id=123, district_filter=2, only_anomalies=True)",
                     "Use this to find anomalies for a specific metric and district"
@@ -125,7 +125,7 @@ class ToolConfig:
                 function=None,
                 description="Get available charts for newsletter inclusion review",
                 group=ToolGroup.ANALYSIS,
-                required_prompt_sections=["core_tools", "charts", "workflow"],
+                required_prompt_sections=["core_tools", "analysis_tools", "charts", "workflow"],
                 examples=[
                     "get_charts_for_review(context_variables, limit=20, days_back=30, district_filter='2', metric_id='3')",
                     "Use this to find relevant charts and maps that support your explanations"

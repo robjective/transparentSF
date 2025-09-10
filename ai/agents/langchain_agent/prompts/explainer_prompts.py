@@ -35,7 +35,7 @@ TASK_INSTRUCTIONS = """Your task is to:
 WORKFLOW_INSTRUCTIONS = """MANDATORY WORKFLOW (follow this exact sequence):
 1. FIRST, check your notes!
 2. SECOND, Get information about the metric from the get_dashboard_metric tool. It will show you the metric's endpoint, common queries, and map field configuration.
-3. THIRD, Query the anomalies_db for this metric and period_type and group_filter and district_filter and limit 30 and only_anomalies=True to see whats happening in this metric in this period for this group in this district. 
+3. THIRD, Query the anomalies_db for this metric and period_type and group_filter and district_filter and limit 10 and only_anomalies=True to see whats happening in this metric in this period for this group in this district. 
 4. FOURTH, Use get_charts_for_review to review the recent charts and maps for this metric. If there are charts  or maps that are relevant to the change, then include them in your explanation, more is better.
 5. FIFTH, Apply category best practices, see below. 
 6. SIXTH, contextualize this change vs the historical data, you can use the data from get_dashboard_metric to do this. 
@@ -499,6 +499,100 @@ CORE_TOOLS_INSTRUCTIONS = """TOOLS YOU SHOULD USE:
   ```
 """
 
+# Analysis tools for anomaly investigation
+ANALYSIS_TOOLS_INSTRUCTIONS = """ANALYSIS TOOLS FOR ANOMALY INVESTIGATION:
+
+These tools work together to investigate and explain metric changes through systematic anomaly analysis. Use them in the order specified in the workflow instructions.
+
+- get_dashboard_metric: Get comprehensive analysis text for a metric
+  USAGE: get_dashboard_metric(district_number=2, metric_id=123)
+  
+  This tool provides:
+  - Concatenated markdown analysis files (yearly, monthly, weekly, YTD)
+  - Text descriptions of all available charts and anomalies for the metric
+  - Historical analysis and context about the metric
+  - Pre-written insights and explanations
+  
+  Use this FIRST to get existing analysis and context before investigating anomalies.
+  
+  Example:
+  ```
+  get_dashboard_metric(district_number=2, metric_id=123)
+  ```
+
+- query_anomalies_db: Query anomalies directly from the PostgreSQL database
+  USAGE: query_anomalies_db(query_type='by_metric_id', metric_id=4, district_filter=2, period_type='month', only_anomalies=True)
+  
+  This tool finds anomalies related to metric changes by querying the anomalies database.
+  
+  Parameters:
+  - query_type: Type of query ('by_metric_id', 'recent', 'by_group', 'by_metric')
+  - metric_id: Specific metric ID to investigate
+  - district_filter: District number to filter by
+  - period_type: Period type to filter by
+  - only_anomalies: Set to True to get only out-of-bounds anomalies
+  
+  Use this THIRD in the workflow to find anomalies for the specific metric, period, group, and district.
+  
+  Example:
+  ```
+  query_anomalies_db(
+      query_type='by_metric_id', 
+      metric_id=123, 
+      district_filter=2, 
+      period_type='month',
+      only_anomalies=True
+  )
+  ```
+
+- get_charts_for_review: Get available charts and maps for the metric
+  USAGE: get_charts_for_review(limit=20, days_back=30, district_filter='2', metric_id='123')
+  
+  This tool retrieves recent charts and maps that support your explanations.
+  
+  Parameters:
+  - limit: Maximum number of charts to return (default: 20)
+  - days_back: How many days back to look for charts (default: 30)
+  - district_filter: District to filter by (as string)
+  - metric_id: Metric ID to filter by (as string)
+  
+  Use this FOURTH in the workflow to find relevant visualizations.
+  
+  Example:
+  ```
+  get_charts_for_review(
+      limit=20, 
+      days_back=30, 
+      district_filter='2', 
+      metric_id='123'
+  )
+  ```
+
+WORKFLOW INTEGRATION:
+These tools are designed to work together in the mandatory workflow:
+
+1. get_dashboard_metric → Get existing analysis text and context about the metric
+2. [Other steps...]
+3. query_anomalies_db → Find anomalies related to the metric change
+4. get_charts_for_review → Get supporting visualizations
+5. [Continue with analysis...]
+
+ANOMALY ANALYSIS STRATEGY:
+- Use get_dashboard_metric to get existing analysis text and historical context
+- Use query_anomalies_db to find specific anomalies that explain the change
+- Use get_charts_for_review to find visual evidence supporting your explanation
+- Include anomaly charts in your explanation when they are explanatory
+- Cross-reference anomaly data with existing analysis text for comprehensive understanding
+
+CHART INTEGRATION:
+When anomalies are found, include them in your explanation using chart placeholders:
+- [CHART:anomaly:anomaly_id] for specific anomaly charts
+- [CHART:time_series_id:chart_id] for time series charts
+- [CHART:map:map_id] for map visualizations
+
+This systematic approach ensures thorough investigation of metric changes through anomaly analysis.
+"""
+
 # Metrics management tools
 METRICS_TOOLS_INSTRUCTIONS = """METRICS MANAGEMENT TOOLS:
 Metrics Workflow:
@@ -663,7 +757,11 @@ PROMPT_SECTIONS = {
         'description': 'Primary tools for data analysis and anomaly investigation',
         'content': CORE_TOOLS_INSTRUCTIONS
     },
-
+    'analysis_tools': {
+        'name': 'Analysis Tools',
+        'description': 'Tools for systematic anomaly investigation and metric analysis',
+        'content': ANALYSIS_TOOLS_INSTRUCTIONS
+    },
     'map_generation': {
         'name': 'Map Generation Tool',
         'description': 'Comprehensive instructions for creating maps using the TransparentSF system',

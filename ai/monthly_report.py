@@ -17,7 +17,7 @@ try:
     PIL_AVAILABLE = True
 except ImportError:
     PIL_AVAILABLE = False
-    Image = NoneW
+    Image = None
 import time
 import re
 from dateutil.relativedelta import relativedelta
@@ -3918,9 +3918,7 @@ def generate_chart_image(chart_type, params, output_dir=None):
         else:
             raise ValueError(f"Unsupported chart type: {chart_type}")
         
-        # Use a headless browser service to capture the chart as an image
-        # This could be implemented using Selenium, Playwright, or a service like Browserless
-        # For this example, we'll use a simple approach with requests and PIL
+        # Use a simple approach with requests and PIL to capture the chart as an image
         
         # Make a request to the chart URL
         full_url = f"{API_BASE_URL}{url}"  # Only use API_BASE_URL for server-side requests
@@ -3929,7 +3927,7 @@ def generate_chart_image(chart_type, params, output_dir=None):
             logger.error(f"Failed to fetch chart from {full_url}: {response.status_code}")
             return None
         
-        # For a real implementation, you would use a headless browser to render the page
+        # For a real implementation, you would render the page content
         # and capture the chart element as an image
         # For this example, we'll create a placeholder image
         
@@ -4289,9 +4287,7 @@ def generate_time_series_chart_image(metric_id, district, period_type, output_di
         # Construct the URL for the chart
         url = f"/backend/time-series-chart?metric_id={metric_id}&district={district}&period_type={period_type}#chart-section"
         
-        # Use a headless browser service to capture the chart as an image
-        # This could be implemented using Selenium, Playwright, or a service like Browserless
-        # For this example, we'll use a simple approach with requests and PIL
+        # Use a simple approach with requests and PIL to capture the chart as an image
         
         # Make a request to the chart URL
         full_url = f"{API_BASE_URL}{url}"  # Only use API_BASE_URL for server-side requests
@@ -4300,7 +4296,7 @@ def generate_time_series_chart_image(metric_id, district, period_type, output_di
             logger.error(f"Failed to fetch chart from {full_url}: {response.status_code}")
             return None
         
-        # For a real implementation, you would use a headless browser to render the page
+        # For a real implementation, you would render the page content
         # and capture the chart element as an image
         # For this example, we'll create a placeholder image
         
@@ -4338,9 +4334,7 @@ def generate_time_series_chart_data_url(metric_id, district, period_type):
         # Construct the URL for the chart
         url = f"/backend/time-series-chart?metric_id={metric_id}&district={district}&period_type={period_type}#chart-section"
         
-        # Use a headless browser service to capture the chart as an image
-        # This could be implemented using Selenium, Playwright, or a service like Browserless
-        # For this example, we'll use a simple approach with requests and PIL
+        # Use a simple approach with requests and PIL to capture the chart as an image
         
         # Make a request to the chart URL
         full_url = f"{API_BASE_URL}{url}"  # Only use API_BASE_URL for server-side requests
@@ -4349,7 +4343,7 @@ def generate_time_series_chart_data_url(metric_id, district, period_type):
             logger.error(f"Failed to fetch chart from {full_url}: {response.status_code}")
             return None
         
-        # For a real implementation, you would use a headless browser to render the page
+        # For a real implementation, you would render the page content
         # and capture the chart element as an image
         # For this example, we'll create a placeholder image
         

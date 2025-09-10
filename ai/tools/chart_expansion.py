@@ -1332,8 +1332,89 @@ def expand_chart_references_for_email(report_path):
             
             logger.info(f"Creating email format for time_series_id: {chart_id}")
             
-            # For time_series_id, we don't have a DataWrapper equivalent, so show note only
-            email_html = f'''
+            # Try to generate a DataWrapper chart for this time_series_id
+            dw_chart_url = None
+            try:
+                # Import the tools we need (same as in dw_charts.py)
+                from tools.store_time_series import get_time_series_metadata, get_time_series_data
+                from tools.genChartdw import create_time_series_chart_from_data
+                
+                # Get the metadata for this chart
+                metadata_df = get_time_series_metadata(chart_id=int(chart_id))
+                if not metadata_df.empty:
+                    metadata_row = metadata_df.iloc[0]
+                    
+                    # Get the time series data
+                    data_df = get_time_series_data(chart_id=int(chart_id))
+                    if not data_df.empty:
+                        # Extract metadata information
+                        metadata_json = metadata_row.get('metadata', {})
+                        if isinstance(metadata_json, str):
+                            try:
+                                import json
+                                metadata_json = json.loads(metadata_json)
+                            except json.JSONDecodeError:
+                                metadata_json = {}
+                        
+                        # Try multiple sources for the chart title with proper fallback
+                        chart_title = (
+                            metadata_json.get('title') or         # First: title from metadata JSONB
+                            metadata_json.get('chart_title') or   # Second: chart_title from metadata JSONB  
+                            metadata_row.get('object_name') or    # Third: object_name from table
+                            f"Time Series Chart {chart_id}"       # Fallback
+                        )
+                        
+                        object_name = metadata_row.get('object_name', 'Unknown')
+                        field_name = metadata_row.get('field_name', 'Value')
+                        period_type = metadata_row.get('period_type', 'month')
+                        district = metadata_row.get('district', 0)
+                        
+                        # Prepare chart data in the format expected by create_time_series_chart_from_data
+                        chart_data = []
+                        for _, row in data_df.iterrows():
+                            chart_data.append({
+                                'time_period': row['time_period'],
+                                'value': row['numeric_value'],
+                                'group_value': row.get('group_value')
+                            })
+                        
+                        # Create chart metadata
+                        chart_metadata = {
+                            'title': chart_title,
+                            'object_name': object_name,
+                            'field_name': field_name,
+                            'period_type': period_type,
+                            'district': district,
+                            'chart_id': chart_id,
+                            'executed_query_url': metadata_row.get('executed_query_url', ''),
+                            'source-name': 'DataSF',
+                            'byline': 'Chart: TransparentSF'
+                        }
+                        
+                        # Generate the Datawrapper chart
+                        dw_chart_url = create_time_series_chart_from_data(
+                            chart_data=chart_data,
+                            metadata=chart_metadata
+                        )
+                        
+                        if dw_chart_url:
+                            logger.info(f"Successfully generated DataWrapper chart for time_series_id {chart_id}: {dw_chart_url}")
+                        else:
+                            logger.warning(f"Failed to generate DataWrapper chart for time_series_id {chart_id}")
+                    else:
+                        logger.warning(f"No data found for time_series_id: {chart_id}")
+                else:
+                    logger.warning(f"No metadata found for time_series_id: {chart_id}")
+            except Exception as e:
+                logger.warning(f"Failed to generate DataWrapper chart for time_series_id {chart_id}: {str(e)}")
+            
+            if dw_chart_url:
+                email_html = f'''
+{dw_chart_url}<br><br>
+'''
+            else:
+                # Fallback - no DataWrapper URL available
+                email_html = f'''
 <div class="chart-container" style="margin: 20px 0; padding: 15px; background-color: #fff3cd; border: 1px solid #ffeaa7; border-radius: 8px;">
     <h4 style="margin: 0 0 10px 0; color: #856404;">Time Series Chart - ID {chart_id}</h4>
     <p style="margin: 0; color: #856404; font-size: 14px;">DataWrapper version not available for this chart type.</p>
@@ -1346,8 +1427,89 @@ def expand_chart_references_for_email(report_path):
             chart_id = match.group(1)
             logger.info(f"Creating email format for expanded time_series_id: {chart_id}")
             
-            # For time_series_id, we don't have a DataWrapper equivalent, so show note only
-            email_html = f'''
+            # Try to generate a DataWrapper chart for this time_series_id
+            dw_chart_url = None
+            try:
+                # Import the tools we need (same as in dw_charts.py)
+                from tools.store_time_series import get_time_series_metadata, get_time_series_data
+                from tools.genChartdw import create_time_series_chart_from_data
+                
+                # Get the metadata for this chart
+                metadata_df = get_time_series_metadata(chart_id=int(chart_id))
+                if not metadata_df.empty:
+                    metadata_row = metadata_df.iloc[0]
+                    
+                    # Get the time series data
+                    data_df = get_time_series_data(chart_id=int(chart_id))
+                    if not data_df.empty:
+                        # Extract metadata information
+                        metadata_json = metadata_row.get('metadata', {})
+                        if isinstance(metadata_json, str):
+                            try:
+                                import json
+                                metadata_json = json.loads(metadata_json)
+                            except json.JSONDecodeError:
+                                metadata_json = {}
+                        
+                        # Try multiple sources for the chart title with proper fallback
+                        chart_title = (
+                            metadata_json.get('title') or         # First: title from metadata JSONB
+                            metadata_json.get('chart_title') or   # Second: chart_title from metadata JSONB  
+                            metadata_row.get('object_name') or    # Third: object_name from table
+                            f"Time Series Chart {chart_id}"       # Fallback
+                        )
+                        
+                        object_name = metadata_row.get('object_name', 'Unknown')
+                        field_name = metadata_row.get('field_name', 'Value')
+                        period_type = metadata_row.get('period_type', 'month')
+                        district = metadata_row.get('district', 0)
+                        
+                        # Prepare chart data in the format expected by create_time_series_chart_from_data
+                        chart_data = []
+                        for _, row in data_df.iterrows():
+                            chart_data.append({
+                                'time_period': row['time_period'],
+                                'value': row['numeric_value'],
+                                'group_value': row.get('group_value')
+                            })
+                        
+                        # Create chart metadata
+                        chart_metadata = {
+                            'title': chart_title,
+                            'object_name': object_name,
+                            'field_name': field_name,
+                            'period_type': period_type,
+                            'district': district,
+                            'chart_id': chart_id,
+                            'executed_query_url': metadata_row.get('executed_query_url', ''),
+                            'source-name': 'DataSF',
+                            'byline': 'Chart: TransparentSF'
+                        }
+                        
+                        # Generate the Datawrapper chart
+                        dw_chart_url = create_time_series_chart_from_data(
+                            chart_data=chart_data,
+                            metadata=chart_metadata
+                        )
+                        
+                        if dw_chart_url:
+                            logger.info(f"Successfully generated DataWrapper chart for expanded time_series_id {chart_id}: {dw_chart_url}")
+                        else:
+                            logger.warning(f"Failed to generate DataWrapper chart for expanded time_series_id {chart_id}")
+                    else:
+                        logger.warning(f"No data found for expanded time_series_id: {chart_id}")
+                else:
+                    logger.warning(f"No metadata found for expanded time_series_id: {chart_id}")
+            except Exception as e:
+                logger.warning(f"Failed to generate DataWrapper chart for expanded time_series_id {chart_id}: {str(e)}")
+            
+            if dw_chart_url:
+                email_html = f'''
+{dw_chart_url}<br><br>
+'''
+            else:
+                # Fallback - no DataWrapper URL available
+                email_html = f'''
 <div class="chart-container" style="margin: 20px 0; padding: 15px; background-color: #fff3cd; border: 1px solid #ffeaa7; border-radius: 8px;">
     <h4 style="margin: 0 0 10px 0; color: #856404;">Time Series Chart - ID {chart_id}</h4>
     <p style="margin: 0; color: #856404; font-size: 14px;">DataWrapper version not available for this chart type.</p>

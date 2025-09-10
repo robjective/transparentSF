@@ -20,51 +20,46 @@ router = APIRouter()
 async def get_enhanced_queries_db():
     """Serve enhanced dashboard queries built entirely from database."""
     try:
-        from tools.db_utils import get_postgres_connection
+        from tools.db_utils import get_pooled_connection
         
-        connection = get_postgres_connection()
-        if not connection:
-            raise HTTPException(status_code=500, detail="Database connection failed")
-        
-        cursor = connection.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        
-        # Query all active metrics from the database
-        cursor.execute("""
-            SELECT 
-                m.id,
-                m.metric_name,
-                m.metric_key,
-                m.category,
-                m.subcategory,
-                m.endpoint,
-                m.summary,
-                m.definition,
-                m.data_sf_url,
-                m.ytd_query,
-                m.metric_query,
-                m.dataset_title,
-                m.dataset_category,
-                m.show_on_dash,
-                m.item_noun,
-                m.greendirection,
-                m.location_fields,
-                m.category_fields,
-                m.metadata,
-                m.is_active,
-                m.display_order,
-                m.most_recent_data_date,
-                d.title as dataset_title_from_datasets,
-                d.category as dataset_category_from_datasets,
-                d.columns as dataset_columns
-            FROM metrics m
-            LEFT JOIN datasets d ON m.endpoint = d.endpoint AND d.is_active = true
-            WHERE m.is_active = true
-            ORDER BY m.display_order NULLS LAST, m.id
-        """)
-        
-        metrics_rows = cursor.fetchall()
-        cursor.close()
-        connection.close()
+        with get_pooled_connection() as connection:
+            cursor = connection.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            
+            # Query all active metrics from the database
+            cursor.execute("""
+                SELECT 
+                    m.id,
+                    m.metric_name,
+                    m.metric_key,
+                    m.category,
+                    m.subcategory,
+                    m.endpoint,
+                    m.summary,
+                    m.definition,
+                    m.data_sf_url,
+                    m.ytd_query,
+                    m.metric_query,
+                    m.dataset_title,
+                    m.dataset_category,
+                    m.show_on_dash,
+                    m.item_noun,
+                    m.greendirection,
+                    m.location_fields,
+                    m.category_fields,
+                    m.metadata,
+                    m.is_active,
+                    m.display_order,
+                    m.most_recent_data_date,
+                    d.title as dataset_title_from_datasets,
+                    d.category as dataset_category_from_datasets,
+                    d.columns as dataset_columns
+                FROM metrics m
+                LEFT JOIN datasets d ON m.endpoint = d.endpoint AND d.is_active = true
+                WHERE m.is_active = true
+                ORDER BY m.display_order NULLS LAST, m.id
+            """)
+            
+            metrics_rows = cursor.fetchall()
         
         # Build the enhanced queries structure
         enhanced_queries = {}
