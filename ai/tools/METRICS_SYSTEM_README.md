@@ -12,6 +12,35 @@ The metrics system consists of several components:
 4. **Agent Interface**: `explainer_metrics_tools.py` - simplified interface for the explainer agent
 5. **Database Schema**: Updated `init_postgres_db.py` with metrics table
 
+### District-Level Data Requirements
+
+When creating metrics that should have district-level data (broken down by supervisor district), you MUST include `supervisor_district` in both the `metric_query` and `ytd_query`:
+
+1. **For metric_query**: Add `, supervisor_district` to the SELECT clause and `GROUP BY supervisor_district` at the end
+2. **For ytd_query**: Add `, supervisor_district` to the SELECT clause and `, supervisor_district` to the GROUP BY clause
+
+**CRITICAL**: If you include `supervisor_district` in `location_fields` but don't include it in the queries, the metric will only generate citywide data (district 0) instead of district-level data for all 12 districts.
+
+**Example of CORRECT district-level queries:**
+```sql
+-- metric_query
+SELECT 'Metric Name' as label, COUNT(*) as this_year, supervisor_district GROUP BY supervisor_district
+
+-- ytd_query  
+SELECT date_trunc_ymd(date_field) as date, COUNT(*) as value, supervisor_district WHERE date_field >= last_year_start GROUP BY date, supervisor_district ORDER BY date
+```
+
+**Example of INCORRECT queries (will only generate citywide data):**
+```sql
+-- metric_query ❌ Missing supervisor_district
+SELECT 'Metric Name' as label, COUNT(*) as this_year GROUP BY label
+
+-- ytd_query ❌ Missing supervisor_district
+SELECT date_trunc_ymd(date_field) as date, COUNT(*) as value WHERE date_field >= last_year_start GROUP BY date ORDER BY date
+```
+
+The system checks for `'supervisor_district'` in the query results to determine if district-level data is available. Without it in the queries, the system will log "Query has district data: False" and only create citywide metrics.
+
 ## Database Schema
 
 The `metrics` table contains the following fields:

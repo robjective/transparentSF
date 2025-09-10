@@ -53,7 +53,7 @@ The improved chart expansion system provides a cleaner, more maintainable approa
 
 ### Map Charts
 - **Pattern**: `[CHART:map:map_id]`
-- **TransparentSF**: `/backend/map-chart?map_id=X`
+- **TransparentSF**: `/backend/map-chart?id=X`
 - **DataWrapper**: Retrieved via `get_existing_map_url()` or created via `create_datawrapper_map()`
 
 ## Implementation Details

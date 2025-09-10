@@ -959,8 +959,7 @@
                         Re-write newsletter
                     </button>
                     <button id="rerun-proofreading" class="action-btn">Re-run Proofreading</button>
-                    <button id="rerun-postproofing" class="action-btn">Re-run Email</button>
-                    <button id="rerun-final-version" class="action-btn">Re-run Final Version</button>
+                    <button id="convert-charts-finalize" class="action-btn primary-btn">Convert Charts and Finalize</button>
                     <button id="generate-narration" class="action-btn">Generate Narration</button>
                     <button id="delete-report-btn" class="action-btn delete-btn">Delete Report</button>
                 </div>
@@ -1086,7 +1085,10 @@
                 
                 const originalFilename = selectedOption.value;
                 const revisedFilename = selectedOption.dataset.revisedFilename;
-                const emailFilename = originalFilename ? originalFilename.replace('.html', '_email.html') : null;
+                // Email filename should be based on the revised filename (which is the input to the consolidated function)
+                const emailFilename = revisedFilename ? revisedFilename.replace('.html', '_email.html') : 
+                                     (originalFilename ? originalFilename.replace('.html', '_email.html') : null);
+                
                 
                 // Original link
                 const originalLink = document.getElementById('view-original-report');
@@ -1173,6 +1175,11 @@
                     if (originalFilename) {
                         const baseName = originalFilename.replace(/_(revised|for_proofreading|email|with_placeholders)\.html$/, '');
                         possibleEmailFilenames.push(`${baseName}_email.html`);
+                    }
+                    
+                    // Add the emailFilename we constructed in updateReportLinks (put it first so it's checked first)
+                    if (emailFilename) {
+                        possibleEmailFilenames.unshift(emailFilename);
                     }
                     
                     // Check each possible filename to see if it exists
@@ -1577,22 +1584,57 @@
                 // Check which files exist
                 const filesToCheck = [
                     { suffix: '_revised.html', buttonId: 'rerun-proofreading', buttonText: 'Re-run Proofreading' },
-                    { suffix: '_email.html', buttonId: 'rerun-postproofing', buttonText: 'Re-run Email' },
-                    { suffix: '_final.html', buttonId: 'rerun-final-version', buttonText: 'Re-run Final Version' }
+                    { suffix: '_email.html', buttonId: 'convert-charts-finalize', buttonText: 'Convert Charts and Finalize', checkBoth: true },
+                    { suffix: '_final.html', buttonId: 'convert-charts-finalize', buttonText: 'Convert Charts and Finalize', checkBoth: true }
                 ];
                 
                 // Check each file and update button state
+                const buttonStates = {};
                 for (const fileInfo of filesToCheck) {
                     const filename = baseName + fileInfo.suffix;
                     const exists = await checkFileExists(filename);
-                    const button = document.getElementById(fileInfo.buttonId);
                     
+                    if (fileInfo.checkBoth) {
+                        // For the consolidated button, track both email and final file states
+                        if (!buttonStates[fileInfo.buttonId]) {
+                            buttonStates[fileInfo.buttonId] = { email: false, final: false };
+                        }
+                        if (fileInfo.suffix === '_email.html') {
+                            buttonStates[fileInfo.buttonId].email = exists;
+                        } else if (fileInfo.suffix === '_final.html') {
+                            buttonStates[fileInfo.buttonId].final = exists;
+                        }
+                    } else {
+                        // For regular buttons
+                        const button = document.getElementById(fileInfo.buttonId);
+                        if (button) {
+                            if (exists) {
+                                button.classList.remove('available');
+                                button.classList.add('completed');
+                                button.disabled = false; // Keep buttons clickable even when completed
+                            } else {
+                                button.classList.remove('completed');
+                                button.classList.add('available');
+                                button.disabled = false;
+                            }
+                        }
+                    }
+                }
+                
+                // Update consolidated button state
+                for (const [buttonId, state] of Object.entries(buttonStates)) {
+                    const button = document.getElementById(buttonId);
                     if (button) {
-                        if (exists) {
+                        if (state.email && state.final) {
                             button.classList.remove('available');
                             button.classList.add('completed');
-                            button.disabled = false; // Keep buttons clickable even when completed
+                            button.disabled = false;
+                        } else if (state.email || state.final) {
+                            button.classList.remove('completed');
+                            button.classList.add('available');
+                            button.disabled = false;
                         } else {
+                            // Button is available even if no outputs exist yet
                             button.classList.remove('completed');
                             button.classList.add('available');
                             button.disabled = false;
@@ -2135,7 +2177,7 @@
                             <a href="#" id="view-original-report" target="_blank" style="text-decoration: none; color: #ad35fa;">View Original</a>
                             <a href="#" id="view-revised-report" target="_blank" style="text-decoration: none; color: #ad35fa;">View Revised</a>
                             <a href="#" id="view-final-report" target="_blank" style="text-decoration: none; color: #ad35fa;">View Final (with Charts)</a>
-                            <a href="#" id="view-email-report" target="_blank" style="text-decoration: none; color: #ad35fa;">View Email Version</a>
+                            <a href="#" id="view-email-report" target="_blank" style="text-decoration: none; color: #ad35fa;">Email Version</a>
                             <div id="audio-player-container" style="display: none; align-items: center; gap: 10px;">
                                 <span style="color: #ad35fa; font-size: 14px;">🎧 Audio:</span>
                                 <audio id="audio-player" controls style="height: 32px;">
@@ -2825,7 +2867,9 @@
                 const selectedOption = reportSelect.options[reportSelect.selectedIndex];
                 const revisedFilename = selectedOption.dataset.revisedFilename;
                 const originalFilename = selectedOption.value;
-                const emailFilename = originalFilename ? originalFilename.replace('.html', '_email.html') : null;
+                // Email filename should be based on the revised filename (which is the input to the consolidated function)
+                const emailFilename = revisedFilename ? revisedFilename.replace('.html', '_email.html') : 
+                                     (originalFilename ? originalFilename.replace('.html', '_email.html') : null);
 
                 // Remove the report-content-sections div completely
 
@@ -2884,85 +2928,51 @@
                 });
             }
 
-            // Add click handler for re-running post-proofing steps
-            const rerunPostProofingBtn = document.getElementById('rerun-postproofing');
-            if (rerunPostProofingBtn) {
-                rerunPostProofingBtn.onclick = async (e) => {
+            // Add click handler for consolidated chart conversion and finalization
+            const convertChartsFinalizeBtn = document.getElementById('convert-charts-finalize');
+            if (convertChartsFinalizeBtn) {
+                convertChartsFinalizeBtn.onclick = async (e) => {
                     e.preventDefault();
                     const selectedOption = reportSelect.options[reportSelect.selectedIndex];
                     if (!selectedOption || !selectedOption.value) {
-                        alert('Please select a newsletter to re-run email version.');
+                        alert('Please select a newsletter to convert charts and finalize.');
                         return;
                     }
-                    const filename = selectedOption.value;
+                    
+                    // Get the revised filename if available, otherwise use original
+                    const revisedFilename = selectedOption.dataset.revisedFilename;
+                    const originalFilename = selectedOption.value;
+                    const filename = revisedFilename || originalFilename;
+                    
                     // Use the output/reports directory path
                     const report_path = `output/reports/${filename}`;
-                    rerunPostProofingBtn.disabled = true;
-                    const originalText = rerunPostProofingBtn.textContent;
-                    rerunPostProofingBtn.innerHTML = '<div style="display: flex; align-items: center; justify-content: center;"><span class="loading"></span> Re-running...</div>';
+                    convertChartsFinalizeBtn.disabled = true;
+                    const originalText = convertChartsFinalizeBtn.textContent;
+                    convertChartsFinalizeBtn.innerHTML = '<div style="display: flex; align-items: center; justify-content: center;"><span class="loading"></span> Converting Charts & Finalizing...</div>';
+                    
                     try {
-                        // Call backend endpoint to re-run chart expansion and email version
-                        const response = await fetch('/backend/rerun_email_version', {
+                        // Call backend endpoint to convert charts and create both outputs
+                        const response = await fetch('/backend/convert_charts_and_finalize', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({ report_path: report_path })
                         });
                         const data = await response.json();
                         if (data.status === 'success') {
-                            alert('Email-compatible version re-generated successfully!');
+                            const chartsProcessed = data.charts_processed || 0;
+                            const chartsConverted = data.charts_converted || 0;
+                            alert(`Charts converted and outputs finalized successfully!\n\nCharts processed: ${chartsProcessed}\nCharts converted to Datawrapper: ${chartsConverted}\n\nEmail version: ${data.email_path}\nWeb version: ${data.web_path}`);
                             loadReports(true);
                             // Update button states after completion
                             setTimeout(() => updateButtonStates(selectedReport), 1000);
                         } else {
-                            throw new Error(data.message || 'Failed to re-run email version');
+                            throw new Error(data.message || 'Failed to convert charts and finalize');
                         }
                     } catch (error) {
                         alert('Error: ' + error.message);
                     } finally {
-                        rerunPostProofingBtn.disabled = false;
-                        rerunPostProofingBtn.textContent = originalText;
-                    }
-                };
-            }
-            
-            // Add click handler for re-running final version
-            const rerunFinalVersionBtn = document.getElementById('rerun-final-version');
-            if (rerunFinalVersionBtn) {
-                rerunFinalVersionBtn.onclick = async (e) => {
-                    e.preventDefault();
-                    const selectedOption = reportSelect.options[reportSelect.selectedIndex];
-                    if (!selectedOption || !selectedOption.value) {
-                        alert('Please select a newsletter to re-run final version.');
-                        return;
-                    }
-                    const filename = selectedOption.value;
-                    // Use the output/reports directory path
-                    const report_path = `output/reports/${filename}`;
-                    rerunFinalVersionBtn.disabled = true;
-                    const originalText = rerunFinalVersionBtn.textContent;
-                    rerunFinalVersionBtn.innerHTML = '<div style="display: flex; align-items: center; justify-content: center;"><span class="loading"></span> Re-running...</div>';
-                    try {
-                        // Call backend endpoint to re-run final version generation
-                        const response = await fetch('/backend/rerun_final_version', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ report_path })
-                        });
-                        const data = await response.json();
-                        if (data.status === 'success') {
-                            alert('Final version regenerated successfully!');
-                            // Refresh the report list to show updated files
-                            loadReports(true);
-                            // Update button states after completion
-                            setTimeout(() => updateButtonStates(selectedReport), 1000);
-                        } else {
-                            throw new Error(data.message || 'Failed to re-run final version');
-                        }
-                    } catch (error) {
-                        alert('Error: ' + error.message);
-                    } finally {
-                        rerunFinalVersionBtn.disabled = false;
-                        rerunFinalVersionBtn.textContent = originalText;
+                        convertChartsFinalizeBtn.disabled = false;
+                        convertChartsFinalizeBtn.textContent = originalText;
                     }
                 };
             }
@@ -3224,32 +3234,28 @@
                 }
             }
 
-            // Wrapper function for post-proofing (email version)
-            async function rerunPostProofing(filename) {
-                const report_path = `output/reports/${filename}`;
-                const response = await fetch('/backend/rerun_email_version', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ report_path: report_path })
-                });
-                const data = await response.json();
-                if (data.status !== 'success') {
-                    throw new Error(data.message || 'Failed to re-run email version');
-                }
-                return data;
-            }
 
-            // Wrapper function for final version
-            async function rerunFinalVersion(filename) {
-                const report_path = `output/reports/${filename}`;
-                const response = await fetch('/backend/rerun_final_version', {
+            // Wrapper function for consolidated chart conversion and finalization
+            async function convertChartsAndFinalize(filename) {
+                // For complete regeneration, we need to find the revised filename if it exists
+                const baseName = filename.replace(/\.html$/, '');
+                const revisedFilename = baseName + '_revised.html';
+                
+                // Check if revised file exists, otherwise use original
+                let report_path = `output/reports/${revisedFilename}`;
+                const revisedExists = await checkFileExists(revisedFilename);
+                if (!revisedExists) {
+                    report_path = `output/reports/${filename}`;
+                }
+                
+                const response = await fetch('/backend/convert_charts_and_finalize', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ report_path })
                 });
                 const data = await response.json();
                 if (data.status !== 'success') {
-                    throw new Error(data.message || 'Failed to re-run final version');
+                    throw new Error(data.message || 'Failed to convert charts and finalize');
                 }
                 return data;
             }
@@ -3261,7 +3267,7 @@
                     return;
                 }
 
-                if (!confirm('Are you sure you want to regenerate the complete newsletter? This will run all steps: Re-explain deltas, Re-write newsletter, Re-run proofreading, Re-run email, and Re-run final version. This may take several minutes.')) {
+                if (!confirm('Are you sure you want to regenerate the complete newsletter? This will run all steps: Re-explain deltas, Re-write newsletter, Re-run proofreading, and Convert charts and finalize. This may take several minutes.')) {
                     return;
                 }
 
@@ -3273,8 +3279,7 @@
                     { name: 'Re-explain deltas', func: () => reexplainDeltas(filename) },
                     { name: 'Re-write newsletter', func: () => rerunReportGeneration(filename) },
                     { name: 'Re-run proofreading', func: () => rerunProofreading(filename) },
-                    { name: 'Re-run email', func: () => rerunPostProofing(filename) },
-                    { name: 'Re-run final version', func: () => rerunFinalVersion(filename) }
+                    { name: 'Convert charts and finalize', func: () => convertChartsAndFinalize(filename) }
                 ];
 
                 try {

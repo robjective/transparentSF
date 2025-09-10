@@ -28,7 +28,7 @@ import re
 # Import tools
 from tools.data_fetcher import set_dataset
 from tools.vector_query import query_docs
-from tools.db_utils import get_postgres_connection, execute_with_connection, get_pooled_connection
+from tools.db_utils import get_postgres_connection, execute_with_connection
 from tools.anomaly_detection import anomaly_detection
 from tools.generateAnomalyCharts import generate_anomalies_summary_with_charts
 from tools.genChart import generate_time_series_chart
@@ -535,22 +535,27 @@ def get_dataset_columns(context_variables, endpoint=None):
         try:
             import psycopg2.extras
             
-            with get_pooled_connection() as connection:
-                cursor = connection.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-                
-                # Query the datasets table
-                cursor.execute("""
-                    SELECT endpoint, title, columns
-                    FROM datasets 
-                    WHERE endpoint = %s AND is_active = true
-                """, (endpoint,))
-                
-                dataset_row = cursor.fetchone()
-                
-                if not dataset_row:
-                    return {"error": f"No dataset found in database for endpoint: {endpoint}"}
-                
-                metadata = dataset_row['columns'] or []
+            connection = get_postgres_connection()
+            if not connection:
+                return {"error": "Failed to connect to database"}
+            
+            cursor = connection.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            
+            # Query the datasets table
+            cursor.execute("""
+                SELECT endpoint, title, columns
+                FROM datasets 
+                WHERE endpoint = %s AND is_active = true
+            """, (endpoint,))
+            
+            dataset_row = cursor.fetchone()
+            cursor.close()
+            connection.close()
+            
+            if not dataset_row:
+                return {"error": f"No dataset found in database for endpoint: {endpoint}"}
+            
+            metadata = dataset_row['columns'] or []
         except Exception as e:
             logger.error(f"Error getting dataset metadata from database: {str(e)}")
             return {"error": f"Failed to get dataset metadata from database: {str(e)}"}
@@ -1116,10 +1121,11 @@ async def get_top_metric_changes(
             # For annual, report date is previous year
             report_date = date(today.year - 1, 1, 1)
             
-        # Use connection pool for better performance
-        with get_pooled_connection() as conn:
-            # Create cursor with dictionary-like results
-            cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        # Connect to PostgreSQL
+        conn = get_postgres_connection()
+        
+        # Create cursor with dictionary-like results
+        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         
         # For weekly data, calculate the report date based on available data
         if period_type == 'week' and report_date is None:
@@ -1613,6 +1619,8 @@ async def get_top_metric_changes(
             if result.get('stale_data_warning'):
                 stale_data_count += 1
         
+        cursor.close()
+        conn.close()
         
         return JSONResponse(
             content={
@@ -2015,12 +2023,33 @@ async def query_anomalies_endpoint(
             logging.info(f"Custom SQL filter for object_id: {custom_query}")
             
             # Use a modified approach to directly filter by object_id in SQL
-            # Use connection pool for better performance
+            # Connect to database
+            from tools.store_anomalies import get_postgres_connection
             from psycopg2.extras import RealDictCursor
             
-            with get_pooled_connection() as connection:
-                # Create cursor
-                cursor = connection.cursor(cursor_factory=RealDictCursor)
+            # Get database connection parameters from environment
+            db_host = os.getenv("POSTGRES_HOST", "localhost")
+            db_port = os.getenv("POSTGRES_PORT", "5432")
+            db_user = os.getenv("POSTGRES_USER", "postgres")
+            db_password = os.getenv("POSTGRES_PASSWORD", "postgres")
+            db_name = os.getenv("POSTGRES_DB", "transparentsf")
+            
+            connection = get_postgres_connection(
+                host=db_host,
+                port=int(db_port),
+                dbname=db_name,
+                user=db_user,
+                password=db_password
+            )
+            
+            if connection is None:
+                return {
+                    "status": "error",
+                    "message": "Failed to connect to database"
+                }
+            
+            # Create cursor
+            cursor = connection.cursor(cursor_factory=RealDictCursor)
             
             # Build query with standard filters and join with metrics table to get greendirection
             query = """
@@ -2104,6 +2133,8 @@ async def query_anomalies_endpoint(
                     row_dict['created_at'] = row_dict['created_at'].isoformat()
                 result_list.append(row_dict)
             
+            cursor.close()
+            connection.close()
             
             anomalies_result = {
                 "status": "success",
@@ -2993,19 +3024,22 @@ async def generate_map_endpoint(request: Request):
         def get_executed_query_url_from_metadata(metric_id, period_type, district):
             """Get executed_query_url from time_series_metadata table"""
             try:
-                with get_pooled_connection() as connection:
-                    cursor = connection.cursor()
-                    
-                    # Query time_series_metadata for the specific metric, period_type, and district
-                    query = """
-                        SELECT executed_query_url, metadata, group_field, district
-                        FROM time_series_metadata 
-                        WHERE object_id = %s AND period_type = %s AND district = %s
-                        ORDER BY created_at DESC
-                        LIMIT 1
-                    """
-                    cursor.execute(query, (str(metric_id), period_type, district))
-                    result = cursor.fetchone()
+                connection = get_postgres_connection()
+                cursor = connection.cursor()
+                
+                # Query time_series_metadata for the specific metric, period_type, and district
+                query = """
+                    SELECT executed_query_url, metadata, group_field, district
+                    FROM time_series_metadata 
+                    WHERE object_id = %s AND period_type = %s AND district = %s
+                    ORDER BY created_at DESC
+                    LIMIT 1
+                """
+                cursor.execute(query, (str(metric_id), period_type, district))
+                result = cursor.fetchone()
+                
+                cursor.close()
+                connection.close()
                 
                 if result:
                     executed_query_url = result[0]

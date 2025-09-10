@@ -124,7 +124,7 @@ logging.basicConfig = no_op_basic_config
 # Import database utilities
 try:
     # First try to import from the ai package
-    from ai.tools.db_utils import get_postgres_connection, execute_with_connection, CustomJSONEncoder
+    from ai.tools.db_utils import get_postgres_connection, execute_with_connection, CustomJSONEncoder, get_pooled_connection
     logger.warning("Successfully imported from ai.tools.db_utils")
     # OLD IMPORT REMOVED - create_datawrapper_chart function has been removed
     logger.warning("Successfully imported from ai.tools.genChartdw")
@@ -132,7 +132,7 @@ try:
 except ImportError:
     try:
         # If that fails, try to import from the local directory
-        from tools.db_utils import get_postgres_connection, execute_with_connection, CustomJSONEncoder
+        from tools.db_utils import get_postgres_connection, execute_with_connection, CustomJSONEncoder, get_pooled_connection
         logger.warning("Successfully imported from tools.db_utils")
         # OLD IMPORT REMOVED - create_datawrapper_chart function has been removed
         logger.warning("Successfully imported from tools.genChartdw")

@@ -26,32 +26,36 @@ def get_existing_time_series_dw_url(metric_id, district, period_type):
         The DataWrapper URL if found, or None if not found
     """
     try:
-        from tools.db_utils import get_postgres_connection
+        from tools.db_utils import execute_with_connection
         
-        conn = get_postgres_connection()
-        cursor = conn.cursor()
+        def get_dw_url_operation(conn):
+            cursor = conn.cursor()
+            
+            # Query for time series metadata with DataWrapper URL
+            params = (metric_id, int(district), period_type, '%dw_url%')
+            cursor.execute("""
+                SELECT metadata 
+                FROM time_series_metadata 
+                WHERE object_id = %s AND district = %s AND period_type = %s
+                AND metadata::text LIKE %s
+                LIMIT 1
+            """, params)
+            
+            result = cursor.fetchone()
+            cursor.close()
+            return result
         
-        # Query for time series metadata with DataWrapper URL
-        params = (metric_id, int(district), period_type, '%dw_url%')
-        cursor.execute("""
-            SELECT metadata 
-            FROM time_series_metadata 
-            WHERE object_id = %s AND district = %s AND period_type = %s
-            AND metadata::text LIKE %s
-            LIMIT 1
-        """, params)
+        db_result = execute_with_connection(get_dw_url_operation)
         
-        result = cursor.fetchone()
-        cursor.close()
-        conn.close()
-        
-        if result and result[0]:
-            metadata = result[0]
-            if isinstance(metadata, dict) and 'dw_url' in metadata:
-                dw_url = metadata['dw_url']
-                if dw_url and 'datawrapper' in dw_url:
-                    logger.info(f"Found existing DataWrapper URL for time series {metric_id}: {dw_url}")
-                    return dw_url
+        if db_result["status"] == "success" and db_result["result"]:
+            result = db_result["result"]
+            if result and result[0]:
+                metadata = result[0]
+                if isinstance(metadata, dict) and 'dw_url' in metadata:
+                    dw_url = metadata['dw_url']
+                    if dw_url and 'datawrapper' in dw_url:
+                        logger.info(f"Found existing DataWrapper URL for time series {metric_id}: {dw_url}")
+                        return dw_url
         
         logger.info(f"No existing DataWrapper URL found for time series {metric_id}")
         return None
@@ -71,37 +75,89 @@ def get_existing_anomaly_dw_url(anomaly_id):
         The DataWrapper URL if found, or None if not found
     """
     try:
-        from tools.db_utils import get_postgres_connection
+        from tools.db_utils import execute_with_connection
         
-        conn = get_postgres_connection()
-        cursor = conn.cursor()
+        def get_anomaly_dw_url_operation(conn):
+            cursor = conn.cursor()
+            
+            # Query for anomaly metadata with DataWrapper URL
+            cursor.execute("""
+                SELECT metadata 
+                FROM anomalies 
+                WHERE id = %s
+                AND metadata::text LIKE %s
+                LIMIT 1
+            """, (anomaly_id, '%dw_url%'))
+            
+            result = cursor.fetchone()
+            cursor.close()
+            return result
         
-        # Query for anomaly metadata with DataWrapper URL
-        cursor.execute("""
-            SELECT metadata 
-            FROM anomalies 
-            WHERE id = %s
-            AND metadata::text LIKE %s
-            LIMIT 1
-        """, (anomaly_id, '%dw_url%'))
+        db_result = execute_with_connection(get_anomaly_dw_url_operation)
         
-        result = cursor.fetchone()
-        cursor.close()
-        conn.close()
-        
-        if result and result[0]:
-            metadata = result[0]
-            if isinstance(metadata, dict) and 'dw_url' in metadata:
-                dw_url = metadata['dw_url']
-                if dw_url and 'datawrapper' in dw_url:
-                    logger.info(f"Found existing DataWrapper URL for anomaly {anomaly_id}: {dw_url}")
-                    return dw_url
+        if db_result["status"] == "success" and db_result["result"]:
+            result = db_result["result"]
+            if result and result[0]:
+                metadata = result[0]
+                if isinstance(metadata, dict) and 'dw_url' in metadata:
+                    dw_url = metadata['dw_url']
+                    if dw_url and 'datawrapper' in dw_url:
+                        logger.info(f"Found existing DataWrapper URL for anomaly {anomaly_id}: {dw_url}")
+                        return dw_url
         
         logger.info(f"No existing DataWrapper URL found for anomaly {anomaly_id}")
         return None
         
     except Exception as e:
         logger.warning(f"Error checking for existing anomaly DataWrapper URL: {e}")
+        return None
+
+def get_existing_time_series_id_dw_url(chart_id):
+    """
+    Get the existing DataWrapper URL for a time series ID chart from the database.
+    
+    Args:
+        chart_id: The chart ID
+        
+    Returns:
+        The DataWrapper URL if found, or None if not found
+    """
+    try:
+        from tools.db_utils import execute_with_connection
+        
+        def get_time_series_id_dw_url_operation(conn):
+            cursor = conn.cursor()
+            
+            # Query for time series metadata with DataWrapper URL using chart_id
+            cursor.execute("""
+                SELECT metadata 
+                FROM time_series_metadata 
+                WHERE chart_id = %s
+                AND metadata::text LIKE %s
+                LIMIT 1
+            """, (chart_id, '%dw_url%'))
+            
+            result = cursor.fetchone()
+            cursor.close()
+            return result
+        
+        db_result = execute_with_connection(get_time_series_id_dw_url_operation)
+        
+        if db_result["status"] == "success" and db_result["result"]:
+            result = db_result["result"]
+            if result and result[0]:
+                metadata = result[0]
+                if isinstance(metadata, dict) and 'dw_url' in metadata:
+                    dw_url = metadata['dw_url']
+                    if dw_url and 'datawrapper' in dw_url:
+                        logger.info(f"Found existing DataWrapper URL for time series ID {chart_id}: {dw_url}")
+                        return dw_url
+        
+        logger.info(f"No existing DataWrapper URL found for time series ID {chart_id}")
+        return None
+        
+    except Exception as e:
+        logger.warning(f"Error checking for existing time series ID DataWrapper URL: {e}")
         return None
 
 def expand_chart_references_local(report_path):
@@ -174,7 +230,7 @@ def expand_chart_references_local(report_path):
             
             iframe_html = (
                 f'<div class="chart-container">\n'
-                f'    <iframe src="/backend/map-chart?map_id={map_id}"\n'
+                f'    <iframe src="/backend/map-chart?id={map_id}"\n'
                 f'            style="width: 100%; height: 600px; border: none;" \n'
                 f'            frameborder="0" \n'
                 f'            scrolling="yes"\n'
@@ -820,7 +876,7 @@ def expand_chart_references_with_tabs(report_path):
         </div>
         <div class="chart-tab-content">
             <div id="{chart_id}_local" class="chart-tab-panel active">
-                <iframe src="/backend/map-chart?map_id={map_id}"
+                <iframe src="/backend/map-chart?id={map_id}"
                         style="width: 600px; height: 400px; border: none; margin: 0 auto;" 
                         frameborder="0" 
                         scrolling="no"
@@ -1112,7 +1168,7 @@ def expand_chart_references_with_auto_dw_generation(report_path):
         </div>
         <div class="chart-tab-content">
             <div id="{chart_id}_local" class="chart-tab-panel active">
-                <iframe src="/backend/map-chart?map_id={map_id}"
+                <iframe src="/backend/map-chart?id={map_id}"
                         style="width: 600px; height: 400px; border: none; margin: 0 auto;" 
                         frameborder="0" 
                         scrolling="no"
@@ -1751,6 +1807,83 @@ def keep_placeholders_for_proofreading(report_path):
         logger.error(f"Error preparing placeholders for proofreading: {str(e)}")
         return report_path
 
+def is_supervisor_district_map(map_id):
+    """
+    Check if a map is a supervisor district chart by querying the database.
+    
+    Args:
+        map_id: The map ID to check
+        
+    Returns:
+        True if it's a supervisor district map, False otherwise
+    """
+    try:
+        from tools.db_utils import execute_with_connection
+        import psycopg2.extras
+        
+        def check_map_operation(conn):
+            cursor = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+            
+            # Query to check if this is a supervisor district map
+            cursor.execute("""
+                SELECT type, metadata 
+                FROM maps 
+                WHERE id = %s AND active = TRUE
+            """, (map_id,))
+            
+            result = cursor.fetchone()
+            cursor.close()
+            return result
+        
+        db_result = execute_with_connection(check_map_operation)
+        
+        if db_result["status"] == "success" and db_result["result"]:
+            result = db_result["result"]
+            map_type = result.get('type', '')
+            metadata = result.get('metadata', {})
+            
+            # Check if it's explicitly a supervisor district map
+            if map_type == 'supervisor_district':
+                return True
+            
+            # Check metadata for supervisor district indicators
+            if isinstance(metadata, dict):
+                if metadata.get('map_type') == 'supervisor_district':
+                    return True
+                if 'supervisor_district' in str(metadata).lower():
+                    return True
+        
+        return False
+        
+    except Exception as e:
+        logger.warning(f"Error checking if map {map_id} is supervisor district: {e}")
+        return False
+
+def test_transparent_sf_map_endpoint(map_id):
+    """
+    Test if the TransparentSF map endpoint works for a given map ID.
+    
+    Args:
+        map_id: The map ID to test
+        
+    Returns:
+        True if the endpoint works, False otherwise
+    """
+    try:
+        import requests
+        import os
+        
+        api_base_url = os.getenv("API_BASE_URL", "http://localhost:8000")
+        test_url = f"{api_base_url}/backend/map-chart?id={map_id}"
+        
+        # Make a HEAD request to test if the endpoint responds
+        response = requests.head(test_url, timeout=5)
+        return response.status_code == 200
+        
+    except Exception as e:
+        logger.warning(f"Error testing TransparentSF map endpoint for {map_id}: {e}")
+        return False
+
 def expand_charts_with_tabs_final(report_path):
     """
     Expand chart placeholders to tabbed interface with both TransparentSF and DataWrapper charts.
@@ -1917,6 +2050,10 @@ def expand_charts_with_tabs_final(report_path):
             map_id = match.group(1)
             chart_id = f"map_{map_id}"
             
+            # Check if this is a supervisor district map
+            is_supervisor_district = is_supervisor_district_map(map_id)
+            logger.info(f"Map {map_id} - is_supervisor_district: {is_supervisor_district}")
+            
             # Try to get DataWrapper map
             dw_url = get_existing_map_url(map_id)
             if not dw_url:
@@ -1925,6 +2062,16 @@ def expand_charts_with_tabs_final(report_path):
                     dw_url = create_datawrapper_map(map_id)
                 except Exception as e:
                     logger.warning(f"Failed to create DataWrapper map for {map_id}: {e}")
+            
+            # For supervisor district maps, check if TransparentSF implementation works
+            use_transparent_sf = True
+            if is_supervisor_district:
+                transparent_sf_works = test_transparent_sf_map_endpoint(map_id)
+                logger.info(f"Map {map_id} - transparent_sf_works: {transparent_sf_works}")
+                
+                if not transparent_sf_works:
+                    logger.info(f"Supervisor district map {map_id} - TransparentSF implementation not available, using DataWrapper only")
+                    use_transparent_sf = False
             
             # Build the DataWrapper tab HTML if URL exists
             dw_tab_html = ""
@@ -1946,7 +2093,34 @@ def expand_charts_with_tabs_final(report_path):
             if dw_url:
                 dw_button_html = f'<button class="chart-tab-btn" onclick="switchChartTab(\'{chart_id}\', \'dw\')">DataWrapper</button>'
             
-            tabs_html = f'''
+            # If this is a supervisor district map without TransparentSF implementation, use DataWrapper only
+            if is_supervisor_district and not use_transparent_sf:
+                if dw_url:
+                    # Use DataWrapper as the primary (and only) option
+                    tabs_html = f'''
+<div class="chart-container" style="display: flex; justify-content: center; margin: 20px 0;">
+    <div class="chart-tabs-container" id="{chart_id}_container" style="max-width: 1000px; width: 100%;">
+        <div class="chart-tabs-header">
+            <button class="chart-tab-btn active" onclick="switchChartTab('{chart_id}', 'dw')">DataWrapper</button>
+        </div>
+        <div class="chart-tab-content">
+            {dw_tab_html}
+        </div>
+    </div>
+</div>
+'''
+                else:
+                    # Fallback if no DataWrapper URL available
+                    tabs_html = f'''
+<div class="chart-container" style="display: flex; justify-content: center; margin: 20px 0;">
+    <div style="padding: 20px; background-color: #f8f9fa; border: 1px solid #dee2e6; border-radius: 8px;">
+        <p style="margin: 0; color: #6c757d;">Supervisor district map {map_id} - DataWrapper version not available</p>
+    </div>
+</div>
+'''
+            else:
+                # Standard tabbed interface with both TransparentSF and DataWrapper
+                tabs_html = f'''
 <div class="chart-container" style="display: flex; justify-content: center; margin: 20px 0;">
     <div class="chart-tabs-container" id="{chart_id}_container" style="max-width: 1000px; width: 100%;">
         <div class="chart-tabs-header">

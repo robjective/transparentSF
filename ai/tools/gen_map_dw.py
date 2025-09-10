@@ -79,30 +79,9 @@ def _make_dw_request(method, endpoint, headers=None, data=None, json_payload=Non
     return None
 
 def get_db_connection():
-    """Get a connection to the PostgreSQL database."""
-    try:
-        # Get database connection parameters from environment variables
-        db_host = os.getenv("POSTGRES_HOST", "localhost")
-        db_port = os.getenv("POSTGRES_PORT", "5432")
-        db_name = os.getenv("POSTGRES_DB", "transparentsf")
-        db_user = os.getenv("POSTGRES_USER", "postgres")
-        db_password = os.getenv("POSTGRES_PASSWORD", "postgres")
-        
-        logger.info(f"Connecting to database: {db_host}:{db_port}/{db_name}")
-        
-        # Connect to PostgreSQL
-        conn = psycopg2.connect(
-            host=db_host,
-            port=db_port,
-            dbname=db_name,
-            user=db_user,
-            password=db_password
-        )
-        
-        return conn
-    except Exception as e:
-        logger.error(f"Database connection error: {str(e)}")
-        raise
+    """Get a connection to the PostgreSQL database using centralized db_utils."""
+    from ai.tools.db_utils import get_postgres_connection
+    return get_postgres_connection()
 
 def get_district_shapes(district_type="supervisor", district_ids=None):
     """

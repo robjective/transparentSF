@@ -134,8 +134,8 @@ def aggregate_data(
         resample_rule = {
             'day': 'D',
             'week': 'W',
-            'month': 'ME',  # Changed from 'M' to 'ME'
-            'quarter': 'Q',
+            'month': 'MS',  # Use Month-Start so monthly points land on 1st of month
+            'quarter': 'QS',  # Use Quarter-Start so quarterly points land on 1st of quarter
             'year': 'YS'  # Use Year-Start so annual points land on Jan 1
         }.get(aggregation_period.lower(), 'D')
 

@@ -49,7 +49,7 @@ def get_connection_pool() -> Engine:
             poolclass=QueuePool,
             pool_size=10,           # Number of connections to maintain in pool
             max_overflow=20,        # Additional connections that can be created
-            pool_pre_ping=True,     # Verify connections before use
+            pool_pre_ping=False,    # Disable pre-ping to avoid transaction conflicts
             pool_recycle=3600,      # Recycle connections after 1 hour
             pool_timeout=30,        # Timeout for getting connection from pool
             echo=False,             # Set to True for SQL debugging
@@ -84,15 +84,23 @@ def get_pooled_connection():
     try:
         # Get connection from pool
         connection = engine.raw_connection()
+        # Set autocommit to avoid transaction conflicts
+        connection.autocommit = True
         yield connection
     except Exception as e:
         if connection:
-            connection.rollback()
+            try:
+                connection.rollback()
+            except:
+                pass  # Ignore rollback errors in autocommit mode
         logging.error(f"Database connection error: {e}")
         raise
     finally:
         if connection:
-            connection.close()
+            try:
+                connection.close()
+            except:
+                pass  # Ignore close errors
 
 def execute_with_pool(operation, *args, **kwargs):
     """
@@ -207,14 +215,15 @@ def execute_with_connection(
 ) -> Dict[str, Any]:
     """
     Execute a database operation with proper connection handling and retry logic.
+    Now uses connection pool for better performance.
     
     Args:
         operation: Function that takes a connection and returns a result
-        db_host: Database host
-        db_port: Database port
-        db_name: Database name
-        db_user: Database user
-        db_password: Database password
+        db_host: Database host (ignored when using connection pool)
+        db_port: Database port (ignored when using connection pool)
+        db_name: Database name (ignored when using connection pool)
+        db_user: Database user (ignored when using connection pool)
+        db_password: Database password (ignored when using connection pool)
         max_retries: Maximum number of retry attempts for connection failures
         
     Returns:
@@ -222,43 +231,20 @@ def execute_with_connection(
     """
     import time
     
-    # Use environment variables if parameters are not provided
-    db_host = db_host or os.getenv("POSTGRES_HOST", "localhost")
-    db_port = db_port or int(os.getenv("POSTGRES_PORT", "5432"))
-    db_name = db_name or os.getenv("POSTGRES_DB", "transparentsf")
-    db_user = db_user or os.getenv("POSTGRES_USER", "postgres")
-    db_password = db_password or os.getenv("POSTGRES_PASSWORD", "postgres")
-    
     last_exception = None
     
     for attempt in range(max_retries):
-        connection = None
         try:
-            # Connect to database with retry logic
-            connection = get_postgres_connection(
-                host=db_host,
-                port=db_port,
-                dbname=db_name,
-                user=db_user,
-                password=db_password,
-                max_retries=1  # Don't retry within get_postgres_connection since we're retrying here
-            )
-            
-            if connection is None:
-                raise Exception("Failed to establish database connection")
-            
-            # Check if connection is still alive
-            if connection.closed != 0:
-                raise Exception("Database connection is closed")
-            
-            # Execute the operation
-            result = operation(connection)
-            
-            return {
-                "status": "success",
-                "message": "Operation completed successfully",
-                "result": result
-            }
+            # Use connection pool for better performance
+            with get_pooled_connection() as connection:
+                # Execute the operation
+                result = operation(connection)
+                
+                return {
+                    "status": "success",
+                    "message": "Operation completed successfully",
+                    "result": result
+                }
         
         except (psycopg2.OperationalError, psycopg2.InterfaceError) as e:
             last_exception = e
@@ -293,13 +279,6 @@ def execute_with_connection(
             import traceback
             logging.error(traceback.format_exc())
             break
-        
-        finally:
-            if connection:
-                try:
-                    connection.close()
-                except Exception as close_error:
-                    logging.warning(f"Error closing database connection: {close_error}")
     
     # If we get here, all retries failed
     error_message = str(last_exception) if last_exception else "Unknown database error"

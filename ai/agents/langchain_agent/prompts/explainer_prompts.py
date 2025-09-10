@@ -197,8 +197,6 @@ PREFERRED TOOL - generate_map_with_query: Query DataSF and create map in one ste
   - query: Complete SoQL query using standard SQL syntax (no FROM clause needed)
   - map_title: Descriptive title for the map
   - map_type: Type of Mapbox map to create:
-     * "supervisor_district" - District-level aggregation map (1-11)
-     * "police_district" - Police district aggregation map
      * "point" - Point locations with lat/long coordinates
      * "address" - Address-based locations (geocoded automatically)
      * "intersection" - Street intersection locations
@@ -627,7 +625,7 @@ When you are asked about metrics, you should follow this workflow:
     summary="Count of reported violent crime incidents, including assaults, homicides, rapes, robberies, human trafficking, weapons offenses, and offenses against family/children.",
     definition="Count of reported violent crime incidents. Violent crimes are defined as incidents categorized as: Assault, Homicide, Rape, Robbery, Human Trafficking (Commercial Sex Acts and Involuntary Servitude), Offences Against The Family And Children, and Weapons Offenses.",
     data_sf_url="https://data.sfgov.org/Public-Safety/Police-Department-Incident-Reports-2018-to-Present/wg3w-h783",
-    ytd_query="SELECT date_trunc_ymd(Report_Datetime) as date, COUNT(*) as value WHERE Report_Datetime >= last_year_start AND Report_Datetime <= current_date AND Incident_Category IN (''Assault'', ''Homicide'', ''Rape'', ''Robbery'', ''Human Trafficking (A), Commercial Sex Acts'', ''Human Trafficking, Commercial Sex Acts'', ''Human Trafficking (B), Involuntary Servitude'', ''Offences Against The Family And Children'', ''Weapons Carrying Etc'', ''Weapons Offense'', ''Weapons Offence'') GROUP BY date ORDER BY date",
+    ytd_query="SELECT date_trunc_ymd(Report_Datetime) as date, COUNT(*) as value, supervisor_district WHERE Report_Datetime >= last_year_start AND Report_Datetime <= current_date AND Incident_Category IN (''Assault'', ''Homicide'', ''Rape'', ''Robbery'', ''Human Trafficking (A), Commercial Sex Acts'', ''Human Trafficking, Commercial Sex Acts'', ''Human Trafficking (B), Involuntary Servitude'', ''Offences Against The Family And Children'', ''Weapons Carrying Etc'', ''Weapons Offense'', ''Weapons Offence'') GROUP BY date, supervisor_district ORDER BY date",
     metric_query="SELECT ''Violent Crime'' as label, max(Report_Datetime) as max_date, COUNT(CASE WHEN Report_Datetime >= this_year_start AND Report_Datetime <= this_year_end AND Incident_Category IN (''Assault'', ''Homicide'', ''Rape'', ''Robbery'', ''Human Trafficking (A), Commercial Sex Acts'', ''Human Trafficking, Commercial Sex Acts'', ''Human Trafficking (B), Involuntary Servitude'', ''Offences Against The Family And Children'', ''Weapons Carrying Etc'', ''Weapons Offense'', ''Weapons Offence'') THEN 1 END) as this_year, COUNT(CASE WHEN Report_Datetime >= last_year_start AND Report_Datetime <= last_year_end AND Incident_Category IN (''Assault'', ''Homicide'', ''Rape'', ''Robbery'', ''Human Trafficking (A), Commercial Sex Acts'', ''Human Trafficking, Commercial Sex Acts'', ''Human Trafficking (B), Involuntary Servitude'', ''Offences Against The Family And Children'', ''Weapons Carrying Etc'', ''Weapons Offense'', ''Weapons Offence'') THEN 1 END) as last_year, (COUNT(CASE WHEN Report_Datetime >= this_year_start AND Report_Datetime <= this_year_end AND Incident_Category IN (''Assault'', ''Homicide'', ''Rape'', ''Robbery'', ''Human Trafficking (A), Commercial Sex Acts'', ''Human Trafficking, Commercial Sex Acts'', ''Human Trafficking (B), Involuntary Servitude'', ''Offences Against The Family And Children'', ''Weapons Carrying Etc'', ''Weapons Offense'', ''Weapons Offence'') THEN 1 END) - COUNT(CASE WHEN Report_Datetime >= last_year_start AND Report_Datetime <= last_year_end AND Incident_Category IN (''Assault'', ''Homicide'', ''Rape'', ''Robbery'', ''Human Trafficking (A), Commercial Sex Acts'', ''Human Trafficking, Commercial Sex Acts'', ''Human Trafficking (B), Involuntary Servitude'', ''Offences Against The Family And Children'', ''Weapons Carrying Etc'', ''Weapons Offense'', ''Weapons Offence'') THEN 1 END)) as delta, ((COUNT(CASE WHEN Report_Datetime >= this_year_start AND Report_Datetime <= this_year_end AND Incident_Category IN (''Assault'', ''Homicide'', ''Rape'', ''Robbery'', ''Human Trafficking (A), Commercial Sex Acts'', ''Human Trafficking, Commercial Sex Acts'', ''Human Trafficking (B), Involuntary Servitude'', ''Offences Against The Family And Children'', ''Weapons Carrying Etc'', ''Weapons Offense'', ''Weapons Offence'') THEN 1 END) - COUNT(CASE WHEN Report_Datetime >= last_year_start AND Report_Datetime <= last_year_end AND Incident_Category IN (''Assault'', ''Homicide'', ''Rape'', ''Robbery'', ''Human Trafficking (A), Commercial Sex Acts'', ''Human Trafficking, Commercial Sex Acts'', ''Human Trafficking (B), Involuntary Servitude'', ''Offences Against The Family And Children'', ''Weapons Carrying Etc'', ''Weapons Offense'', ''Weapons Offence'') THEN 1 END)) * 100.0 / NULLIF(COUNT(CASE WHEN Report_Datetime >= last_year_start AND Report_Datetime <= last_year_end AND Incident_Category IN (''Assault'', ''Homicide'', ''Rape'', ''Robbery'', ''Human Trafficking (A), Commercial Sex Acts'', ''Human Trafficking, Commercial Sex Acts'', ''Human Trafficking (B), Involuntary Servitude'', ''Offences Against The Family And Children'', ''Weapons Carrying Etc'', ''Weapons Offense'', ''Weapons Offence'') THEN 1 END), 0)) as perc_diff, supervisor_district group by supervisor_district",
     dataset_title="Police Department Incident Reports",
     dataset_category="Public Safety",
@@ -651,9 +649,28 @@ When you are asked about metrics, you should follow this workflow:
   MAP FIELD GUIDANCE:
   When creating metrics that should support maps, include the map_query, map_filters, and map_config fields:
   
-  1. map_query: Base SELECT statement without WHERE clauses
+  WHEN TO INCLUDE MAP FIELDS:
+  - Include map fields if the metric has geographic data (location, latitude/longitude, addresses)
+  - Include map fields if the metric should be visualized by district, neighborhood, or specific locations
+  - Include map fields if the metric has location-based categories (business corridors, police districts, etc.)
+  - Include map fields if the metric would benefit from geographic analysis or spatial patterns
+  
+  MAP FIELD REQUIREMENTS:
+  1. map_query: Base SELECT statement without WHERE clauses - include location fields, relevant categories, and descriptive fields
   2. map_filters: JSON object with structured filters (geometry, date_range, static_filters, direct filters)
   3. map_config: JSON object with rendering configuration (date_field, location_field, chart_type_preference, etc.)
+  
+  MAP QUERY FIELD SELECTION:
+  - Always include: location field (latitude/longitude or address)
+  - Include: relevant category fields (incident_category, permit_type, etc.)
+  - Include: descriptive fields (incident_description, business_name, etc.)
+  - Include: supervisor_district if the metric supports district-level analysis
+  - Include: date fields if needed for temporal filtering
+  
+  INTEGRATION WITH DISTRICT-LEVEL DATA:
+  - If a metric has supervisor_district in location_fields, it should also include supervisor_district in map_query
+  - Map fields work together with district-level data to provide both tabular and geographic views
+  - Map config should set supports_districts: true if the metric has district-level data
   
   See the MAP_FIELD_SYSTEM_INSTRUCTIONS for detailed examples and best practices.
  
@@ -673,6 +690,29 @@ When you are asked about metrics, you should follow this workflow:
   - this_month_end: End of the current month
   
   These variables are automatically replaced with actual date values when queries are executed, allowing for dynamic date ranges without hardcoding dates.
+  
+  DISTRICT-LEVEL DATA REQUIREMENTS:
+  When creating metrics that should have district-level data (broken down by supervisor district), you MUST include supervisor_district in both the metric_query and ytd_query:
+  
+  1. For metric_query: Add ", supervisor_district" to the SELECT clause and "GROUP BY supervisor_district" at the end
+  2. For ytd_query: Add ", supervisor_district" to the SELECT clause and ", supervisor_district" to the GROUP BY clause
+  
+  CRITICAL: If you include supervisor_district in location_fields but don't include it in the queries, the metric will only generate citywide data (district 0) instead of district-level data for all 12 districts.
+  
+  MAP FIELD INTEGRATION:
+  - If a metric has district-level data, it should also include supervisor_district in the map_query
+  - Set supports_districts: true in map_config for metrics with district-level data
+  - This enables both tabular district breakdowns and geographic district visualizations
+  
+  Example of CORRECT district-level queries:
+  - metric_query: "SELECT 'Metric Name' as label, COUNT(*) as this_year, supervisor_district GROUP BY supervisor_district"
+  - ytd_query: "SELECT date_trunc_ymd(date_field) as date, COUNT(*) as value, supervisor_district WHERE date_field >= last_year_start GROUP BY date, supervisor_district ORDER BY date"
+  
+  Example of INCORRECT queries (will only generate citywide data):
+  - metric_query: "SELECT 'Metric Name' as label, COUNT(*) as this_year GROUP BY label"  ❌ Missing supervisor_district
+  - ytd_query: "SELECT date_trunc_ymd(date_field) as date, COUNT(*) as value WHERE date_field >= last_year_start GROUP BY date ORDER BY date"  ❌ Missing supervisor_district
+  
+  The system checks for 'supervisor_district' in the query results to determine if district-level data is available. Without it in the queries, the system will log "Query has district data: False" and only create citywide metrics.
   
 - edit_metric: Update an existing metric
   USAGE: edit_metric(context_variables, metric_identifier=1, updates={{"summary": "Updated summary", "show_on_dash": False}})

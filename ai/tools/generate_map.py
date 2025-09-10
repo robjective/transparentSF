@@ -1121,7 +1121,7 @@ def process_location_data(location_data, map_type):
     
     return processed_data
 
-def create_datawrapper_chart(chart_title, location_data, map_type="supervisor_district", reference_chart_id=None, center_coords=None, zoom_level=None, series_field=None, color_palette=None, map_metadata=None):
+def create_datawrapper_chart(chart_title, location_data, map_type="point", reference_chart_id=None, center_coords=None, zoom_level=None, series_field=None, color_palette=None, map_metadata=None):
     """
     Creates a Datawrapper chart, either by cloning a reference chart or creating from scratch.
 
@@ -1827,30 +1827,9 @@ def _apply_custom_map_styling(chart_id, map_type, map_metadata=None):
         logger.error(f"Error applying custom styling to chart {chart_id}: {str(e)}", exc_info=True)
 
 def get_db_connection():
-    """Get a connection to the PostgreSQL database."""
-    try:
-        # Get database connection parameters from environment variables
-        db_host = os.getenv("POSTGRES_HOST", "localhost")
-        db_port = os.getenv("POSTGRES_PORT", "5432")
-        db_name = os.getenv("POSTGRES_DB", "transparentsf")
-        db_user = os.getenv("POSTGRES_USER", "postgres")
-        db_password = os.getenv("POSTGRES_PASSWORD", "postgres")
-        
-        logger.info(f"Connecting to database: {db_host}:{db_port}/{db_name}")
-        
-        # Connect to PostgreSQL
-        conn = psycopg2.connect(
-            host=db_host,
-            port=db_port,
-            dbname=db_name,
-            user=db_user,
-            password=db_password
-        )
-        
-        return conn
-    except Exception as e:
-        logger.error(f"Database connection error: {str(e)}")
-        raise
+    """Get a connection to the PostgreSQL database using centralized db_utils."""
+    from ai.tools.db_utils import get_postgres_connection
+    return get_postgres_connection()
 
 def generate_mapbox_map(context_variables, map_title, map_type, location_data=None, map_metadata=None, metric_id=None, group_field=None, series_field=None, color_palette=None, map_config=None, preview_mode=False, scale_dots=True):
     """
@@ -2274,8 +2253,43 @@ def process_dataset_for_map(dataset, map_type, series_field=None, color_palette=
             if idx < 3:  # Only log first 3 rows to avoid spam
                 logger.info(f"Row {idx} - intersection: {row.get('intersection')}, intersection_point: {row.get('intersection_point')}, point: {row.get('point')}, latitude: {row.get('latitude')}, longitude: {row.get('longitude')}")
             
+            # Handle point field (DataSF format) - PRIORITY: Check point field first
+            if 'point' in row and row['point'] is not None:
+                if idx < 3:  # Only log first 3 rows to avoid spam
+                    logger.info(f"Row {idx} - Processing point field")
+                point_data = row['point']
+                if isinstance(point_data, dict) and point_data.get('type') == 'Point':
+                    coords = point_data.get('coordinates')
+                    if coords and len(coords) >= 2:
+                        title, description = generate_point_title_and_description(row, idx)
+                        tooltip_fields = extract_tooltip_fields(row, location_fields)
+                        item = {
+                            "lat": coords[1],
+                            "lon": coords[0],
+                            "value": row.get('value', 1),
+                            "title": title,
+                            "description": description,
+                            "coordinates": coords,
+                            "color": "#6B46C1",  # TransparentSF purple
+                            "tooltip_fields": tooltip_fields
+                        }
+                        # Add all original data fields for coloring options
+                        for column, value in row.items():
+                            if column not in ['lat', 'lon', 'long', 'latitude', 'longitude', 'coordinates', 'point', 'point_geom', 'intersection']:
+                                item[column] = value
+                        
+                        # Add tooltip fields as individual properties for coloring
+                        if tooltip_fields:
+                            for field_name, field_value in tooltip_fields.items():
+                                item[field_name] = field_value
+                        
+                        location_data.append(item)
+                        if idx < 3:  # Only log first 3 rows to avoid spam
+                            logger.info(f"Row {idx} - Added point item to location_data")
+                        continue
+            
             # Handle intersection_point field with GeoJSON point data
-            if 'intersection_point' in row and row['intersection_point'] is not None:
+            elif 'intersection_point' in row and row['intersection_point'] is not None:
                 try:
                     intersection_data = row['intersection_point']
                     if isinstance(intersection_data, str):
@@ -2415,39 +2429,6 @@ def process_dataset_for_map(dataset, map_type, series_field=None, color_palette=
                         
                         location_data.append(item)
             
-            # Handle point field (DataSF format)
-            elif 'point' in row and row['point'] is not None:
-                if idx < 3:  # Only log first 3 rows to avoid spam
-                    logger.info(f"Row {idx} - Processing point field")
-                point_data = row['point']
-                if isinstance(point_data, dict) and point_data.get('type') == 'Point':
-                    coords = point_data.get('coordinates')
-                    if coords and len(coords) >= 2:
-                        title, description = generate_point_title_and_description(row, idx)
-                        tooltip_fields = extract_tooltip_fields(row, location_fields)
-                        item = {
-                            "lat": coords[1],
-                            "lon": coords[0],
-                            "value": row.get('value', 1),
-                            "title": title,
-                            "description": description,
-                            "coordinates": coords,
-                            "color": "#6B46C1",  # TransparentSF purple
-                            "tooltip_fields": tooltip_fields
-                        }
-                        # Add all original data fields for coloring options
-                        for column, value in row.items():
-                            if column not in ['lat', 'lon', 'long', 'latitude', 'longitude', 'coordinates', 'point', 'point_geom', 'intersection']:
-                                item[column] = value
-                        
-                        # Add tooltip fields as individual properties for coloring
-                        if tooltip_fields:
-                            for field_name, field_value in tooltip_fields.items():
-                                item[field_name] = field_value
-                        
-                        location_data.append(item)
-                        if idx < 3:  # Only log first 3 rows to avoid spam
-                            logger.info(f"Row {idx} - Added point item to location_data")
             
             # Handle direct lat/lon fields
             elif ('lat' in row and ('lon' in row or 'long' in row)) or ('latitude' in row and 'longitude' in row):
@@ -2918,6 +2899,30 @@ def generate_map(context_variables, map_title, map_type, location_data=None, map
                                         logger.warning(f"Could not convert intersection_point coordinates to float: {e}")
                         except Exception as e:
                             logger.warning(f"Error processing intersection_point data: {str(e)}")
+                    
+                    # Handle point field (DataSF format) - GeoJSON Point
+                    elif 'point' in row and row['point'] is not None:
+                        try:
+                            point_data = row['point']
+                            if isinstance(point_data, dict) and point_data.get('type') == 'Point':
+                                coords = point_data.get('coordinates')
+                                if coords and len(coords) >= 2:
+                                    item = {
+                                        "lat": coords[1],  # Latitude is second in GeoJSON
+                                        "lon": coords[0],  # Longitude is first in GeoJSON
+                                        "value": row.get('count', row.get('value', 1)),  # Use 'count' field for camera citations
+                                        "title": row.get('intersection', f"Point: {coords[0]:.6f}, {coords[1]:.6f}"),
+                                        "tooltip": f"Intersection: {row.get('intersection', 'Unknown')} | Count: {row.get('count', 1)}"
+                                    }
+                                    # Add all original data fields for coloring options
+                                    for column, value in row.items():
+                                        if column not in ['lat', 'lon', 'long', 'latitude', 'longitude', 'coordinates', 'point', 'point_geom', 'intersection']:
+                                            item[column] = value
+                                    logger.info(f"DEBUG: Added point item: {item}")
+                                    location_data.append(item)
+                                    continue
+                        except Exception as e:
+                            logger.warning(f"Error processing point data: {str(e)}")
                     
                     # Handle intersection data with GeoJSON points
                     elif 'intersection' in row and row['intersection'] is not None:
@@ -3933,18 +3938,30 @@ def process_symbol_map_data(location_data, period_info=None):
         # 3. Check for nested point data
         elif "point" in item and isinstance(item["point"], dict):
             point_data = item["point"]
-            lat = point_data.get("latitude")
-            lon = point_data.get("longitude")
             
-            # If human_address is present, try to parse it
-            if "human_address" in point_data:
-                try:
-                    human_address = json.loads(point_data["human_address"])
-                    if human_address.get("address"):
-                        # If we have an address, we could geocode it here if needed
-                        pass
-                except json.JSONDecodeError:
-                    logger.warning(f"Could not parse human_address JSON: {point_data['human_address']}")
+            # Handle GeoJSON Point format with coordinates array
+            if point_data.get("type") == "Point":
+                coords = point_data.get("coordinates")
+                if coords and len(coords) >= 2:
+                    try:
+                        lon, lat = float(coords[0]), float(coords[1])
+                        logger.debug(f"Extracted coordinates from point GeoJSON format: lat={lat}, lon={lon}")
+                    except (ValueError, TypeError) as e:
+                        logger.warning(f"Could not convert point GeoJSON coordinates to float: {e}")
+            else:
+                # Handle legacy format with latitude/longitude properties
+                lat = point_data.get("latitude")
+                lon = point_data.get("longitude")
+                
+                # If human_address is present, try to parse it
+                if "human_address" in point_data:
+                    try:
+                        human_address = json.loads(point_data["human_address"])
+                        if human_address.get("address"):
+                            # If we have an address, we could geocode it here if needed
+                            pass
+                    except json.JSONDecodeError:
+                        logger.warning(f"Could not parse human_address JSON: {point_data['human_address']}")
         
         # 4. Check for coordinates array
         elif "coordinates" in item and isinstance(item["coordinates"], (list, tuple)) and len(item["coordinates"]) >= 2:
@@ -4043,8 +4060,8 @@ if __name__ == "__main__":
         }
         result = generate_map(
             {},
-            map_title="Test Supervisor District Map",
-            map_type="supervisor_district",
+            map_title="Test Point Map",
+            map_type="point",
             location_data=test_location_data,
             map_metadata=test_metadata
         )

@@ -287,7 +287,7 @@ async def generate_map_endpoint(request: Request):
                 )
             
             # Determine map type based on metric configuration
-            map_type = "supervisor_district"  # Default
+            map_type = "point"  # Default
             if metric.get("map_config") and metric["map_config"].get("chart_type_preference"):
                 map_type = metric["map_config"]["chart_type_preference"]
             elif metric.get("location_fields") and len(metric["location_fields"]) > 0:
@@ -308,6 +308,14 @@ async def generate_map_endpoint(request: Request):
                         # If we have location data, use point or symbol map type
                         if map_type == "supervisor_district":
                             map_type = "symbol"  # Default to symbol for business data
+                # Also check for point column (DataSF format)
+                elif 'point' in dataset.columns:
+                    # Check if any rows have valid point data
+                    point_data_count = dataset['point'].notna().sum()
+                    if point_data_count > 0:
+                        # If we have point data, use symbol map type for camera citations
+                        if map_type == "point":
+                            map_type = "symbol"  # Camera citations should be symbol maps
             
             # Generate map title
             map_title = f"{metric['metric_name']}"

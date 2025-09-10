@@ -902,7 +902,8 @@ async def edit_metric(metric_identifier: str, request: Request):
             logger.info(f"Processing field: {field} = {value} (type: {type(value)})")
             if field in ['name', 'category', 'subcategory', 'endpoint', 'summary', 'definition',
                         'data_sf_url', 'ytd_query', 'metric_query', 'dataset_title', 'dataset_category',
-                        'show_on_dash', 'item_noun', 'greendirection', 'is_active', 'map_query']:
+                        'show_on_dash', 'item_noun', 'greendirection', 'is_active', 'map_query',
+                        'map_filters', 'map_config']:
                 if field == 'name':
                     update_fields.append("metric_name = %s")
                     params.append(value)
